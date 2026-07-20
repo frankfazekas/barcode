@@ -22,7 +22,7 @@ from analysis.volumetric.intensity import (
     analyze_intensity_3d,
 )
 from analysis.volumetric.mesh import MeshingError, NucleusMesh, mesh_series
-from analysis.volumetric.reader import VolumeStack, read_volume
+from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
 from analysis.volumetric.segmentation import load_segmentation
 from core import BarcodeConfig, ChannelResults, VolumetricConfig
 from core.results import ComponentResults, MeshResults
@@ -115,6 +115,28 @@ def summarise_components(detail) -> ComponentResults:
         size_skew=mean_of(detail.size_skews),
         size_median=mean_of(detail.size_medians, 1.0 / voxels),
     )
+
+
+def resolve_frame_interval(stack: VolumeStack, config: VolumetricConfig) -> float:
+    """Seconds between consecutive timepoints, and say out loud where it came from.
+
+    Speed is a distance divided by this number, so getting it wrong rescales two of the
+    twenty-five metrics without any other symptom. The configured value wins; falling
+    back to the file is announced, because ImageJ's ``finterval`` frequently describes
+    the z acquisition rather than the time axis and a silent 1.0 turns "um/s" into
+    "um/frame" while still printing a units label that says seconds.
+    """
+    if config.frame_interval_s > 0:
+        return float(config.frame_interval_s)
+
+    from_file = float(stack.exposure_time_s or 0.0)
+    print(
+        f"  flow: no frame interval configured; using {from_file or 1.0:g} s from the "
+        f"file{'' if from_file else ' (defaulted)'}. If that is not the true spacing "
+        f"between timepoints, set Frame Interval — Speed scales inversely with it.",
+        flush=True,
+    )
+    return from_file or 1.0
 
 
 def _load_masks(
@@ -269,7 +291,7 @@ def run_volumetric_analysis(
         )
     # Same depth restriction as xyz: a volume padded with empty slices reports a
     # different shape and a diluted intensity distribution.
-    stack = stack.restrict_z(vcfg.z_start, vcfg.z_end)
+    stack = apply_z_range(stack, vcfg)
 
     volumes, masks, spacing_zyx, info, mask_paths = _prepare_geometry(stack, vcfg)
     frame_indices = select_frame_indices(volumes.shape[0], vcfg.frame_step)
@@ -323,7 +345,7 @@ def run_volumetric_analysis(
         results.flow, detail.flow = analyze_optical_flow_3d(
             volumes,
             spacing_zyx,
-            stack.exposure_time_s,
+            resolve_frame_interval(stack, vcfg),
             vcfg,
             frame_indices,
             masks,

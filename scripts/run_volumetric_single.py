@@ -44,6 +44,7 @@ def build_config(args) -> BarcodeConfig:
     v.flow_w_sigma = args.flow_w_sigma
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
+    v.frame_interval_s = args.frame_interval
     v.flow_use_mask = not args.flow_ignore_mask
     v.z_step_um = args.z_step or 0.0
     v.xy_step_um = args.xy_step or 0.0
@@ -98,6 +99,9 @@ def main() -> int:
     p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE",
                    help="drop voxels below this percentile of solver reliability; 0 keeps all")
     p.add_argument("--flow-downsample", type=int, default=1)
+    p.add_argument("--frame-interval", type=float, default=0.0, metavar="SECONDS",
+                   help="seconds between timepoints; 0 falls back to the file's metadata, "
+                        "which is often wrong. Speed scales inversely with it")
     p.add_argument("--flow-ignore-mask", action="store_true",
                    help="compute flow metrics over the whole volume, not just inside the mask")
     p.add_argument("--mesh", action="store_true",
@@ -163,6 +167,7 @@ def main() -> int:
                   f"{f'  (downsampled {f.downsample}x)' if f.downsample > 1 else ''}")
             print(f"   voxels used        : {[f'{v:.1%}' for v in f.valid_fractions]}"
                   f"{'  (reliability + mask)' if f.used_mask else '  (reliability only)'}")
+            print(f"   frame interval     : {f.frame_interval_s:g} s")
             print(f"   mean speed         : {[f'{v:.4f}' for v in f.speeds]} um/s")
             print(f"   divergence         : {[f'{v:.4g}' for v in f.divergences]}")
             print(f"   curl ||rot v||     : {[f'{v:.4g}' for v in f.curls]}")

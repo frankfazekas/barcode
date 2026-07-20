@@ -30,7 +30,7 @@ from analysis.volumetric.flow import analyze_optical_flow_3d
 from analysis.volumetric.intensity import analyze_intensity_3d
 from analysis.volumetric.mesh import MeshingError, mesh_series
 from analysis.volumetric.run import (
-    _prepare_geometry, summarise_components, summarise_meshes)
+    _prepare_geometry, resolve_frame_interval, summarise_components, summarise_meshes)
 from analysis.volumetric.timelapse import group_timelapse, read_series
 from core import BarcodeConfig, ChannelResults
 from utils.writer import generate_combined_barcode, results_to_csv
@@ -50,6 +50,7 @@ def build_config(args) -> BarcodeConfig:
     v.timelapse_enabled = True
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
+    v.frame_interval_s = args.frame_interval
     v.threshold_offset = args.threshold_offset
     v.crop_padding_vox = args.crop_padding
     v.mesh_enabled = args.mesh
@@ -79,6 +80,9 @@ def main() -> int:
                         "end of a series report NaN")
     p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE")
     p.add_argument("--flow-downsample", type=int, default=1)
+    p.add_argument("--frame-interval", type=float, default=0.0, metavar="SECONDS",
+                   help="seconds between timepoints; 0 falls back to the file's "
+                        "metadata, which is often wrong. Speed scales inversely with it")
     p.add_argument("--seg-root", default=None)
     p.add_argument("--seg-regex", default=None)
     p.add_argument("--seg-template", default=None)
@@ -122,6 +126,10 @@ def main() -> int:
         print(f"  grid {volumes.shape[1:]} @ {tuple(round(s, 4) for s in spacing)} um"
               f"{'  (common crop box)' if info.get('common_crop') else ''}")
 
+        # Resolved once per series, not once per timepoint: it is a property of the
+        # acquisition, and calling it in the loop would repeat its warning 15 times.
+        interval_s = resolve_frame_interval(stack, vcfg)
+
         results, island, void, kurt, med, mode, speed = [], [], [], [], [], [], []
         for t in range(volumes.shape[0]):
             # Analyse timepoint t alone, but on the shared grid established above, so
@@ -141,7 +149,7 @@ def main() -> int:
                 # so unlike the static branches it reads its neighbours. Timepoints
                 # within half a window of either end have none and come back NaN.
                 row.flow, _ = analyze_optical_flow_3d(
-                    volumes, spacing, stack.exposure_time_s, vcfg, [t], masks
+                    volumes, spacing, interval_s, vcfg, [t], masks
                 )
             if vcfg.mesh_enabled and masks is not None:
                 # Meshed per timepoint so the barcode row describes that timepoint,
@@ -185,6 +193,11 @@ def main() -> int:
         suffix = "with masks" if masked else "no masks"
         if args.out:
             base = args.out
+            # Create the parent too. The default branch below already does, and having
+            # only --out fail means a long analysis run gets thrown away at the very
+            # last step over a missing directory.
+            parent = os.path.dirname(os.path.abspath(base))
+            os.makedirs(parent, exist_ok=True)
         else:
             # Default beside the input folder, not inside it: mixing generated
             # output in with the images is how a data folder turns into a pile

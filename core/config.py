@@ -210,12 +210,20 @@ class VolumetricConfig(BaseConfig):
     # Masks generally carry no spacing metadata; 0 means "assume isotropic at xy".
     mask_spacing_um: float = 0.0
 
-    # Z range to analyse, as slice indices into the acquired stack. The full stack is
-    # often not the right range: slices beyond the object are noise, and including them
-    # drags every metric toward background. z_end = 0 means "to the last slice", and
-    # negative values index from the end as in Python slicing.
-    z_start: int = 0
-    z_end: int = 0
+    # Z range to analyse. The full stack is often not the right range: slices beyond the
+    # object are background, and including them drags every metric toward it.
+    #
+    # z_range_units decides how z_start/z_end are read, because "slice 46" is ambiguous
+    # on anisotropic data -- the acquired stack and the isotropic grid a mask lives on
+    # have very different slice counts (54 vs ~249 on 0.3/0.065 um data):
+    #   "acquired"  indices into the stack as acquired      (default)
+    #   "isotropic" indices into the isotropic grid, at the xy spacing
+    #   "microns"   physical depth from the bottom of the stack
+    # z_end = 0 always means "to the end". For the two index units, negatives count back
+    # from the end as in Python slicing.
+    z_start: float = 0
+    z_end: float = 0
+    z_range_units: str = "acquired"
 
     # Resample image + mask onto one isotropic grid, then crop to the mask bbox.
     make_isotropic: bool = True
@@ -289,6 +297,16 @@ class VolumetricConfig(BaseConfig):
     # Block-average the volumes before solving. Reliability needs a 3x3 eigendecomposition
     # at every voxel, so large fields of view get expensive; 1 means no downsampling.
     flow_downsample: int = 1
+
+    # Seconds between consecutive TIMEPOINTS. Every speed is a distance divided by this,
+    # so it scales Speed and Speed Change directly.
+    #
+    # Set it. 0 means "fall back to the file's ImageJ 'finterval' tag, then to 1.0", and
+    # that fallback is a trap: on stacks exported one timepoint per file, finterval often
+    # describes the z acquisition or is simply left at 1, so it silently produces a number
+    # that looks like seconds but is really per-frame. There is no way to tell the two
+    # apart from the file alone, which is why this is an input rather than a guess.
+    frame_interval_s: float = 0.0
 
     # Surface meshing of the segmented nucleus (analysis/volumetric/mesh.py), ported
     # from TCell-3D-Morphodynamics. Needs pyiso2mesh and a segmentation mask; the

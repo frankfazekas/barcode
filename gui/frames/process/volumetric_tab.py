@@ -74,29 +74,45 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    z_start_label = tk.Label(frame, text="First Z Slice")
+    units_label = tk.Label(frame, text="Z Range Units")
+    units_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Combobox(
+        frame, textvariable=cv.z_range_units,
+        values=["acquired", "isotropic", "microns"], width=10, state="readonly",
+    ).grid(row=row_idx, column=1, sticky="w", padx=5, pady=5)
+    create_popup(
+        frame,
+        "How the two values below are read. 'acquired' = slice indices in the stack as "
+        "acquired. 'isotropic' = indices on the isotropic grid a segmentation lives on, "
+        "which has far more slices (54 vs ~249 on 0.3/0.065 um data). 'microns' = "
+        "physical depth from the bottom, which cannot be misread either way.",
+        row_idx, units_label,
+    )
+    row_idx += 1
+
+    z_start_label = tk.Label(frame, text="Z Range Start")
     z_start_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=0, to=10000, increment=1, textvariable=cv.z_start, width=7
     ).grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
         frame,
-        "First slice of the acquired stack to analyse. The full stack is often not the "
+        "Start of the range, in the units chosen above. The full stack is often not the "
         "right range: slices past the object are background, and including them drags "
         "every metric toward it.",
         row_idx, z_start_label,
     )
     row_idx += 1
 
-    z_end_label = tk.Label(frame, text="Last Z Slice (0 = to the end)")
+    z_end_label = tk.Label(frame, text="Z Range End (0 = to the end)")
     z_end_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=-10000, to=10000, increment=1, textvariable=cv.z_end, width=7
     ).grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
         frame,
-        "One past the last slice to analyse. 0 means to the end of the stack; negative "
-        "values count back from the end, as in Python slicing.",
+        "End of the range, in the units chosen above. 0 always means to the end of the "
+        "stack; for the two index units, negatives count back from the end.",
         row_idx, z_end_label,
     )
     row_idx += 1
@@ -378,6 +394,24 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "ill-conditioned and the velocity it returns is noise, so the default of 50 keeps "
         "only the better-conditioned half of the volume. Set to 0 to use every voxel.",
         row_idx, rel_label,
+    )
+    row_idx += 1
+
+    interval_label = tk.Label(frame, text="Frame Interval [seconds] (0 = read from file)")
+    interval_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=86400.0, increment=1.0,
+        textvariable=cv.frame_interval_s, width=9,
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Seconds between consecutive TIMEPOINTS — not the camera exposure, and not the "
+        "z-step dwell. Speed is a distance divided by this, so it scales Speed and Speed "
+        "Change directly and nothing else. SET IT: at 0 this falls back to the file's "
+        "ImageJ 'finterval' tag, which on per-timepoint stacks often describes the z "
+        "acquisition or is just left at 1, silently turning um/s into um/frame. The file "
+        "cannot tell you which it is.",
+        row_idx, interval_label,
     )
     row_idx += 1
 

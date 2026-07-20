@@ -430,6 +430,11 @@ class ChannelResults(ResultsBase):
     channel: int
     total_flags: str = "0"
     dim_channel_flag: int = 0  # 0=normal, 1=dim channel
+    # 1 when the analysis covered only part of the acquired z stack. Without this a CSV
+    # separated from its Settings.yaml gives no hint that its numbers describe a subset
+    # of the data -- the same way a stale CSV once gave no hint that its correlation
+    # lengths predated a bug fix.
+    z_range_flag: int = 0
 
     binarization: BinarizationResults = field(default_factory=BinarizationResults)
     intensity: IntensityResults = field(default_factory=IntensityResults)
@@ -522,6 +527,8 @@ class ChannelResults(ResultsBase):
             flag_lst.append("3")
         if self.flow.velocity_correlation_flag == 1:
             flag_lst.append("4")
+        if self.z_range_flag == 1:
+            flag_lst.append("5")
         return ";".join(flag_lst) if flag_lst else "0"
             
 

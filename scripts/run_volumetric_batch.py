@@ -45,6 +45,7 @@ def build_config(args) -> BarcodeConfig:
     v.analysis_mode = "xyzt"
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
+    v.frame_interval_s = args.frame_interval
     v.threshold_offset = args.threshold_offset
     v.crop_padding_vox = args.crop_padding
     # Either flag turns segmentation on: the default regex/template pair
@@ -81,6 +82,9 @@ def main() -> int:
                    help="run the 3D optical flow branch (needs 7 contiguous timepoints per file)")
     p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE")
     p.add_argument("--flow-downsample", type=int, default=1)
+    p.add_argument("--frame-interval", type=float, default=0.0, metavar="SECONDS",
+                   help="seconds between timepoints; 0 falls back to the file's "
+                        "metadata, which is often wrong. Speed scales inversely with it")
     p.add_argument("--seg-root", default=None)
     p.add_argument("--seg-regex", default=None, help="default: (?P<stem>.+)")
     p.add_argument("--seg-template", default=None)

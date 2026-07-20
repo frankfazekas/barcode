@@ -226,6 +226,32 @@ def test_correlation_length_scales_with_voxel_size():
     assert coarse == pytest.approx(2 * fine, rel=1e-9)
 
 
+def test_configured_frame_interval_overrides_the_file_and_scales_speed():
+    """The interval is an input; a configured value must win over file metadata.
+
+    Guards the concrete failure this was written for: a stack whose ImageJ 'finterval'
+    says 1 s when timepoints are really 60 s apart reports speeds 60x too fast.
+    """
+    from analysis.volumetric.reader import VolumeStack
+    from analysis.volumetric.run import resolve_frame_interval
+
+    stack = VolumeStack(
+        data=np.zeros((1, 2, 2, 2)), z_step_um=1.0, xy_step_um=1.0,
+        exposure_time_s=1.0, axes="TZYX", source_path="x.tif",
+    )
+    config = flow_config()
+    assert resolve_frame_interval(stack, config) == 1.0  # falls back to the file
+
+    config.frame_interval_s = 60.0
+    assert resolve_frame_interval(stack, config) == 60.0  # configured value wins
+
+    series = make_series((0.0, 0.0, 0.5))
+    per_frame, _ = analyze_optical_flow_3d(series, (1.0,) * 3, 1.0, config, [3], None)
+    per_minute, detail = analyze_optical_flow_3d(series, (1.0,) * 3, 60.0, config, [3], None)
+    assert detail.frame_interval_s == 60.0
+    assert per_minute.mean_speed == pytest.approx(per_frame.mean_speed / 60, rel=1e-9)
+
+
 def test_speed_is_inverse_in_exposure_time():
     series = make_series((0.0, 0.0, 0.5))
     config = flow_config()

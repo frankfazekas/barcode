@@ -66,6 +66,37 @@ class VolumeStack:
         """The ``(Z, Y, X)`` volume at timepoint ``t``."""
         return self.data[t]
 
+    def resolve_z_range(self, z_start, z_end, units: str = "acquired",
+                        isotropic_step_um: float = None) -> Tuple[int, int]:
+        """Convert a z range in any supported unit to acquired-slice indices.
+
+        "Slice 46" means different planes depending on the grid: the acquired stack and
+        the isotropic grid a segmentation lives on differ by the anisotropy factor (54
+        vs ~249 slices on 0.3/0.065 um data). Stating the unit removes the guesswork.
+        """
+        units = (units or "acquired").strip().lower()
+        if units not in ("acquired", "isotropic", "microns"):
+            raise ValueError(
+                f"Unknown z_range_units {units!r}; expected 'acquired', 'isotropic' "
+                f"or 'microns'."
+            )
+        if units == "acquired":
+            return int(z_start), int(z_end)
+
+        step = (isotropic_step_um or self.xy_step_um) if units == "isotropic" else 1.0
+        if not self.z_step_um:
+            raise ValueError("Cannot convert a z range without a z step.")
+
+        def to_acquired(value, is_end):
+            if value == 0 and is_end:
+                return 0                      # 0 always means "to the end"
+            depth = float(value) * step       # microns from the bottom (or from the end)
+            index = depth / self.z_step_um
+            # Negative index units count back from the end, matching Python slicing.
+            return int(round(index))
+
+        return to_acquired(z_start, False), to_acquired(z_end, True)
+
     def restrict_z(self, z_start: int = 0, z_end: int = 0) -> "VolumeStack":
         """Return a copy limited to a range of z slices.
 
@@ -212,3 +243,18 @@ def read_volume(
             "xresolution_um_per_px": tag_xy,
         },
     )
+
+
+def apply_z_range(stack: VolumeStack, config) -> VolumeStack:
+    """Restrict ``stack`` to the config's z range, in whatever unit it is stated.
+
+    One place for this so xyz, xyzt and the per-slice path cannot interpret the same
+    setting differently.
+    """
+    start, end = stack.resolve_z_range(
+        getattr(config, "z_start", 0),
+        getattr(config, "z_end", 0),
+        getattr(config, "z_range_units", "acquired"),
+        getattr(config, "mask_spacing_um", 0) or None,
+    )
+    return stack.restrict_z(start, end)

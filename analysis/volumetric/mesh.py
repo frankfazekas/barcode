@@ -100,6 +100,7 @@ if TYPE_CHECKING:  # avoids a cycle: curvature.py imports the geometry helpers h
 
 import numpy as np
 from scipy import ndimage
+from scipy.spatial import ConvexHull, Delaunay
 
 # Spacings this close together count as isotropic (um).
 _ISOTROPY_TOLERANCE_UM = 1e-9
@@ -263,6 +264,67 @@ def mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
     return float(
         np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2])).sum() / 6.0
     )
+
+
+def convex_hull_voxel_count(mask: np.ndarray) -> float:
+    """Voxels inside the 3D convex hull of ``mask`` -- MATLAB's ``ConvexVolume``.
+
+    Ported from ``chromatin-analysis``
+    (``feature_sources/local/morphology_3d.py:convex_hull_voxel_count``), which built it
+    as a fast stand-in for scikit-image's ``convex_image`` rasterisation (~270 s on a
+    5 M-voxel nucleus there). The hull is determined by the surface voxels alone, so only
+    those are fed to qhull; membership is then a ``Delaunay.find_simplex`` test.
+
+    One change from the original: it tested *every* voxel in the volume, materialising an
+    (N, 3) coordinate array for the whole grid -- ~300 MB on the nuclei here. The hull
+    cannot extend beyond the mask's bounding box, so only that sub-grid is tested, and in
+    slabs, which is exact and bounded in memory.
+    """
+    binary = np.asarray(mask).astype(bool)
+    coords = np.argwhere(binary)
+    if coords.shape[0] < 4:
+        return float(binary.sum())
+
+    surface = binary & ~ndimage.binary_erosion(binary)
+    points = np.argwhere(surface)
+    if points.shape[0] < 4:
+        points = coords
+
+    try:
+        hull = ConvexHull(points)
+        delaunay = Delaunay(points[hull.vertices])
+    except Exception:
+        # A degenerate (planar or collinear) object has no 3-D hull; fall back to the
+        # object itself, which is what qhull failing actually means here.
+        return float(binary.sum())
+
+    lo = coords.min(axis=0)
+    hi = coords.max(axis=0) + 1
+    zs, ys, xs = (np.arange(lo[i], hi[i]) for i in range(3))
+    inside = 0
+    for z in zs:                       # one slab at a time keeps memory flat
+        grid = np.stack(
+            np.broadcast_arrays(z, ys[:, None], xs[None, :]), axis=-1
+        ).reshape(-1, 3)
+        inside += int(np.count_nonzero(delaunay.find_simplex(grid) >= 0))
+    return float(inside)
+
+
+def convex_hull_volume(vertices: np.ndarray) -> float:
+    """Volume of the convex hull of the mesh vertices, in the vertices' own units.
+
+    The geometric counterpart to :func:`convex_hull_voxel_count`: exact rather than
+    rasterised, and milliseconds rather than seconds, because the mesh already provides
+    the point set. Consistent with ``mesh_volume`` -- both are true volumes of the same
+    surface, so their ratio is a clean solidity.
+    """
+    points = np.asarray(vertices, dtype=np.float64)
+    if points.shape[0] < 4:
+        return np.nan
+    try:
+        return float(ConvexHull(points).volume)
+    except Exception:
+        return np.nan
 
 
 def mesh_has_holes(faces: np.ndarray) -> bool:
@@ -434,9 +496,24 @@ class MeshGeometry:
     z_min_um: float = np.nan
     z_max_um: float = np.nan
 
+    # Convexity. ``solidity`` is the MATLAB-comparable voxel-count ratio
+    # (regionprops3 Solidity = Volume / ConvexVolume); ``mesh_solidity`` is the geometric
+    # ratio of the mesh volume to its own convex hull. See compute_solidity().
+    solidity: float = np.nan
+    mesh_solidity: float = np.nan
+    convex_hull_volume_um3: float = np.nan
+
     # Independent voxel-side cross-check on volume_um3.
     voxel_count: int = 0
     voxel_volume_um3: float = np.nan
+
+    @property
+    def concavity(self) -> float:
+        """1 - solidity: the fraction of the hull the object does not fill (lobedness).
+
+        chromatin-analysis publishes the same quantity as ``morph3d_concavity_3d``.
+        """
+        return 1.0 - self.solidity
 
     @property
     def volume_ratio(self) -> float:

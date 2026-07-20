@@ -19,12 +19,18 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
         help="; ".join(f"{k}: {m.label}" for k, m in MODES.items()),
     )
     group.add_argument(
-        "--z-start", type=int, default=0, metavar="SLICE",
-        help="first z slice to analyse (default 0)",
+        "--z-units", default="acquired", choices=["acquired", "isotropic", "microns"],
+        help="how --z-start/--z-end are read. 'acquired' indexes the stack as acquired; "
+             "'isotropic' indexes the finer isotropic grid a mask lives on; 'microns' is "
+             "physical depth, which cannot be misread either way (default: acquired)",
     )
     group.add_argument(
-        "--z-end", type=int, default=0, metavar="SLICE",
-        help="one past the last z slice; 0 means to the end, negatives count back",
+        "--z-start", type=float, default=0, metavar="POS",
+        help="start of the z range, in --z-units (default 0)",
+    )
+    group.add_argument(
+        "--z-end", type=float, default=0, metavar="POS",
+        help="end of the z range, in --z-units; 0 means to the end",
     )
 
 
@@ -51,6 +57,7 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.analysis_mode = getattr(args, "mode", v.analysis_mode)
     v.z_start = getattr(args, "z_start", 0)
     v.z_end = getattr(args, "z_end", 0)
+    v.z_range_units = getattr(args, "z_units", "acquired")
     v.enable_component_stats = getattr(args, "component_stats", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))
     return config

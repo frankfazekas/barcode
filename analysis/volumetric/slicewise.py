@@ -32,7 +32,7 @@ import numpy as np
 
 from analysis.binarization import analyze_binarization
 from analysis.intensity_distribution import analyze_intensity_distribution
-from analysis.volumetric.reader import VolumeStack, read_volume
+from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
 from core import BarcodeConfig, ChannelResults
 from core.modes import get_mode
 from utils.setup import create_channel_output_dir, create_output_directories
@@ -75,7 +75,7 @@ def run_slicewise_analysis(
     # Restrict the depth range before anything is measured. Slices past the object are
     # background, and averaging them into the depth profile flattens exactly the trend
     # this mode exists to show.
-    stack = stack.restrict_z(vcfg.z_start, vcfg.z_end)
+    stack = apply_z_range(stack, vcfg)
 
     detail = SlicewiseRunDetail(
         stack=stack,

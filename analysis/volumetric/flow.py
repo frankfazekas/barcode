@@ -71,6 +71,7 @@ class VolumetricFlowDetail:
     valid_fractions: List[float] = field(default_factory=list)
     used_mask: bool = False
     downsample: int = 1
+    frame_interval_s: float = np.nan
     spacing_zyx_um: Tuple[float, float, float] = (np.nan, np.nan, np.nan)
     r_max_um: float = np.nan
 
@@ -212,6 +213,7 @@ def analyze_optical_flow_3d(
         t_sigma=int(config.flow_t_sigma),
         used_mask=bool(masks is not None and config.flow_use_mask),
         downsample=max(int(config.flow_downsample), 1),
+        frame_interval_s=float(exposure_time_s) if exposure_time_s else 1.0,
     )
 
     if n_frames < size:

@@ -698,8 +698,9 @@ class VolumetricConfigGUI:
     segmentation_regex: tk.StringVar = field(init=False)
     segmentation_template: tk.StringVar = field(init=False)
     mask_spacing_um: tk.DoubleVar = field(init=False)
-    z_start: tk.IntVar = field(init=False)
-    z_end: tk.IntVar = field(init=False)
+    z_start: tk.DoubleVar = field(init=False)
+    z_end: tk.DoubleVar = field(init=False)
+    z_range_units: tk.StringVar = field(init=False)
     make_isotropic: tk.BooleanVar = field(init=False)
     crop_padding_vox: tk.IntVar = field(init=False)
     enable_component_stats: tk.BooleanVar = field(init=False)
@@ -720,6 +721,7 @@ class VolumetricConfigGUI:
     flow_reliability_percentile: tk.DoubleVar = field(init=False)
     flow_use_mask: tk.BooleanVar = field(init=False)
     flow_downsample: tk.IntVar = field(init=False)
+    frame_interval_s: tk.DoubleVar = field(init=False)
     mesh_enabled: tk.BooleanVar = field(init=False)
     mesh_maxrad: tk.DoubleVar = field(init=False)
     mesh_area_frac: tk.DoubleVar = field(init=False)
@@ -741,8 +743,9 @@ class VolumetricConfigGUI:
         self.segmentation_regex = tk.StringVar(value=self._core_config.segmentation_regex)
         self.segmentation_template = tk.StringVar(value=self._core_config.segmentation_template)
         self.mask_spacing_um = tk.DoubleVar(value=self._core_config.mask_spacing_um)
-        self.z_start = tk.IntVar(value=self._core_config.z_start)
-        self.z_end = tk.IntVar(value=self._core_config.z_end)
+        self.z_start = tk.DoubleVar(value=self._core_config.z_start)
+        self.z_end = tk.DoubleVar(value=self._core_config.z_end)
+        self.z_range_units = tk.StringVar(value=self._core_config.z_range_units)
         self.make_isotropic = tk.BooleanVar(value=self._core_config.make_isotropic)
         self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
         self.enable_component_stats = tk.BooleanVar(value=self._core_config.enable_component_stats)
@@ -763,6 +766,7 @@ class VolumetricConfigGUI:
         self.flow_reliability_percentile = tk.DoubleVar(value=self._core_config.flow_reliability_percentile)
         self.flow_use_mask = tk.BooleanVar(value=self._core_config.flow_use_mask)
         self.flow_downsample = tk.IntVar(value=self._core_config.flow_downsample)
+        self.frame_interval_s = tk.DoubleVar(value=self._core_config.frame_interval_s)
         self.mesh_enabled = tk.BooleanVar(value=self._core_config.mesh_enabled)
         self.mesh_maxrad = tk.DoubleVar(value=self._core_config.mesh_maxrad)
         self.mesh_area_frac = tk.DoubleVar(value=self._core_config.mesh_area_frac)
@@ -789,6 +793,7 @@ class VolumetricConfigGUI:
             mask_spacing_um=self.mask_spacing_um.get(),
             z_start=self.z_start.get(),
             z_end=self.z_end.get(),
+            z_range_units=self.z_range_units.get(),
             make_isotropic=self.make_isotropic.get(),
             crop_padding_vox=self.crop_padding_vox.get(),
             enable_component_stats=self.enable_component_stats.get(),
@@ -809,6 +814,7 @@ class VolumetricConfigGUI:
             flow_reliability_percentile=self.flow_reliability_percentile.get(),
             flow_use_mask=self.flow_use_mask.get(),
             flow_downsample=self.flow_downsample.get(),
+            frame_interval_s=self.frame_interval_s.get(),
             mesh_enabled=self.mesh_enabled.get(),
             mesh_maxrad=self.mesh_maxrad.get(),
             mesh_area_frac=self.mesh_area_frac.get(),
@@ -835,6 +841,7 @@ class VolumetricConfigGUI:
         self.mask_spacing_um.set(new_config.mask_spacing_um)
         self.z_start.set(new_config.z_start)
         self.z_end.set(new_config.z_end)
+        self.z_range_units.set(new_config.z_range_units)
         self.make_isotropic.set(new_config.make_isotropic)
         self.crop_padding_vox.set(new_config.crop_padding_vox)
         self.enable_component_stats.set(new_config.enable_component_stats)
@@ -855,6 +862,7 @@ class VolumetricConfigGUI:
         self.flow_reliability_percentile.set(new_config.flow_reliability_percentile)
         self.flow_use_mask.set(new_config.flow_use_mask)
         self.flow_downsample.set(new_config.flow_downsample)
+        self.frame_interval_s.set(new_config.frame_interval_s)
         self.mesh_enabled.set(new_config.mesh_enabled)
         self.mesh_maxrad.set(new_config.mesh_maxrad)
         self.mesh_area_frac.set(new_config.mesh_area_frac)

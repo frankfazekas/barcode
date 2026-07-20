@@ -181,3 +181,55 @@ def test_hiding_never_changes_the_csv_schema():
     config.writer.hidden_barcode_metrics = ["Connectivity", "Curl"]
     headers = ChannelResults.get_headers(just_metrics=False, mode=XYZT)
     assert "Connectivity" in headers and "Curl" in headers
+
+
+# --------------------------------------------------- z range units
+
+
+@pytest.mark.parametrize("units,start,end", [
+    ("acquired", 12, 46),
+    ("isotropic", 55, 212),      # the same planes on a 0.065 um grid
+    ("microns", 3.6, 13.8),      # the same depth in physical units
+])
+def test_all_z_units_select_the_same_slices(tmp_path, units, start, end):
+    """'Slice 46' is ambiguous on anisotropic data, so the unit must be stated.
+
+    An acquired stack at 0.3 um and the isotropic grid a mask lives on at 0.065 um
+    differ by the anisotropy factor -- 54 slices versus ~249 for the same object. All
+    three ways of naming the same physical range must land on the same slices.
+    """
+    path = write_stack(tmp_path / "s.tif", n_z=54, z_step=0.3, xy_step=0.065)
+    stack = read_volume(path)
+
+    resolved = stack.resolve_z_range(start, end, units)
+    restricted = stack.restrict_z(*resolved)
+
+    assert resolved == (12, 46)
+    assert restricted.n_slices == 34
+    assert restricted.n_slices * stack.z_step_um == pytest.approx(10.2, abs=1e-6)
+
+
+def test_z_units_default_is_acquired_and_unknown_units_raise(tmp_path):
+    stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
+    assert stack.resolve_z_range(12, 46) == (12, 46)          # default
+    assert stack.resolve_z_range(12, 46, "acquired") == (12, 46)
+    with pytest.raises(ValueError, match="Unknown z_range_units"):
+        stack.resolve_z_range(12, 46, "planes")
+
+
+def test_zero_end_still_means_to_the_end_in_every_unit(tmp_path):
+    stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
+    for units, start in (("acquired", 12), ("isotropic", 55), ("microns", 3.6)):
+        _, end = stack.resolve_z_range(start, 0, units)
+        assert end == 0, f"{units}: 0 must stay 'to the end', not convert to a depth"
+        assert stack.restrict_z(*stack.resolve_z_range(start, 0, units)).n_slices == 42
+
+
+def test_apply_z_range_reads_the_config(tmp_path):
+    """All three pipelines go through this, so they cannot diverge."""
+    from analysis.volumetric.reader import apply_z_range
+
+    stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
+    config = BarcodeConfig().volumetric
+    config.z_start, config.z_end, config.z_range_units = 3.6, 13.8, "microns"
+    assert apply_z_range(stack, config).n_slices == 34
