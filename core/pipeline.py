@@ -97,6 +97,15 @@ def process_single_file(
 ) -> Tuple[List[ChannelResults], int]:
     """Process a single file and return analysis results."""
 
+    # Volumetric (3D) side-car pipeline. Off by default; when enabled it handles the
+    # file end to end and the 2D path below is not entered. See analysis/volumetric/.
+    if config.volumetric.enabled:
+        from analysis.volumetric.run import run_volumetric_pipeline
+
+        return run_volumetric_pipeline(
+            filepath, config, in_config, fail_file_loc, count, total
+        )
+
     # Load and validate file
     try:
         counts = [count, total]
@@ -212,7 +221,14 @@ def run_analysis(root_dir: str, config: BarcodeConfig, input_config: InputConfig
     timer = Timer(time_filepath)
     timer.start()
 
-    all_results = process_multiple_files(files_to_process, config, input_config, ff_loc, timer)
+    # Volumetric time-lapse: group per-timepoint files into series before analysing, so
+    # a series produces one row with real change metrics instead of N rows of NaN.
+    if config.volumetric.enabled and config.volumetric.timelapse_enabled:
+        from analysis.volumetric.run import run_volumetric_timelapse
+
+        all_results = run_volumetric_timelapse(files_to_process, config, ff_loc)
+    else:
+        all_results = process_multiple_files(files_to_process, config, input_config, ff_loc, timer)
 
     message = "Time Elapsed" + (" to Process Files" if is_single_file else " to Process Folder")
     timer.log_time_since_start(message)

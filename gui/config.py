@@ -681,6 +681,172 @@ class VisualizationConfigGUI:
         self._indices.set(new_config._indices)
 
 @dataclass
+class VolumetricConfigGUI:
+    """Auto-generated GUI wrapper for VolumetricConfig"""
+    _core_config: VolumetricConfig = field(default_factory=VolumetricConfig)
+
+    enabled: tk.BooleanVar = field(init=False)
+    z_step_um: tk.DoubleVar = field(init=False)
+    xy_step_um: tk.DoubleVar = field(init=False)
+    segmentation_enabled: tk.BooleanVar = field(init=False)
+    segmentation_root: tk.StringVar = field(init=False)
+    segmentation_regex: tk.StringVar = field(init=False)
+    segmentation_template: tk.StringVar = field(init=False)
+    mask_spacing_um: tk.DoubleVar = field(init=False)
+    make_isotropic: tk.BooleanVar = field(init=False)
+    crop_padding_vox: tk.IntVar = field(init=False)
+    timelapse_enabled: tk.BooleanVar = field(init=False)
+    timelapse_regex: tk.StringVar = field(init=False)
+    threshold_offset: tk.DoubleVar = field(init=False)
+    minimum_island_size: tk.IntVar = field(init=False)
+    neighbor_island_fraction: tk.DoubleVar = field(init=False)
+    frame_step: tk.IntVar = field(init=False)
+    percentage_frames_evaluated: tk.DoubleVar = field(init=False)
+    invert_binarization: tk.BooleanVar = field(init=False)
+    bin_size: tk.IntVar = field(init=False)
+    noise_threshold: tk.DoubleVar = field(init=False)
+    intensity_use_mask: tk.BooleanVar = field(init=False)
+    flow_xyz_sigma: tk.DoubleVar = field(init=False)
+    flow_t_sigma: tk.IntVar = field(init=False)
+    flow_w_sigma: tk.DoubleVar = field(init=False)
+    flow_reliability_percentile: tk.DoubleVar = field(init=False)
+    flow_use_mask: tk.BooleanVar = field(init=False)
+    flow_downsample: tk.IntVar = field(init=False)
+    mesh_enabled: tk.BooleanVar = field(init=False)
+    mesh_maxrad: tk.DoubleVar = field(init=False)
+    mesh_area_frac: tk.DoubleVar = field(init=False)
+    mesh_smoothing_iterations: tk.IntVar = field(init=False)
+    mesh_smoothing_alpha: tk.DoubleVar = field(init=False)
+    mesh_smoothing_beta: tk.DoubleVar = field(init=False)
+    mesh_matlab_compat: tk.BooleanVar = field(init=False)
+    mesh_curvature: tk.BooleanVar = field(init=False)
+    mesh_iso2mesh_bin: tk.StringVar = field(init=False)
+    mesh_export_obj: tk.BooleanVar = field(init=False)
+
+    def __post_init__(self):
+        self.enabled = tk.BooleanVar(value=self._core_config.enabled)
+        self.z_step_um = tk.DoubleVar(value=self._core_config.z_step_um)
+        self.xy_step_um = tk.DoubleVar(value=self._core_config.xy_step_um)
+        self.segmentation_enabled = tk.BooleanVar(value=self._core_config.segmentation_enabled)
+        self.segmentation_root = tk.StringVar(value=self._core_config.segmentation_root)
+        self.segmentation_regex = tk.StringVar(value=self._core_config.segmentation_regex)
+        self.segmentation_template = tk.StringVar(value=self._core_config.segmentation_template)
+        self.mask_spacing_um = tk.DoubleVar(value=self._core_config.mask_spacing_um)
+        self.make_isotropic = tk.BooleanVar(value=self._core_config.make_isotropic)
+        self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
+        self.timelapse_enabled = tk.BooleanVar(value=self._core_config.timelapse_enabled)
+        self.timelapse_regex = tk.StringVar(value=self._core_config.timelapse_regex)
+        self.threshold_offset = tk.DoubleVar(value=self._core_config.threshold_offset)
+        self.minimum_island_size = tk.IntVar(value=self._core_config.minimum_island_size)
+        self.neighbor_island_fraction = tk.DoubleVar(value=self._core_config.neighbor_island_fraction)
+        self.frame_step = tk.IntVar(value=self._core_config.frame_step)
+        self.percentage_frames_evaluated = tk.DoubleVar(value=self._core_config.percentage_frames_evaluated)
+        self.invert_binarization = tk.BooleanVar(value=self._core_config.invert_binarization)
+        self.bin_size = tk.IntVar(value=self._core_config.bin_size)
+        self.noise_threshold = tk.DoubleVar(value=self._core_config.noise_threshold)
+        self.intensity_use_mask = tk.BooleanVar(value=self._core_config.intensity_use_mask)
+        self.flow_xyz_sigma = tk.DoubleVar(value=self._core_config.flow_xyz_sigma)
+        self.flow_t_sigma = tk.IntVar(value=self._core_config.flow_t_sigma)
+        self.flow_w_sigma = tk.DoubleVar(value=self._core_config.flow_w_sigma)
+        self.flow_reliability_percentile = tk.DoubleVar(value=self._core_config.flow_reliability_percentile)
+        self.flow_use_mask = tk.BooleanVar(value=self._core_config.flow_use_mask)
+        self.flow_downsample = tk.IntVar(value=self._core_config.flow_downsample)
+        self.mesh_enabled = tk.BooleanVar(value=self._core_config.mesh_enabled)
+        self.mesh_maxrad = tk.DoubleVar(value=self._core_config.mesh_maxrad)
+        self.mesh_area_frac = tk.DoubleVar(value=self._core_config.mesh_area_frac)
+        self.mesh_smoothing_iterations = tk.IntVar(value=self._core_config.mesh_smoothing_iterations)
+        self.mesh_smoothing_alpha = tk.DoubleVar(value=self._core_config.mesh_smoothing_alpha)
+        self.mesh_smoothing_beta = tk.DoubleVar(value=self._core_config.mesh_smoothing_beta)
+        self.mesh_matlab_compat = tk.BooleanVar(value=self._core_config.mesh_matlab_compat)
+        self.mesh_curvature = tk.BooleanVar(value=self._core_config.mesh_curvature)
+        self.mesh_iso2mesh_bin = tk.StringVar(value=self._core_config.mesh_iso2mesh_bin)
+        self.mesh_export_obj = tk.BooleanVar(value=self._core_config.mesh_export_obj)
+
+    @property
+    def config(self) -> VolumetricConfig:
+        """Get current config from GUI values"""
+        return VolumetricConfig(
+            enabled=self.enabled.get(),
+            z_step_um=self.z_step_um.get(),
+            xy_step_um=self.xy_step_um.get(),
+            segmentation_enabled=self.segmentation_enabled.get(),
+            segmentation_root=self.segmentation_root.get(),
+            segmentation_regex=self.segmentation_regex.get(),
+            segmentation_template=self.segmentation_template.get(),
+            mask_spacing_um=self.mask_spacing_um.get(),
+            make_isotropic=self.make_isotropic.get(),
+            crop_padding_vox=self.crop_padding_vox.get(),
+            timelapse_enabled=self.timelapse_enabled.get(),
+            timelapse_regex=self.timelapse_regex.get(),
+            threshold_offset=self.threshold_offset.get(),
+            minimum_island_size=self.minimum_island_size.get(),
+            neighbor_island_fraction=self.neighbor_island_fraction.get(),
+            frame_step=self.frame_step.get(),
+            percentage_frames_evaluated=self.percentage_frames_evaluated.get(),
+            invert_binarization=self.invert_binarization.get(),
+            bin_size=self.bin_size.get(),
+            noise_threshold=self.noise_threshold.get(),
+            intensity_use_mask=self.intensity_use_mask.get(),
+            flow_xyz_sigma=self.flow_xyz_sigma.get(),
+            flow_t_sigma=self.flow_t_sigma.get(),
+            flow_w_sigma=self.flow_w_sigma.get(),
+            flow_reliability_percentile=self.flow_reliability_percentile.get(),
+            flow_use_mask=self.flow_use_mask.get(),
+            flow_downsample=self.flow_downsample.get(),
+            mesh_enabled=self.mesh_enabled.get(),
+            mesh_maxrad=self.mesh_maxrad.get(),
+            mesh_area_frac=self.mesh_area_frac.get(),
+            mesh_smoothing_iterations=self.mesh_smoothing_iterations.get(),
+            mesh_smoothing_alpha=self.mesh_smoothing_alpha.get(),
+            mesh_smoothing_beta=self.mesh_smoothing_beta.get(),
+            mesh_matlab_compat=self.mesh_matlab_compat.get(),
+            mesh_curvature=self.mesh_curvature.get(),
+            mesh_iso2mesh_bin=self.mesh_iso2mesh_bin.get(),
+            mesh_export_obj=self.mesh_export_obj.get(),
+        )
+
+    def update_gui(self, new_config: VolumetricConfig):
+        """Update GUI from new config values"""
+        self._core_config = new_config
+        self.enabled.set(new_config.enabled)
+        self.z_step_um.set(new_config.z_step_um)
+        self.xy_step_um.set(new_config.xy_step_um)
+        self.segmentation_enabled.set(new_config.segmentation_enabled)
+        self.segmentation_root.set(new_config.segmentation_root)
+        self.segmentation_regex.set(new_config.segmentation_regex)
+        self.segmentation_template.set(new_config.segmentation_template)
+        self.mask_spacing_um.set(new_config.mask_spacing_um)
+        self.make_isotropic.set(new_config.make_isotropic)
+        self.crop_padding_vox.set(new_config.crop_padding_vox)
+        self.timelapse_enabled.set(new_config.timelapse_enabled)
+        self.timelapse_regex.set(new_config.timelapse_regex)
+        self.threshold_offset.set(new_config.threshold_offset)
+        self.minimum_island_size.set(new_config.minimum_island_size)
+        self.neighbor_island_fraction.set(new_config.neighbor_island_fraction)
+        self.frame_step.set(new_config.frame_step)
+        self.percentage_frames_evaluated.set(new_config.percentage_frames_evaluated)
+        self.invert_binarization.set(new_config.invert_binarization)
+        self.bin_size.set(new_config.bin_size)
+        self.noise_threshold.set(new_config.noise_threshold)
+        self.intensity_use_mask.set(new_config.intensity_use_mask)
+        self.flow_xyz_sigma.set(new_config.flow_xyz_sigma)
+        self.flow_t_sigma.set(new_config.flow_t_sigma)
+        self.flow_w_sigma.set(new_config.flow_w_sigma)
+        self.flow_reliability_percentile.set(new_config.flow_reliability_percentile)
+        self.flow_use_mask.set(new_config.flow_use_mask)
+        self.flow_downsample.set(new_config.flow_downsample)
+        self.mesh_enabled.set(new_config.mesh_enabled)
+        self.mesh_maxrad.set(new_config.mesh_maxrad)
+        self.mesh_area_frac.set(new_config.mesh_area_frac)
+        self.mesh_smoothing_iterations.set(new_config.mesh_smoothing_iterations)
+        self.mesh_smoothing_alpha.set(new_config.mesh_smoothing_alpha)
+        self.mesh_smoothing_beta.set(new_config.mesh_smoothing_beta)
+        self.mesh_matlab_compat.set(new_config.mesh_matlab_compat)
+        self.mesh_curvature.set(new_config.mesh_curvature)
+        self.mesh_iso2mesh_bin.set(new_config.mesh_iso2mesh_bin)
+        self.mesh_export_obj.set(new_config.mesh_export_obj)
+
+@dataclass
 class BarcodeConfigGUI:
     """Auto-generated master GUI configuration"""
     _core_config: BarcodeConfig = field(default_factory=BarcodeConfig)
@@ -692,6 +858,7 @@ class BarcodeConfigGUI:
     optical_flow_parameters: OpticalFlowConfigGUI = field(init=False)
     reader: ReaderConfigGUI = field(init=False)
     writer: WriterConfigGUI = field(init=False)
+    volumetric: VolumetricConfigGUI = field(init=False)
 
     def __post_init__(self):
         self.channels = ChannelConfigGUI(self._core_config.channels)
@@ -701,6 +868,7 @@ class BarcodeConfigGUI:
         self.optical_flow_parameters = OpticalFlowConfigGUI(self._core_config.optical_flow_parameters)
         self.reader = ReaderConfigGUI(self._core_config.reader)
         self.writer = WriterConfigGUI(self._core_config.writer)
+        self.volumetric = VolumetricConfigGUI(self._core_config.volumetric)
 
     @property
     def config(self) -> BarcodeConfig:
@@ -713,6 +881,7 @@ class BarcodeConfigGUI:
             optical_flow_parameters=self.optical_flow_parameters.config,
             reader=self.reader.config,
             writer=self.writer.config,
+            volumetric=self.volumetric.config,
         )
 @dataclass
 class AnalysisConfigGUI:

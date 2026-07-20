@@ -173,6 +173,98 @@ class IntensityDistributionConfig(BaseConfig):
     percentage_frames_evaluated: float = 0.05
 
 @dataclass
+class VolumetricConfig(BaseConfig):
+    """Volumetric (3D) side-car pipeline.
+
+    Inert unless ``enabled`` is True: with the default settings BARCODE behaves
+    exactly as it did before this config existed. See ``analysis/volumetric/``.
+    """
+
+    enabled: bool = False
+
+    # Physical voxel size. Left at 0 these are read from the file's ImageJ metadata
+    # (``spacing`` for z, ``XResolution`` for xy); set them to override.
+    z_step_um: float = 0.0
+    xy_step_um: float = 0.0
+
+    # Segmentation masks. When a mask resolves it *replaces* intensity thresholding
+    # as the binarization; intensity and autocorrelation still use raw voxels.
+    segmentation_enabled: bool = False
+    segmentation_root: str = ""
+    segmentation_regex: str = r"(?P<stem>.+)"
+    segmentation_template: str = "{stem}_SegMask.tif"
+    # Masks generally carry no spacing metadata; 0 means "assume isotropic at xy".
+    mask_spacing_um: float = 0.0
+
+    # Resample image + mask onto one isotropic grid, then crop to the mask bbox.
+    make_isotropic: bool = True
+    crop_padding_vox: int = 2
+
+    # Time-lapse assembly. Volumetric time series are often exported one file per
+    # timepoint; grouping them restores the change metrics, which are NaN when each
+    # volume is analysed on its own. The regex needs a 'series' group (files sharing it
+    # belong together) and a numeric 'frame' group (ordering within the series).
+    timelapse_enabled: bool = False
+    timelapse_regex: str = r"^(?P<series>.+?)_(?P<frame>\d+)$"
+
+    # Structural branch.
+    threshold_offset: float = 0.1
+    minimum_island_size: int = 1
+    neighbor_island_fraction: float = 0.1
+    frame_step: int = 10
+    percentage_frames_evaluated: float = 0.05
+    invert_binarization: bool = False
+
+    # Intensity branch. By default the histogram uses every voxel in the analysed
+    # volume, matching the 2D branch; set intensity_use_mask to restrict it to voxels
+    # inside the segmentation, which removes background from the distribution but
+    # makes the numbers incomparable with unmasked runs.
+    bin_size: int = 300
+    noise_threshold: float = 5e-4
+    intensity_use_mask: bool = False
+
+    # Flow branch (analysis/volumetric/flow.py), a Lucas-Kanade solver vendored from
+    # aicjanelia/OpticalFlow3D. Each analysed timepoint needs a *contiguous* window of
+    # 6*flow_t_sigma+1 volumes centred on it, so unlike the other branches this one
+    # cannot work from strided frames. Series shorter than that window are skipped, not
+    # approximated.
+    flow_xyz_sigma: float = 3.0
+    flow_t_sigma: int = 1
+    flow_w_sigma: float = 4.0
+    # Reliability is the smallest eigenvalue of the structure tensor; where it is small
+    # the solved velocity is noise. Voxels below this percentile of it are dropped from
+    # every metric. 0 keeps all of them.
+    flow_reliability_percentile: float = 50.0
+    # Restrict the metrics to voxels inside the segmentation. On by default because a
+    # cropped nucleus is mostly background, which would otherwise dominate mean speed.
+    # Flow is still solved on the whole volume so gradients at the boundary stay correct.
+    flow_use_mask: bool = True
+    # Block-average the volumes before solving. Reliability needs a 3x3 eigendecomposition
+    # at every voxel, so large fields of view get expensive; 1 means no downsampling.
+    flow_downsample: int = 1
+
+    # Surface meshing of the segmented nucleus (analysis/volumetric/mesh.py), ported
+    # from TCell-3D-Morphodynamics. Needs pyiso2mesh and a segmentation mask; the
+    # defaults are the MATLAB pipeline's (config/defaults/nucleus_defaults.m).
+    mesh_enabled: bool = False
+    mesh_maxrad: float = 5.0            # cgalsurf radbound, in isotropic voxels
+    mesh_area_frac: float = 0.2         # face-area filter -> decimation ratio
+    mesh_smoothing_iterations: int = 10
+    mesh_smoothing_alpha: float = 0.1
+    mesh_smoothing_beta: float = 0.5
+    # Reproduce MATLAB's quad-fan reading of v2s' 4-column face array when computing
+    # the decimation ratio. Off by default because it is a bug, not a design choice.
+    mesh_matlab_compat: bool = False
+    # Principal curvatures over the mesh (analysis/volumetric/curvature.py) and the
+    # invagination metrics built on them. Cheap relative to the meshing itself.
+    mesh_curvature: bool = True
+    # An iso2mesh bin/ directory to stage the CGAL executables from. Empty means let
+    # pyiso2mesh find or download them.
+    mesh_iso2mesh_bin: str = ""
+    mesh_export_obj: bool = False
+
+
+@dataclass
 class AnalysisConfig(BaseConfig):
     aggregation: AggregationConfig = field(default_factory=AggregationConfig)
     comparison: ComparisonConfig = field(default_factory=ComparisonConfig)
@@ -187,7 +279,8 @@ class BarcodeConfig(BaseConfig):
     optical_flow_parameters: OpticalFlowConfig = field(default_factory=OpticalFlowConfig)
     reader: ReaderConfig = field(default_factory=ReaderConfig)
     writer: WriterConfig = field(default_factory=WriterConfig)
-    
+    volumetric: VolumetricConfig = field(default_factory=VolumetricConfig)
+
     def save_to_yaml(self, filepath: str) -> None:
         """Save configuration to YAML file."""
         config_data = {}
@@ -317,6 +410,7 @@ GUI_CONFIG_CLASSES = [
     ComparisonConfig,
     ModuleConfig,
     VisualizationConfig,
+    VolumetricConfig,
 ]
 
 
