@@ -60,7 +60,22 @@ sphericity           within 0.5%              within 0.05%
 height               within 0.4%              within 0.25%
 ===================  =======================  =======================
 
-Bit-parity is *not* achievable, and the reason is worth knowing before chasing it:
+Two reproducibility limits, both upstream in the CGAL executables and both measured
+here rather than assumed:
+
+* **Concurrency is unsafe without isolation.** pyiso2mesh drives the executables
+  through files with fixed names in one shared directory, so two meshing processes
+  silently corrupt each other -- a nucleus that meshes to 949 um^3 alone came back at
+  3,897,051 um^3 while another meshing job was running, with no error raised.
+  :func:`_isolate_temp_dir` gives each process its own directory, which removes this.
+* **cgalsurf is not bit-reproducible across processes**, even with its seed fixed and
+  the temp directory isolated: repeated runs of the same nucleus land on one of two
+  outcomes (949.50177 vs 949.53861 um^3 -- 0.004% in volume, 0.02% in surface area and
+  sphericity). Within a single process it is stable. This is an order of magnitude
+  below the MATLAB agreement below, so it is documented rather than fought.
+
+Bit-parity with MATLAB is *not* achievable either, and the reason is worth knowing
+before chasing it:
 ``cgalsurf`` takes an arbitrary interior seed point (from ``surfinterior``) and
 centres its bounding sphere on it, so the whole meshing is seeded by that point.
 MATLAB's ``surfinterior`` and pyiso2mesh's return different -- both valid -- interior
@@ -70,11 +85,13 @@ effect washes out to the fractions of a percent tabulated above.
 """
 from __future__ import annotations
 
+import atexit
 import contextlib
 import io
 import os
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
 
@@ -132,6 +149,31 @@ def ensure_iso2mesh_binaries(bin_dir: str = "") -> str:
     return target
 
 
+def _isolate_temp_dir() -> str:
+    """Give this process its own pyiso2mesh scratch directory.
+
+    pyiso2mesh drives the CGAL executables through files with **fixed** names
+    (``pre_extract.inr``, ``post_remesh.off``, ...) in one shared directory, so two
+    processes meshing at the same time overwrite each other's intermediates. The
+    symptom is a parse error on a file that was perfectly valid when written --
+    ``ValueError: cannot reshape array of size 518 into shape (3)`` out of ``readoff``,
+    or ``jmeshlib command failed: loadOFF`` -- on a mesh that succeeds when re-run alone.
+
+    ``ISO2MESH_TEMP`` relocates that directory. ``ISO2MESH_SESSION`` would also work but
+    must not be used: ``vol2restrictedtri`` reads the *same* variable as the CGAL random
+    seed (``os.getenv("ISO2MESH_SESSION", 0x623F9A9E)``), so setting it would silently
+    change the seed and therefore every mesh.
+    """
+    existing = os.environ.get("ISO2MESH_TEMP")
+    if existing and os.path.isdir(existing):
+        return existing
+
+    path = tempfile.mkdtemp(prefix=f"barcode-iso2mesh-{os.getpid()}-")
+    os.environ["ISO2MESH_TEMP"] = path
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
 def _import_iso2mesh():
     """Import pyiso2mesh, turning the usual failures into :class:`MeshingError`."""
     try:
@@ -141,6 +183,7 @@ def _import_iso2mesh():
         raise MeshingError(
             "The volumetric meshing branch needs pyiso2mesh: pip install iso2mesh"
         ) from exc
+    _isolate_temp_dir()
     return v2s, meshresample, smoothsurf, meshconn
 
 
@@ -318,19 +361,21 @@ def generate_mesh(
 def _backend(func, name: str, *args, verbose: bool = False, attempts: int = 3, **kwargs):
     """Call a pyiso2mesh entry point, retrying transient failures.
 
-    The CGAL and jmeshlib executables communicate through files in one fixed temporary
-    directory that every call reuses, and in long batches an occasional call fails to
-    read back a file it has just written (seen as ``jmeshlib command failed: ERROR-
-    loadOFF: Couldn't read indexes for face # N`` on a mesh that meshes cleanly on the
-    very next attempt). Retrying costs a few seconds and turns a batch-ending crash
-    into a hiccup. A genuinely bad mesh fails every attempt and is reported as a
-    :class:`MeshingError`, so nothing is swallowed.
+    :func:`_isolate_temp_dir` removes the cross-process cause of these failures, but the
+    file round-trip through the CGAL executables can still fail occasionally within one
+    process (``jmeshlib command failed: ERROR- loadOFF ...`` on a mesh that meshes
+    cleanly on the very next attempt). Retrying costs a few seconds and turns a
+    batch-ending crash into a hiccup. A genuinely bad mesh fails every attempt and is
+    reported as a :class:`MeshingError`, so nothing is swallowed.
+
+    ``ValueError`` is caught alongside the others because a truncated intermediate file
+    surfaces from ``readoff`` as a reshape error rather than as an I/O error.
     """
     last: Optional[Exception] = None
     for attempt in range(1, attempts + 1):
         try:
             return _quiet(func, *args, verbose=verbose, **kwargs)
-        except (RuntimeError, OSError) as exc:
+        except (RuntimeError, OSError, ValueError) as exc:
             last = exc
             if verbose or attempt > 1:
                 print(

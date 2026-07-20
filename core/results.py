@@ -277,6 +277,74 @@ class IntensityResults(ResultsBase):
 
 
 @dataclass
+class MeshResults(ResultsBase):
+    """Results from surface meshing and curvature of a segmented object.
+
+    Only emitted when mesh data exists (see ``ChannelResults.get_metrics``), so adding
+    this family leaves the 2D schema byte-identical.
+    """
+
+    mesh_volume: float = np.nan
+    surface_area: float = np.nan
+    sphericity: float = np.nan
+    equivalent_radius: float = np.nan
+    height: float = np.nan
+    volume_ratio: float = np.nan
+
+    mean_curvature: float = np.nan
+    invagination_ratio: float = np.nan
+    concave_ratio: float = np.nan
+
+    @classmethod
+    def get_metrics(cls) -> List[Metrics]:
+        return [
+            Metrics.MESH_VOLUME,
+            Metrics.MESH_SURFACE_AREA,
+            Metrics.MESH_SPHERICITY,
+            Metrics.MESH_EQUIVALENT_RADIUS,
+            Metrics.MESH_HEIGHT,
+            Metrics.MESH_VOLUME_RATIO,
+            Metrics.CURVATURE_MEAN,
+            Metrics.CURVATURE_INVAGINATION,
+            Metrics.CURVATURE_CONCAVE,
+        ]
+
+    @classmethod
+    def get_units(cls) -> List[Units]:
+        return [
+            Units.VOLUME,
+            Units.AREA,
+            Units.NONE,
+            Units.LENGTH,
+            Units.LENGTH,
+            Units.NONE,
+            Units.CURVATURE,
+            Units.NONE,
+            Units.NONE,
+        ]
+
+    def get_data(self) -> List[float]:
+        return [
+            self.mesh_volume,
+            self.surface_area,
+            self.sphericity,
+            self.equivalent_radius,
+            self.height,
+            self.volume_ratio,
+            self.mean_curvature,
+            self.invagination_ratio,
+            self.concave_ratio,
+        ]
+
+    def get_dict_data(self) -> dict:
+        return dict(zip(self.get_metrics(), self.get_data()))
+
+    def is_populated(self) -> bool:
+        """True if any value was actually measured."""
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
 class ChannelResults(ResultsBase):
     """Complete analysis results for a single channel."""
 
@@ -288,13 +356,14 @@ class ChannelResults(ResultsBase):
     binarization: BinarizationResults = field(default_factory=BinarizationResults)
     intensity: IntensityResults = field(default_factory=IntensityResults)
     flow: FlowResults = field(default_factory=FlowResults)
+    mesh: MeshResults = field(default_factory=MeshResults)
 
     @classmethod
     def _get_base_headers(cls) -> List[str]:
         return ["Filepath", "Channel", "Flags"]
 
     @classmethod
-    def get_metrics(cls, just_metrics: bool = False) -> List[Metrics]:
+    def get_metrics(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Metrics]:
         return (
             (
                 [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
@@ -304,10 +373,11 @@ class ChannelResults(ResultsBase):
             + BinarizationResults.get_metrics()
             + IntensityResults.get_metrics()
             + FlowResults.get_metrics()
+            + (MeshResults.get_metrics() if include_mesh else [])
         )
-    
+
     @classmethod
-    def get_physical_metrics(cls, just_metrics: bool = False) -> List[Metrics]:
+    def get_physical_metrics(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Metrics]:
         return (
             (
                 [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
@@ -317,28 +387,31 @@ class ChannelResults(ResultsBase):
             + BinarizationResults.get_physical_metrics()
             + IntensityResults.get_metrics()
             + FlowResults.get_metrics()
+            + (MeshResults.get_metrics() if include_mesh else [])
         )
     
     @classmethod
-    def get_physical_headers(cls, just_metrics: bool = False) -> List[str]:
+    def get_physical_headers(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[str]:
         """Get headers for CSV output."""
-        return [metric.value for metric in cls.get_physical_metrics(just_metrics)]
+        return [metric.value for metric in cls.get_physical_metrics(just_metrics, include_mesh)]
 
     @classmethod
-    def get_units(cls, just_metrics: bool = False) -> List[Units]:
+    def get_units(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Units]:
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_units()
             + IntensityResults.get_units()
             + FlowResults.get_units()
+            + (MeshResults.get_units() if include_mesh else [])
         )
     
-    def get_physical_units(cls, just_metrics: bool = False) -> List[Units]:
+    def get_physical_units(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Units]:
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_physical_units()
             + IntensityResults.get_units()
             + FlowResults.get_units()
+            + (MeshResults.get_units() if include_mesh else [])
         )
     
     def convert_flags(self) -> str:
@@ -354,7 +427,7 @@ class ChannelResults(ResultsBase):
         return ";".join(flag_lst) if flag_lst else "0"
             
 
-    def get_data(self, just_metrics: bool = False) -> List[float]:
+    def get_data(self, just_metrics: bool = False, include_mesh: bool = False) -> List[float]:
         data = []
         self.total_flags = self.convert_flags()
         if not just_metrics:
@@ -362,9 +435,11 @@ class ChannelResults(ResultsBase):
         data.extend(self.binarization.get_data())
         data.extend(self.intensity.get_data())
         data.extend(self.flow.get_data())
+        if include_mesh:
+            data.extend(self.mesh.get_data())
         return data
     
-    def get_physical_data(self, just_metrics: bool = False) -> List[float]:
+    def get_physical_data(self, just_metrics: bool = False, include_mesh: bool = False) -> List[float]:
         data = []
         self.total_flags = self.convert_flags()
         if not just_metrics:
@@ -372,34 +447,38 @@ class ChannelResults(ResultsBase):
         data.extend(self.binarization.get_physical_data())
         data.extend(self.intensity.get_data())
         data.extend(self.flow.get_data())
+        if include_mesh:
+            data.extend(self.mesh.get_data())
         return data
     
-    def get_dict_data(self, just_metrics: bool = False) -> dict:
+    def get_dict_data(self, just_metrics: bool = False, include_mesh: bool = False) -> dict:
         binarization_data = self.binarization.get_dict_data()
         intensity_data = self.intensity.get_dict_data()
         flow_data = self.flow.get_dict_data()
+        mesh_data = self.mesh.get_dict_data() if include_mesh else {}
         self.total_flags = self.convert_flags()
         if just_metrics:
-            data = binarization_data | intensity_data | flow_data
+            data = binarization_data | intensity_data | flow_data | mesh_data
         else:
             data = {Metrics.FILEPATH: self.filepath,
                     Metrics.CHANNEL: self.channel,
                     Metrics.FLAGS: self.total_flags}
-            data = data | binarization_data | intensity_data | flow_data
+            data = data | binarization_data | intensity_data | flow_data | mesh_data
         return data
     
-    def get_physical_dict_data(self, just_metrics: bool = False) -> dict:
+    def get_physical_dict_data(self, just_metrics: bool = False, include_mesh: bool = False) -> dict:
         binarization_data = self.binarization.get_physical_dict_data()
         intensity_data = self.intensity.get_dict_data()
         flow_data = self.flow.get_dict_data()
+        mesh_data = self.mesh.get_dict_data() if include_mesh else {}
         self.total_flags = self.convert_flags()
         if just_metrics:
-            data = binarization_data | intensity_data | flow_data
+            data = binarization_data | intensity_data | flow_data | mesh_data
         else:
             data = {Metrics.FILEPATH: self.filepath,
                     Metrics.CHANNEL: self.channel,
                     Metrics.FLAGS: self.total_flags}
-            data = data | binarization_data | intensity_data | flow_data
+            data = data | binarization_data | intensity_data | flow_data | mesh_data
         return data
     
     def to_physical_array(self, **kwargs) -> np.ndarray:

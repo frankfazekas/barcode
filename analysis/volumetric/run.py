@@ -25,6 +25,7 @@ from analysis.volumetric.mesh import MeshingError, NucleusMesh, mesh_series
 from analysis.volumetric.reader import VolumeStack, read_volume
 from analysis.volumetric.segmentation import load_segmentation
 from core import BarcodeConfig, ChannelResults, VolumetricConfig
+from core.results import MeshResults
 
 
 @dataclass
@@ -62,6 +63,37 @@ def select_frame_indices(n_frames: int, frame_step: int) -> List[int]:
     if indices[-1] != n_frames - 1:
         indices.append(n_frames - 1)
     return indices
+
+
+def summarise_meshes(meshes: List[NucleusMesh]) -> MeshResults:
+    """Reduce per-timepoint meshes to the one row the CSV holds.
+
+    Averaged over analysed timepoints, matching how every other volumetric metric is
+    reduced. Curvature is optional (``mesh_curvature``), so those fields stay NaN when
+    it was not computed rather than reporting a mean of nothing.
+    """
+    def mean_of(values) -> float:
+        array = np.asarray([v for v in values], dtype=np.float64)
+        finite = array[np.isfinite(array)]
+        return float(finite.mean()) if finite.size else np.nan
+
+    if not meshes:
+        return MeshResults()
+
+    geometries = [m.geometry for m in meshes]
+    curvatures = [m.curvature for m in meshes if m.curvature is not None]
+
+    return MeshResults(
+        mesh_volume=mean_of([g.volume_um3 for g in geometries]),
+        surface_area=mean_of([g.surface_area_um2 for g in geometries]),
+        sphericity=mean_of([g.sphericity for g in geometries]),
+        equivalent_radius=mean_of([g.equivalent_sphere_radius_um for g in geometries]),
+        height=mean_of([g.height_um for g in geometries]),
+        volume_ratio=mean_of([g.volume_ratio for g in geometries]),
+        mean_curvature=mean_of([c.mean_curvature for c in curvatures]),
+        invagination_ratio=mean_of([c.invagination_ratio for c in curvatures]),
+        concave_ratio=mean_of([c.concave_ratio for c in curvatures]),
+    )
 
 
 def _load_masks(
@@ -252,6 +284,7 @@ def run_volumetric_analysis(
                 detail.meshes = mesh_series(
                     masks, spacing_zyx, frame_indices, vcfg
                 )
+                results.mesh = summarise_meshes(detail.meshes)
             except MeshingError as exc:
                 print(f"Meshing failed: {exc}", flush=True)
 

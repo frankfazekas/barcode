@@ -47,8 +47,12 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
             return header
         return f"{header}\n({unit})"
     limits_list = []
+    include_mesh = any(
+        getattr(r, "mesh", None) is not None and r.mesh.is_populated()
+        for rs in results_list for r in rs
+    )
     for results in results_list:
-        data_arrays = [result.to_array(just_metrics=True) for result in results]
+        data_arrays = [result.to_array(just_metrics=True, include_mesh=include_mesh) for result in results]
 
         if not data_arrays:
             return
@@ -59,9 +63,9 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
             else data_arrays[0].reshape(1, -1)
         )
 
-        headers = ChannelResults.get_headers(just_metrics=True)
-        metrics = ChannelResults.get_metrics(just_metrics=True)
-        units = results[0].get_units(just_metrics=True)
+        headers = ChannelResults.get_headers(just_metrics=True, include_mesh=include_mesh)
+        metrics = ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh)
+        units = results[0].get_units(just_metrics=True, include_mesh=include_mesh)
         num_metrics = len(metrics)
 
         limits_list.append(get_data_limits(data, metrics, units))
@@ -170,9 +174,16 @@ def generate_combined_barcode(
     """
     if not results:
         return
-    
+
+    # Mesh columns are opt-in so the 2D barcode is unchanged; render them only when the
+    # results actually carry mesh data. Mirrors the same detection in utils.writer.
+    include_mesh = any(
+        getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results
+    )
+
     if metrics_to_visualize is None:
-        metrics_to_visualize = [True] * len(ChannelResults.get_metrics(just_metrics = True))
+        metrics_to_visualize = [True] * len(
+            ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh))
 
     def format_header_with_units(header: str, unit: Units) -> str:
         """Format header with unit annotation."""
@@ -181,8 +192,8 @@ def generate_combined_barcode(
         return f"{header}\n({unit})"
 
     # Convert structured results to array format (metrics only, no channel/flags)
-    data_arrays = [np.fromiter(compress(result.to_physical_array(just_metrics=True), metrics_to_visualize), float) if physical_units else 
-                   np.fromiter(compress(result.to_array(just_metrics=True), metrics_to_visualize), float) for result in results]    
+    data_arrays = [np.fromiter(compress(result.to_physical_array(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize), float) if physical_units else
+                   np.fromiter(compress(result.to_array(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize), float) for result in results]    
     if not data_arrays:
         return
 
@@ -197,13 +208,13 @@ def generate_combined_barcode(
 
     # Get headers and units from structured results
     if physical_units:
-        headers = list(compress(ChannelResults.get_physical_headers(just_metrics=True), metrics_to_visualize))
-        metrics = list(compress(ChannelResults.get_physical_metrics(just_metrics=True), metrics_to_visualize))
-        units = list(compress(results[0].get_physical_units(just_metrics=True), metrics_to_visualize))
+        headers = list(compress(ChannelResults.get_physical_headers(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        metrics = list(compress(ChannelResults.get_physical_metrics(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        units = list(compress(results[0].get_physical_units(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
     else:
-        headers = list(compress(ChannelResults.get_headers(just_metrics=True), metrics_to_visualize))
-        metrics = list(compress(ChannelResults.get_metrics(just_metrics=True), metrics_to_visualize))
-        units = list(compress(results[0].get_units(just_metrics=True), metrics_to_visualize))
+        headers = list(compress(ChannelResults.get_headers(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        metrics = list(compress(ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        units = list(compress(results[0].get_units(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
     num_metrics = len(metrics)
 
     limits = get_data_limits(data, metrics, units)

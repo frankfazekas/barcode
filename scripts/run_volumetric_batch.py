@@ -36,9 +36,11 @@ def build_config(args) -> BarcodeConfig:
     config = BarcodeConfig()
     config.modules.image_binarization = True
     config.modules.intensity_distribution = True
-    config.modules.optical_flow = False
+    config.modules.optical_flow = args.flow
     v = config.volumetric
     v.enabled = True
+    v.flow_reliability_percentile = args.flow_reliability
+    v.flow_downsample = args.flow_downsample
     v.threshold_offset = args.threshold_offset
     v.crop_padding_vox = args.crop_padding
     # Either flag turns segmentation on: the default regex/template pair
@@ -71,6 +73,10 @@ def main() -> int:
     p.add_argument("--pattern", default="*.tif")
     p.add_argument("--threshold-offset", type=float, default=0.1)
     p.add_argument("--crop-padding", type=int, default=2)
+    p.add_argument("--flow", action="store_true",
+                   help="run the 3D optical flow branch (needs 7 contiguous timepoints per file)")
+    p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE")
+    p.add_argument("--flow-downsample", type=int, default=1)
     p.add_argument("--seg-root", default=None)
     p.add_argument("--seg-regex", default=None, help="default: (?P<stem>.+)")
     p.add_argument("--seg-template", default=None)
@@ -112,6 +118,8 @@ def main() -> int:
             "anisotropy": results.binarization.island_anisotropy,
             "corr_um": results.binarization.island_correlation_length,
             "kurtosis": results.intensity.max_kurtosis,
+            "speed": results.flow.mean_speed,
+            "flow_corr_um": results.flow.velocity_correlation_length,
             "seconds": elapsed,
         }
         rows.append(row)
@@ -139,6 +147,11 @@ def main() -> int:
     print(summarise("island anisotropy", [r["anisotropy"] for r in rows]))
     print(summarise("structural correlation (um)", [r["corr_um"] for r in rows]))
     print(summarise("max kurtosis", [r["kurtosis"] for r in rows]))
+    if args.flow:
+        # All NaN here is the expected report for per-file runs: a single volume has no
+        # time axis, so flow needs --timelapse-style grouping to have anything to solve.
+        print(summarise("mean speed (um/s)", [r["speed"] for r in rows]))
+        print(summarise("velocity correlation (um)", [r["flow_corr_um"] for r in rows]))
 
     # A mask that survived resampling and cropping intact must still contain exactly
     # the voxels it had on disk (the mask is already isotropic, so only the crop

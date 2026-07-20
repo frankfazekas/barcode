@@ -26,8 +26,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 from analysis.volumetric.binarization import analyze_binarization_3d
+from analysis.volumetric.flow import analyze_optical_flow_3d
 from analysis.volumetric.intensity import analyze_intensity_3d
-from analysis.volumetric.run import _prepare_geometry
+from analysis.volumetric.mesh import MeshingError, mesh_series
+from analysis.volumetric.run import _prepare_geometry, summarise_meshes
 from analysis.volumetric.timelapse import group_timelapse, read_series
 from core import BarcodeConfig, ChannelResults
 from utils.writer import generate_combined_barcode, results_to_csv
@@ -37,12 +39,17 @@ def build_config(args) -> BarcodeConfig:
     config = BarcodeConfig()
     config.modules.image_binarization = True
     config.modules.intensity_distribution = True
-    config.modules.optical_flow = False
+    config.modules.optical_flow = args.flow
     v = config.volumetric
     v.enabled = True
     v.timelapse_enabled = True
+    v.flow_reliability_percentile = args.flow_reliability
+    v.flow_downsample = args.flow_downsample
     v.threshold_offset = args.threshold_offset
     v.crop_padding_vox = args.crop_padding
+    v.mesh_enabled = args.mesh
+    if hasattr(v, 'mesh_curvature'):
+        v.mesh_curvature = args.mesh and not args.no_curvature
     if args.seg_root or args.seg_template:
         v.segmentation_enabled = True
         v.segmentation_root = args.seg_root or ""
@@ -59,10 +66,20 @@ def main() -> int:
     p.add_argument("--pattern", default="*.tif")
     p.add_argument("--threshold-offset", type=float, default=0.1)
     p.add_argument("--crop-padding", type=int, default=2)
+    p.add_argument("--flow", action="store_true",
+                   help="run the 3D optical flow branch; each timepoint is solved from a "
+                        "contiguous window of its neighbours, so timepoints near either "
+                        "end of a series report NaN")
+    p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE")
+    p.add_argument("--flow-downsample", type=int, default=1)
     p.add_argument("--seg-root", default=None)
     p.add_argument("--seg-regex", default=None)
     p.add_argument("--seg-template", default=None)
     p.add_argument("--timelapse-regex", default=None)
+    p.add_argument("--mesh", action="store_true",
+                   help="add the mesh + curvature columns (needs a segmentation)")
+    p.add_argument("--no-curvature", action="store_true",
+                   help="mesh geometry only; skip the curvature columns")
     p.add_argument("--out", default=None, help="output basename (default: <folder>/<series> Timepoints)")
     args = p.parse_args()
 
@@ -92,7 +109,7 @@ def main() -> int:
         print(f"  grid {volumes.shape[1:]} @ {tuple(round(s, 4) for s in spacing)} um"
               f"{'  (common crop box)' if info.get('common_crop') else ''}")
 
-        results, island, void, kurt, med, mode = [], [], [], [], [], []
+        results, island, void, kurt, med, mode, speed = [], [], [], [], [], [], []
         for t in range(volumes.shape[0]):
             # Analyse timepoint t alone, but on the shared grid established above, so
             # the static metrics describe this timepoint and nothing else.
@@ -103,8 +120,23 @@ def main() -> int:
             row = ChannelResults(filepath=group.paths[t], channel=0)
             row.binarization = binar
             row.intensity = inten
+            if config.modules.optical_flow:
+                # Flow for timepoint t is solved from a contiguous window centred on it,
+                # so unlike the static branches it reads its neighbours. Timepoints
+                # within half a window of either end have none and come back NaN.
+                row.flow, _ = analyze_optical_flow_3d(
+                    volumes, spacing, stack.exposure_time_s, vcfg, [t], masks
+                )
+            if vcfg.mesh_enabled and masks is not None:
+                # Meshed per timepoint so the barcode row describes that timepoint,
+                # rather than a mean over the series.
+                try:
+                    row.mesh = summarise_meshes(mesh_series(masks, spacing, [t], vcfg))
+                except MeshingError as exc:
+                    print(f"    t={group.frames[t]:<3d} meshing failed: {exc}")
             results.append(row)
 
+            speed.append(row.flow.mean_speed)
             island.append(detail.island_voxels[0])
             void.append(detail.void_voxels[0])
             kurt.append(idet.kurtosis[0])
@@ -121,12 +153,18 @@ def main() -> int:
         # NaN -- there was nothing to compare against *within* that call. The series
         # does have the comparison, so fill them in now, each timepoint relative to the
         # first. Without this, six of the twenty-five barcode columns are dead.
+        # Flow is baselined against the first timepoint that *has* a value rather than
+        # against index 0: the first few timepoints have no window, so speed[0] is NaN
+        # and every difference from it would be NaN too.
+        first_speed = next((s for s in speed if np.isfinite(s)), np.nan)
+
         for t, row in enumerate(results):
             row.binarization.max_island_percent_change = island[t] / island[0]
             row.binarization.max_void_percent_change = void[t] / void[0]
             row.intensity.kurtosis_diff = kurt[t] - kurt[0]
             row.intensity.median_skew_diff = med[t] - med[0]
             row.intensity.mode_skew_diff = mode[t] - mode[0]
+            row.flow.delta_speed = speed[t] - first_speed
 
         suffix = "with masks" if masked else "no masks"
         if args.out:

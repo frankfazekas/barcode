@@ -31,10 +31,16 @@ def build_config(args) -> BarcodeConfig:
     config = BarcodeConfig()
     config.modules.image_binarization = not args.no_binarization
     config.modules.intensity_distribution = not args.no_intensity
-    config.modules.optical_flow = False  # 3D flow is not implemented yet
+    config.modules.optical_flow = args.flow
 
     v = config.volumetric
     v.enabled = True
+    v.flow_xyz_sigma = args.flow_xyz_sigma
+    v.flow_t_sigma = args.flow_t_sigma
+    v.flow_w_sigma = args.flow_w_sigma
+    v.flow_reliability_percentile = args.flow_reliability
+    v.flow_downsample = args.flow_downsample
+    v.flow_use_mask = not args.flow_ignore_mask
     v.z_step_um = args.z_step or 0.0
     v.xy_step_um = args.xy_step or 0.0
     v.threshold_offset = args.threshold_offset
@@ -80,6 +86,16 @@ def main() -> int:
     p.add_argument("--no-intensity", action="store_true")
     p.add_argument("--intensity-in-mask", action="store_true",
                    help="build the intensity histogram from in-mask voxels only")
+    p.add_argument("--flow", action="store_true",
+                   help="run the 3D optical flow branch (needs 6*t_sigma+1 contiguous timepoints)")
+    p.add_argument("--flow-xyz-sigma", type=float, default=3.0)
+    p.add_argument("--flow-t-sigma", type=int, default=1)
+    p.add_argument("--flow-w-sigma", type=float, default=4.0)
+    p.add_argument("--flow-reliability", type=float, default=50.0, metavar="PERCENTILE",
+                   help="drop voxels below this percentile of solver reliability; 0 keeps all")
+    p.add_argument("--flow-downsample", type=int, default=1)
+    p.add_argument("--flow-ignore-mask", action="store_true",
+                   help="compute flow metrics over the whole volume, not just inside the mask")
     p.add_argument("--mesh", action="store_true",
                    help="surface-mesh the segmented nucleus (needs a segmentation)")
     p.add_argument("--mesh-maxrad", type=float, default=5.0,
@@ -130,6 +146,23 @@ def main() -> int:
         print(f"   largest void   %vol: {[f'{v / total_vox:.4%}' for v in b.void_voxels]}")
         print(f"   spans field        : {b.connected}")
         print(f"   correlation length : {[f'{v:.4f}' for v in b.correlation_lengths]} um (r_max {b.r_max_um:.3f})")
+
+    f = detail.flow
+    if f is not None:
+        print()
+        print(f"-- flow (per window), {f.window_size}-frame windows (t_sigma={f.t_sigma}) --")
+        print(f"   window centres     : {f.centres or 'none — series too short or all centres at an edge'}")
+        if f.skipped_centres:
+            print(f"   skipped (no window): {f.skipped_centres}")
+        if f.centres:
+            print(f"   solved on grid     : {tuple(round(s, 4) for s in f.spacing_zyx_um)} um"
+                  f"{f'  (downsampled {f.downsample}x)' if f.downsample > 1 else ''}")
+            print(f"   voxels used        : {[f'{v:.1%}' for v in f.valid_fractions]}"
+                  f"{'  (reliability + mask)' if f.used_mask else '  (reliability only)'}")
+            print(f"   mean speed         : {[f'{v:.4f}' for v in f.speeds]} um/s")
+            print(f"   divergence         : {[f'{v:.4g}' for v in f.divergences]}")
+            print(f"   curl ||rot v||     : {[f'{v:.4g}' for v in f.curls]}")
+            print(f"   correlation length : {[f'{v:.4f}' for v in f.correlation_lengths]} um (r_max {f.r_max_um:.3f})")
 
     if detail.meshes:
         print()

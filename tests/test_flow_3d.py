@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 from scipy import ndimage
 
+from analysis.volumetric.binarization import correlation_length_from_radial
 from analysis.volumetric.flow import (
     _curl_magnitude_3d,
     _divergence_3d,
@@ -198,16 +199,31 @@ def test_window_size_matches_the_solvers_own_requirement():
 # 3. INVARIANCE
 # --------------------------------------------------------------------------------
 
-def test_speed_and_correlation_length_scale_with_voxel_size():
-    """Same voxels, twice the physical spacing: twice the speed and twice the length."""
+def test_speed_scales_with_voxel_size():
+    """Same voxels, twice the physical spacing: twice the speed."""
     series = make_series((0.0, 0.0, 0.5))
     config = flow_config()
     fine, _ = analyze_optical_flow_3d(series, (1.0, 1.0, 1.0), 1.0, config, [3], None)
     coarse, _ = analyze_optical_flow_3d(series, (2.0, 2.0, 2.0), 1.0, config, [3], None)
     assert coarse.mean_speed == pytest.approx(2 * fine.mean_speed, rel=1e-9)
-    assert coarse.velocity_correlation_length == pytest.approx(
-        2 * fine.velocity_correlation_length, rel=1e-9
-    )
+
+
+def test_correlation_length_scales_with_voxel_size():
+    """Twice the spacing, twice the correlation length.
+
+    Driven from a synthetic decaying field rather than from a translating series: a rigid
+    translation is coherent across the whole volume, so its correlation never crosses the
+    threshold and the length is legitimately NaN (see the flag-4 test below).
+    """
+    rng = np.random.default_rng(11)
+    field = ndimage.gaussian_filter(rng.normal(size=(24, 24, 24, 3)), (3, 3, 3, 0))
+
+    fine_r, fine_c = velocity_correlation_3d(field, (1.0, 1.0, 1.0))
+    coarse_r, coarse_c = velocity_correlation_3d(field, (2.0, 2.0, 2.0))
+    fine = correlation_length_from_radial(fine_c, fine_r, 0.5)
+    coarse = correlation_length_from_radial(coarse_c, coarse_r, 0.5)
+    assert np.isfinite(fine)
+    assert coarse == pytest.approx(2 * fine, rel=1e-9)
 
 
 def test_speed_is_inverse_in_exposure_time():
@@ -316,6 +332,50 @@ def test_mask_restricts_the_metrics_and_only_when_asked():
     assert unmasked.valid_fractions[0] == pytest.approx(1.0)
 
 
+def test_reliability_masking_does_not_corrupt_the_spatial_operators():
+    """Divergence, curl and correlation must be computed before the mask is applied.
+
+    A smooth translating field has near-zero divergence and curl everywhere. If the
+    masked-out voxels were punched to zero *before* differentiating, the scattered holes
+    left by a 50th-percentile reliability cut would create large spurious gradients at
+    every hole edge, and curl would jump by orders of magnitude relative to the unmasked
+    run. Here the mask changes which voxels are averaged, not what is differentiated, so
+    the two stay in the same ballpark.
+    """
+    series = make_series((0.0, 0.0, 0.5))
+    unmasked, _ = analyze_optical_flow_3d(
+        series, (1.0, 1.0, 1.0), 1.0, flow_config(flow_reliability_percentile=0.0), [3], None
+    )
+    masked, detail = analyze_optical_flow_3d(
+        series, (1.0, 1.0, 1.0), 1.0, flow_config(flow_reliability_percentile=50.0), [3], None
+    )
+    assert detail.valid_fractions[0] == pytest.approx(0.5, abs=0.02)
+    assert masked.curl == pytest.approx(unmasked.curl, rel=1.0)
+    # The correlation reads the full field, so the reliability cut cannot touch it at all.
+    assert masked.velocity_correlation_flag == unmasked.velocity_correlation_flag
+    assert np.array_equal(
+        [masked.velocity_correlation_length], [unmasked.velocity_correlation_length],
+        equal_nan=True,
+    )
+
+
+def test_coherent_flow_exceeds_the_field_of_view_and_raises_flag_4():
+    """A rigid translation stays correlated everywhere, so there is no crossing to find.
+
+    NaN plus flag 4 ("velocity correlation length > field of view") is the honest report.
+    This is also the regression guard for masking-before-differentiation: punching the
+    reliability holes out first would decorrelate the field artificially and yield a
+    confident, wrong, finite length here.
+    """
+    series = make_series((0.0, 0.0, 0.5))
+    results, _ = analyze_optical_flow_3d(
+        series, (1.0, 1.0, 1.0), 1.0, flow_config(), [3], None
+    )
+    assert np.isfinite(results.mean_speed)
+    assert np.isnan(results.velocity_correlation_length)
+    assert results.velocity_correlation_flag == 1
+
+
 def test_static_series_reports_near_zero_speed():
     """Nothing moves, so nothing should be reported as moving."""
     still = np.repeat(make_series((0.0, 0.0, 0.0), n_frames=1)[0][None], 7, axis=0)
@@ -344,7 +404,10 @@ def test_fully_masked_out_window_does_not_warn_or_raise():
         series, (1.0, 1.0, 1.0), 1.0, config, [3], masks
     )
     assert detail.valid_fractions == [0.0]
-    assert np.isnan(results.mean_speed)
+    # Every metric must be NaN. In particular the directional spread must not come back
+    # as a large finite number: an empty window has no direction, and a resultant length
+    # of 0 would otherwise be indistinguishable from genuinely isotropic flow.
+    assert all(np.isnan(v) for v in results.get_data())
 
 
 def test_downsampling_keeps_the_direction_and_the_physical_scale():

@@ -54,6 +54,12 @@ def results_to_csv(
         os.path.dirname(output_filepath)
     ), "Output directory does not exist."
 
+    # Mesh columns are opt-in so the 2D schema is untouched: emit them only when the
+    # results actually carry mesh data.
+    if "include_mesh" not in kwargs and hasattr(results[0], "mesh"):
+        kwargs = dict(kwargs, include_mesh=any(
+            getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results))
+
     headers = results[0].get_physical_headers(**kwargs) if quantified else results[0].get_headers(**kwargs)
     if extra_columns:
         headers = list(extra_columns.keys()) + headers

@@ -24,6 +24,12 @@ Four things genuinely differ from the 2D branch, and each forced a decision:
 * **Velocity correlation cannot be brute-forced.** ``utils.optical_flow.velocity_correlation``
   loops explicitly over every shift, which is O(N^2) and hopeless on a volume. The FFT
   form here is the same quantity; see ``velocity_correlation_3d``.
+* **Masking has to come after differentiation, not before.** The reliability mask marks
+  where a velocity is *trustworthy*, not where it exists — the solver returns one at
+  every voxel. Divergence, curl and the correlation all read neighbouring voxels, and at
+  the default 50th-percentile cut half the volume is excluded in a scattered pattern, so
+  removing those voxels first would make the derivatives describe the hole pattern
+  instead of the flow. They are computed on the full field and masked at the reduction.
 
 Sign convention: upstream puts (0,0) at the top-left with +y pointing *down*. The 2D
 branch flips to y-up (``-1 * np.flipud(downV)``), so ``vy`` is negated here to match.
@@ -221,13 +227,15 @@ def analyze_optical_flow_3d(
     centres, dropped = _select_centres(n_frames, frame_indices, size)
     detail.centres, detail.skipped_centres = centres, dropped
     if dropped:
+        # One message, not two: the reason is the same whether some centres survived or
+        # none did, and per-timepoint callers would otherwise print this twice per frame.
+        scope = "no timepoint has one" if not centres else f"skipped {dropped}"
         print(
             f"  flow: {len(dropped)} timepoint(s) sit within {size // 2} frames of a "
-            f"series end and have no full window; skipped {dropped}.",
+            f"series end, so have no full {size}-frame window; {scope}.",
             flush=True,
         )
     if not centres:
-        print("  flow: no timepoint has a full window; skipping the flow branch.", flush=True)
         return FlowResults(), detail
 
     down = max(int(config.flow_downsample), 1)
@@ -266,7 +274,18 @@ def analyze_optical_flow_3d(
             valid &= mask
         detail.valid_fractions.append(float(valid.mean()))
 
-        field = np.stack([vx, vy, vz], axis=-1)
+        # Two views of the same solve. The solver returns a velocity at *every* voxel;
+        # `valid` marks where that velocity is trustworthy, not where it exists. Which
+        # view a metric uses depends on whether it is pointwise or spatial:
+        #   - pointwise (speed, direction): use the masked view, so unreliable voxels do
+        #     not enter the average.
+        #   - spatial (divergence, curl, correlation): use the raw view. These read
+        #     neighbouring voxels, and with the default 50th-percentile cut half the
+        #     volume is excluded in a scattered pattern. Punching those holes out before
+        #     differentiating would make the derivative describe the hole pattern rather
+        #     than the flow. The mask is still applied afterwards, to the reduction.
+        raw_field = np.stack([vx, vy, vz], axis=-1)
+        field = raw_field.copy()
         field[~valid] = np.nan
 
         speed = np.sqrt(np.nansum(field ** 2, axis=-1))
@@ -277,18 +296,18 @@ def analyze_optical_flow_3d(
             unit = field / speed[..., None]
         mean_unit = np.array([_nanmean(unit[..., i]) for i in range(3)])
         mean_units.append(mean_unit)
-        resultants.append(float(np.sqrt(np.nansum(mean_unit ** 2))))
+        # np.sum, not np.nansum: when every voxel was masked out the mean unit vector is
+        # all-NaN, and nansum would turn that into a resultant of 0 — which reads as
+        # "perfectly isotropic flow" and yields a large finite spread for a window that
+        # actually has no data at all.
+        resultants.append(float(np.sqrt(np.sum(mean_unit ** 2))))
 
-        # Gradients need a filled field; NaNs would spread to every neighbour. Masked
-        # voxels are zeroed for the derivative and then dropped from the mean, so an
-        # excluded region contributes nothing rather than contributing noise.
-        filled = np.nan_to_num(field, nan=0.0)
-        divergence = _divergence_3d(filled, (dz, dy, dx))
-        curl = _curl_magnitude_3d(filled, (dz, dy, dx))
+        divergence = _divergence_3d(raw_field, (dz, dy, dx))
+        curl = _curl_magnitude_3d(raw_field, (dz, dy, dx))
         detail.divergences.append(_nanmean(np.where(valid, divergence, np.nan)))
         detail.curls.append(_nanmean(np.where(valid, curl, np.nan)))
 
-        radii, radial = velocity_correlation_3d(field, (dz, dy, dx))
+        radii, radial = velocity_correlation_3d(raw_field, (dz, dy, dx))
         if radii.size:
             detail.r_max_um = float(radii[-1])
             detail.correlation_lengths.append(
@@ -334,8 +353,11 @@ def _assemble_results(
 
     # Circular spread from the resultant length of the *3D* unit vectors: R -> 1 for a
     # coherent flow (spread 0), R -> 0 for isotropic scatter (spread -> inf).
-    resultant = np.clip(np.asarray(resultants, dtype=np.float64), 1e-12, 1.0)
-    sigma_theta = _nanmean(np.sqrt(-2 * np.log(resultant)))
+    resultant = np.asarray(resultants, dtype=np.float64)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        # Clip only the finite values; NaN must stay NaN (see the resultant comment above).
+        resultant = np.where(np.isnan(resultant), np.nan, np.clip(resultant, 1e-12, 1.0))
+        sigma_theta = _nanmean(np.sqrt(-2 * np.log(resultant)))
 
     correlation_lengths = np.asarray(detail.correlation_lengths, dtype=np.float64)
 

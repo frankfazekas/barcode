@@ -193,6 +193,47 @@ def test_smoothing_iterations_shrink_the_surface():
 
 
 @needs_iso2mesh
+def test_smoothing_is_humphreys_classes_not_plain_laplacian():
+    """HC (Vollmer/Mencl/Muller 1999) de-staircases without collapsing the volume.
+
+    ``generate_mesh`` asks iso2mesh for ``laplacianhc``. Plain Laplacian smoothing at
+    the same alpha shrinks the volume far more, so this guards the choice of smoother --
+    swapping it would quietly bias every volume metric.
+
+    The margin grows with mesh resolution (measured: 196 faces -> 3x, 1100 faces -> 12x,
+    a real ~7000-face nucleus -> 14x, where HC costs 0.06% of the volume and plain
+    Laplacian 0.83%). A ball big enough to mesh at a realistic density is used so the
+    assertion is not calibrated on a degenerately coarse surface.
+    """
+    from analysis.volumetric.mesh import _import_iso2mesh
+
+    _, _, smoothsurf, meshconn = _import_iso2mesh()
+
+    mask = _ball(shape=(100, 100, 100), radius=40.0)
+    vertices, faces = mesh_module_generate_unsmoothed(mask)
+    conn = meshconn(faces, vertices.shape[0])[0]
+    reference = abs(mesh_volume(vertices, faces))
+
+    hc = np.asarray(smoothsurf(vertices.copy(), None, conn, 10, 0.1, "laplacianhc", 0.5))
+    plain = np.asarray(smoothsurf(vertices.copy(), None, conn, 10, 0.1, "laplacian", 0.5))
+
+    hc_shrink = 1 - abs(mesh_volume(hc, faces)) / reference
+    plain_shrink = 1 - abs(mesh_volume(plain, faces)) / reference
+
+    assert 0 <= hc_shrink < 0.01                 # HC barely moves the enclosed volume
+    assert plain_shrink > 5 * hc_shrink          # plain Laplacian collapses it faster
+    # Both still smooth: surface area drops relative to the staircased input.
+    assert face_areas(hc, faces).sum() < face_areas(vertices, faces).sum()
+
+
+def mesh_module_generate_unsmoothed(mask):
+    """The meshing chain stopped just before smoothing, for smoother comparisons."""
+    from analysis.volumetric.mesh import generate_mesh as _generate
+
+    return _generate(mask, smoothing_iterations=0)
+
+
+@needs_iso2mesh
 def test_matlab_compat_changes_the_decimation_ratio():
     mask = _ball()
     default = mesh_nucleus(mask, (0.1, 0.1, 0.1))

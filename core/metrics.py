@@ -66,6 +66,27 @@ class Metrics(Enum):
     MEDIAN_SKEW_DIFF = "Median Skewness Change"
     MODE_SKEW_DIFF = "Mode Skewness Change"
 
+    # Metrics from surface meshing of a segmented object (analysis/volumetric/mesh.py).
+    # Only emitted when mesh data is present, so the 2D schema is unchanged.
+    # "Mesh Volume" is deliberately distinct from the island volume: meshing smooths the
+    # surface, so the two differ by a few percent, and Mesh Volume Ratio reports exactly
+    # that discrepancy as a fidelity check.
+    MESH_VOLUME = "Mesh Volume"
+    MESH_SURFACE_AREA = "Mesh Surface Area"
+    MESH_SPHERICITY = "Sphericity"
+    MESH_EQUIVALENT_RADIUS = "Equivalent Sphere Radius"
+    MESH_HEIGHT = "Mesh Height"
+    MESH_VOLUME_RATIO = "Mesh Volume Ratio"
+
+    # Curvature of that surface (analysis/volumetric/curvature.py).
+    # <H> denotes the area-weighted surface average of the pointwise mean curvature
+    # H = (k1 + k2)/2. Two averages are stacked -- "mean curvature" is already a
+    # local quantity -- and the surface average excludes bottom/top and outlier
+    # faces, so the bare name "Mean Curvature" undersells what was computed.
+    CURVATURE_MEAN = "Mean Curvature <H>"
+    CURVATURE_INVAGINATION = "Invagination Ratio"
+    CURVATURE_CONCAVE = "Concave Area Fraction"
+
     IGNORE = "Ignore this"
     FILEPATH = "File"
     CHANNEL = "Channel"
@@ -83,6 +104,8 @@ class Units(UnitsNum):
     PERCENT_FRAMES: str = "% of Frames"
     LENGTH: str = "μm"
     AREA: str = "μm^2"
+    VOLUME: str = "μm^3"
+    CURVATURE: str = "1/μm"
 
 
 def get_data_limits(
@@ -134,8 +157,10 @@ def get_data_limits(
                 limits.append(direction_static_limits)
         elif unit == Units.PERCENT_CHANGE:
             limits.append(dynamic_limits(data[:, i], 1))
-        elif unit in [Units.SPEED, Units.LENGTH, Units.AREA]:
-            if metric == Metrics.DELTA_SPEED:
+        elif unit in [Units.SPEED, Units.LENGTH, Units.AREA, Units.VOLUME, Units.CURVATURE]:
+            if metric == Metrics.DELTA_SPEED or unit == Units.CURVATURE:
+                # Curvature is signed: a concave surface gives a negative mean, so a
+                # [0, max] scale would clip half its range.
                 limits.append(dynamic_limits(data[:, i], 0))
             else:
                 limits.append([0, np.nanmax(data[:, i])])

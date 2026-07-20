@@ -268,14 +268,306 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
+    tk.Label(frame, text="3D Optical Flow", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    xyz_sigma_label = tk.Label(frame, text="Spatial Smoothing Sigma")
+    xyz_sigma_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.5, to=20.0, increment=0.5, textvariable=cv.flow_xyz_sigma, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Gaussian smoothing applied in Z, Y and X before the velocity is solved. Larger "
+        "values suppress noise but blur out small features. This is a gradient-based "
+        "method, so it under-reports motion when the structures being tracked are the "
+        "same size as this sigma or smaller; keep it below the feature scale.",
+        row_idx, xyz_sigma_label,
+    )
+    row_idx += 1
+
+    t_sigma_label = tk.Label(frame, text="Temporal Smoothing Sigma")
+    t_sigma_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=1, to=10, increment=1, textvariable=cv.flow_t_sigma, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Smoothing along time. Each analysed timepoint needs a CONTIGUOUS window of "
+        "6*sigma+1 volumes centred on it — 7 at the default of 1. Series shorter than "
+        "that are skipped entirely, and timepoints within half a window of either end "
+        "of a series are skipped too. Raise this only for long, noisy time-lapses.",
+        row_idx, t_sigma_label,
+    )
+    row_idx += 1
+
+    w_sigma_label = tk.Label(frame, text="Lucas-Kanade Neighborhood Sigma")
+    w_sigma_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.5, to=20.0, increment=0.5, textvariable=cv.flow_w_sigma, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Size of the neighbourhood over which the flow equation is solved. Larger values "
+        "give a better-conditioned solution but smooth over small-scale motion.",
+        row_idx, w_sigma_label,
+    )
+    row_idx += 1
+
+    rel_label = tk.Label(frame, text="Reliability Percentile (0 = keep all)")
+    rel_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=99.0, increment=5.0,
+        textvariable=cv.flow_reliability_percentile, width=7,
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Voxels below this percentile of the solver's reliability score are dropped from "
+        "every flow metric. In flat, textureless regions the flow equation is "
+        "ill-conditioned and the velocity it returns is noise, so the default of 50 keeps "
+        "only the better-conditioned half of the volume. Set to 0 to use every voxel.",
+        row_idx, rel_label,
+    )
+    row_idx += 1
+
+    flow_down_label = tk.Label(frame, text="Flow Downsampling")
+    flow_down_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=1, to=16, increment=1, textvariable=cv.flow_downsample, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Block-average the volumes by this factor on every axis before solving. The "
+        "reliability score needs a 3x3 eigendecomposition at every voxel, so large fields "
+        "of view get slow; on a 196x243x189 nucleus, 2 cuts a window from ~54 s to ~8 s. "
+        "Speed is barely affected, but the gradient-derived metrics are: on that same "
+        "nucleus Curl roughly halved and Velocity Correlation Length nearly doubled going "
+        "from 1 to 2, because block-averaging smooths the velocity field. Keep this value "
+        "FIXED across a dataset — runs at different settings are not comparable.",
+        row_idx, flow_down_label,
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.flow_use_mask,
+        "Flow Metrics Inside Mask Only",
+        "Restrict the flow metrics to voxels inside the segmentation. On by default "
+        "because a cropped nucleus is mostly background, whose noise velocities would "
+        "otherwise dominate the average speed. The flow is still solved on the whole "
+        "volume, so gradients at the mask boundary use real neighbours. Has no effect "
+        "when no segmentation is in use.",
+    )
+    row_idx += 2
+
     note = tk.Label(
         frame,
-        text=("Note: 3D optical flow is not implemented. With volumetric analysis enabled "
-              "the flow branch is skipped and its metrics are reported as NaN."),
+        text=("Note: in 3D the curl is a vector, so the Curl metric reports the mean "
+              "magnitude ||curl v||. It is therefore always positive and does not carry "
+              "the handedness the 2D Curl metric does. Mean Flow Direction remains the "
+              "XY azimuth so it stays comparable with 2D runs, while Flow Directional "
+              "Spread accounts for out-of-plane scatter as well."),
         wraplength=560,
         justify="left",
         fg="#666666",
     )
     note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(15, 5))
+    row_idx += 1
+
+    tk.Label(frame, text="Surface Meshing", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.mesh_enabled,
+        "Mesh the Segmented Surface",
+        "Build a triangulated surface of the segmented object and measure it: volume, "
+        "surface area, sphericity, equivalent sphere radius and height. Adds nine "
+        "columns to the CSV and barcode. Requires a segmentation mask and an isotropic "
+        "grid, so it needs Use Segmentation Masks and Resample to Isotropic Voxels. "
+        "Costs roughly 8 s per analysed timepoint.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.mesh_curvature,
+        "Measure Surface Curvature",
+        "Also compute per-face curvature and reduce it to Mean Curvature, Invagination "
+        "Ratio and Concave Area Fraction. These describe how folded the surface is, "
+        "which the volume and sphericity metrics cannot capture on their own.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.mesh_export_obj,
+        "Export Mesh as .OBJ",
+        "Write the triangulated surface alongside the results so it can be opened in "
+        "MeshLab, Blender or ParaView. Does not affect any metric.",
+    )
+    row_idx += 2
+
+    maxrad_label = tk.Label(frame, text="Mesh Max Radius [voxels]")
+    maxrad_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.5, to=50.0, increment=0.5, textvariable=cv.mesh_maxrad, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Target triangle size, as a radius in voxels. Smaller gives a finer surface and "
+        "a slower run. This is one radius for all three axes, which is why the mesh "
+        "needs an isotropic grid.",
+        row_idx, maxrad_label,
+    )
+    row_idx += 1
+
+    area_frac_label = tk.Label(frame, text="Mesh Area Fraction")
+    area_frac_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.01, to=1.0, increment=0.01, textvariable=cv.mesh_area_frac, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame, "Fraction of the target area kept when simplifying the surface.",
+        row_idx, area_frac_label,
+    )
+    row_idx += 1
+
+    smooth_iter_label = tk.Label(frame, text="Smoothing Iterations")
+    smooth_iter_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=200, increment=1,
+        textvariable=cv.mesh_smoothing_iterations, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Surface smoothing passes. Smoothing shrinks the object slightly, so the mesh "
+        "volume comes out a few percent below the voxel-counted volume. The Mesh Volume "
+        "Ratio column reports exactly that: near 1.0 means the surface is faithful.",
+        row_idx, smooth_iter_label,
+    )
+    row_idx += 1
+
+    alpha_label = tk.Label(frame, text="Smoothing Alpha")
+    alpha_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=1.0, increment=0.01,
+        textvariable=cv.mesh_smoothing_alpha, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    row_idx += 1
+
+    beta_label = tk.Label(frame, text="Smoothing Beta")
+    beta_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=1.0, increment=0.01,
+        textvariable=cv.mesh_smoothing_beta, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame, "Laplacian smoothing weights (alpha, beta) passed to the mesh smoother.",
+        row_idx, beta_label,
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.mesh_matlab_compat,
+        "MATLAB-Compatible Meshing",
+        "Reproduce the original MATLAB pipeline's meshing conventions exactly, for "
+        "comparing against results produced by it.",
+    )
+    row_idx += 2
+
+    iso_bin_label = tk.Label(frame, text="iso2mesh Binaries Folder:")
+    iso_bin_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
+    tk.Entry(frame, textvariable=cv.mesh_iso2mesh_bin, width=35).grid(
+        row=row_idx, column=1, padx=5, pady=2
+    )
+
+    def browse_iso_bin():
+        chosen = filedialog.askdirectory(title="Select the iso2mesh Binaries Folder")
+        if chosen:
+            cv.mesh_iso2mesh_bin.set(chosen)
+
+    tk.Button(frame, text="Browse Folder…", command=browse_iso_bin).grid(
+        row=row_idx, column=2, sticky="w", padx=5
+    )
+    create_popup(
+        frame,
+        "Leave blank to use the binaries shipped with the installed iso2mesh package. "
+        "Set this only if meshing reports that it cannot find them.",
+        row_idx, iso_bin_label,
+    )
+    row_idx += 1
+
+    tk.Label(frame, text="Advanced", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    min_island_label = tk.Label(frame, text="Minimum Island Size [voxels]")
+    min_island_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=1000, increment=1,
+        textvariable=cv.minimum_island_size, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Objects and holes smaller than this are removed after thresholding. Ignored "
+        "when a segmentation mask supplies the binarization.",
+        row_idx, min_island_label,
+    )
+    row_idx += 1
+
+    neighbour_label = tk.Label(frame, text="Neighbour Island Fraction")
+    neighbour_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.01, to=1.0, increment=0.01,
+        textvariable=cv.neighbor_island_fraction, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Fraction of the other objects averaged over when computing Mean Island "
+        "Separation. With a clean single-object mask there is nothing to separate from "
+        "and that metric is reported as NaN regardless.",
+        row_idx, neighbour_label,
+    )
+    row_idx += 1
+
+    pct_frames_label = tk.Label(frame, text="Percentage of Frames Evaluated")
+    pct_frames_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.01, to=1.0, increment=0.01,
+        textvariable=cv.percentage_frames_evaluated, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Fraction of timepoints at each end of the series averaged to form the change "
+        "metrics. A single-timepoint run reports every change metric as NaN.",
+        row_idx, pct_frames_label,
+    )
+    row_idx += 1
+
+    noise_label = tk.Label(frame, text="Intensity Noise Threshold")
+    noise_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=1.0, increment=0.0001, format="%.4f",
+        textvariable=cv.noise_threshold, width=9
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Histogram bins holding less than this fraction of voxels are discarded before "
+        "the intensity statistics are computed.",
+        row_idx, noise_label,
+    )
+    row_idx += 1
 
     return frame

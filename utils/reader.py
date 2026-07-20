@@ -5,6 +5,7 @@ import imageio.v3 as iio
 import numpy as np
 from utils import vprint
 from core import BarcodeConfig, InputConfig, ChannelResults, BinarizationResults, IntensityResults, FlowResults
+from core.results import MeshResults
 
 def check_first_frame_dim(file):
     min_intensity = np.min(file[0])
@@ -90,9 +91,15 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
     expected_headers = ChannelResults.get_headers(just_metrics=False)
     expected_physical_headers = ChannelResults.get_physical_headers(just_metrics=False)
     expected_v1_headers = expected_headers[:10] + expected_headers[15:-1]
+    # Volumetric runs append the mesh/curvature family; see core.results.MeshResults.
+    expected_mesh_headers = ChannelResults.get_headers(just_metrics=False, include_mesh=True)
+    expected_mesh_physical_headers = ChannelResults.get_physical_headers(
+        just_metrics=False, include_mesh=True)
 
     v1_header_length = 18 # Channel, 7 Image_Binarization, 6 Intensity_Distribution, 4 Optical_Flow
     v2_header_length = 26 # Channel, 12 Image_Binarization, 6 Intensity_Distribution, 7 Optical_Flow
+    mesh_block_length = 9 # Mesh + curvature, appended by volumetric runs
+    v3_header_length = v2_header_length + mesh_block_length
 
     import csv
 
@@ -102,7 +109,11 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
         headers = next(reader)
 
         assert (
-            (headers == expected_headers) or (headers == expected_physical_headers) or (headers == expected_v1_headers)
+            (headers == expected_headers)
+            or (headers == expected_physical_headers)
+            or (headers == expected_v1_headers)
+            or (headers == expected_mesh_headers)
+            or (headers == expected_mesh_physical_headers)
         ), f"CSV headers {headers} do not match expected headers for BARCODE analysis"
 
         for row in reader:
@@ -111,6 +122,18 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
             data = [get_value(value) for value in row[1:]]
             if np.isnan(data[0]):
                 raise ValueError(f"Invalid channel in row: {row}")
+
+            mesh_values = None
+            if len(data) == v3_header_length:
+                mesh_values = data[-mesh_block_length:]
+                data = data[:-mesh_block_length]
+
+            # The branches below dispatch on the header list, so compare against the
+            # headers with any mesh block removed -- otherwise a volumetric CSV matches
+            # neither the base nor the physical set and the row is silently dropped.
+            base_headers = (
+                headers[:-mesh_block_length] if mesh_values is not None else headers
+            )
             if len(data) == v1_header_length:
                 results.append(
                     ChannelResults(
@@ -143,7 +166,7 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
                     )
                 )
             elif len(data) == v2_header_length:
-                if headers == expected_headers:
+                if base_headers == expected_headers:
                     results.append(ChannelResults(
                         filepath = filename,
                         channel = int(data[0]),
@@ -180,7 +203,7 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
                             curl=data[25]
                         )
                     ))
-                elif headers == expected_physical_headers:
+                elif base_headers == expected_physical_headers:
                     results.append(
                         ChannelResults(
                             filepath=filename,
@@ -219,4 +242,16 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
                             )
                         )
                     )
+            if mesh_values is not None and results:
+                results[-1].mesh = MeshResults(
+                    mesh_volume=mesh_values[0],
+                    surface_area=mesh_values[1],
+                    sphericity=mesh_values[2],
+                    equivalent_radius=mesh_values[3],
+                    height=mesh_values[4],
+                    volume_ratio=mesh_values[5],
+                    mean_curvature=mesh_values[6],
+                    invagination_ratio=mesh_values[7],
+                    concave_ratio=mesh_values[8],
+                )
     return results
