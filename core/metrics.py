@@ -49,6 +49,46 @@ class Metrics(Enum):
     ISLAND_MEAN_AREA_QUANTITY = "Mean Island Area Quantity"
     ISLAND_TOTAL_AREA_QUANTITY = "Total Island Area Quantity"
 
+    # Volumetric (xyzt) counterparts of the island/void size metrics. Separate members
+    # rather than a rename so the 2D modes keep byte-identical headers and existing
+    # 2D CSVs -- including the published reference set -- still load.
+    ISLAND_MAX_VOLUME = "Maximum Island Volume"
+    VOID_MAX_VOLUME = "Maximum Void Volume"
+    MAX_ISLAND_VOLUME_CHANGE = "Maximum Island Volume Change"
+    MAX_VOID_VOLUME_CHANGE = "Maximum Void Volume Change"
+    ISLAND_MAX_VOLUME_INITIAL = "Initial Maximum Island Volume"
+    ISLAND_MAX_VOLUME_INITIAL2 = "Initial 2nd Maximum Island Volume"
+    ISLAND_MEAN_VOLUME = "Mean Island Volume"
+    ISLAND_TOTAL_VOLUME = "Total Island Volume"
+
+    ISLAND_MAX_VOLUME_QUANTITY = "Maximum Island Volume Quantity"
+    VOID_MAX_VOLUME_QUANTITY = "Maximum Void Volume Quantity"
+    ISLAND_MAX_VOLUME_INITIAL_QUANTITY = "Initial Maximum Island Volume Quantity"
+    ISLAND_MAX_VOLUME_INITIAL2_QUANTITY = "Initial 2nd Maximum Island Volume Quantity"
+    ISLAND_MEAN_VOLUME_QUANTITY = "Mean Island Volume Quantity"
+    ISLAND_TOTAL_VOLUME_QUANTITY = "Total Island Volume Quantity"
+
+    # In xyz the progression axis is depth, so a "Change" is a change with depth, not
+    # over time. Named explicitly: a depth trend read as a time trend would be a silent
+    # scientific error, which is the whole reason modes exist.
+    MAX_ISLAND_AREA_CHANGE_Z = "Maximum Island Area Change (over Z)"
+    MAX_VOID_AREA_CHANGE_Z = "Maximum Void Area Change (over Z)"
+    KURTOSIS_DIFF_Z = "Kurtosis Change (over Z)"
+    MEDIAN_SKEW_DIFF_Z = "Median Skewness Change (over Z)"
+    MODE_SKEW_DIFF_Z = "Mode Skewness Change (over Z)"
+
+    # Per-connected-component size distribution. Off by default: the barcode is already
+    # wide, and these describe the *spread* of object sizes rather than adding a new
+    # physical quantity. Mean and total size are not here -- they are already in the
+    # binarization family as Mean/Total Island Area or Volume.
+    ISLAND_COUNT = "Island Count"
+    ISLAND_AREA_SD = "Island Area SD"
+    ISLAND_AREA_SKEW = "Island Area Skewness"
+    ISLAND_AREA_MEDIAN = "Median Island Area"
+    ISLAND_VOLUME_SD = "Island Volume SD"
+    ISLAND_VOLUME_SKEW = "Island Volume Skewness"
+    ISLAND_VOLUME_MEDIAN = "Median Island Volume"
+
     # Metrics for optical flow analysis
     SPEED = "Speed"
     DELTA_SPEED = "Speed Change"
@@ -172,3 +212,20 @@ def get_data_limits(
         else:
             raise ValueError(f"Unsupported unit: {unit}")
     return limits
+
+
+def selection_mask(headers: List[str], hidden: List[str] = None) -> List[bool]:
+    """Boolean mask over ``headers``, False for anything named in ``hidden``.
+
+    Feeds ``visualization.barcode.generate_combined_barcode``'s ``metrics_to_visualize``.
+    Matching is by metric *name*, not position, so a mode that adds or drops a family
+    cannot silently hide the wrong column -- the failure that positional boolean lists
+    invite.
+
+    Unknown names in ``hidden`` are ignored rather than raising: a selection saved for
+    one mode is often reused for another where some metrics do not exist.
+    """
+    if not hidden:
+        return [True] * len(headers)
+    hidden_set = {h.strip() for h in hidden if h and h.strip()}
+    return [header not in hidden_set for header in headers]

@@ -54,9 +54,19 @@ def results_to_csv(
         os.path.dirname(output_filepath)
     ), "Output directory does not exist."
 
-    # Mesh columns are opt-in so the 2D schema is untouched: emit them only when the
-    # results actually carry mesh data.
-    if "include_mesh" not in kwargs and hasattr(results[0], "mesh"):
+    # The analysis mode decides which metric families this CSV carries. Mesh columns
+    # stay conditional on data actually being present, so an xyzt run that skipped
+    # meshing does not emit nine empty columns.
+    # Same rule for the component family: present it only when it was computed.
+    if "include_components" not in kwargs and hasattr(results[0], "components"):
+        kwargs = dict(kwargs, include_components=any(
+            getattr(r, "components", None) is not None and r.components.is_populated()
+            for r in results))
+
+    if "mode" in kwargs and kwargs["mode"] is not None and "include_mesh" not in kwargs:
+        kwargs = dict(kwargs, include_mesh=any(
+            getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results))
+    elif "include_mesh" not in kwargs and hasattr(results[0], "mesh"):
         kwargs = dict(kwargs, include_mesh=any(
             getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results))
 

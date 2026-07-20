@@ -133,6 +133,9 @@ def find_island_properties_3d(
             "second_largest": np.nan,
             "total": np.nan,
             "mean": np.nan,
+            "sd": np.nan,
+            "skew": np.nan,
+            "median": np.nan,
             "separation": np.nan,
             "anisotropy": np.nan,
             "count": 0,
@@ -147,11 +150,20 @@ def find_island_properties_3d(
     )
     centroids = np.stack([regions[f"centroid-{i}"] for i in range(3)], axis=1)
 
+    # Spread of the size distribution, not just its summary: one dominant object plus
+    # debris and a handful of even objects give the same mean.
+    skew = np.nan
+    if len(areas) > 2 and areas.std() > 0:
+        skew = float(np.mean(((areas - areas.mean()) / areas.std()) ** 3))
+
     return {
         "largest": float(areas[0]),
         "second_largest": float(areas[1]) if len(areas) > 1 else 0.0,
         "total": float(areas.sum()),
         "mean": float(np.nanmean(areas)),
+        "sd": float(areas.std()) if len(areas) > 1 else 0.0,
+        "skew": skew,
+        "median": float(np.median(areas)),
         "separation": _mean_island_separation(centroids, spacing_zyx, neighbor_fraction),
         "anisotropy": float(np.nanmean(_anisotropy_from_eigvals(eigvals))),
         "count": int(count),
@@ -238,6 +250,9 @@ class VolumetricBinarizationDetail:
     correlation_lengths: List[float] = None
     connected: List[int] = None
     island_counts: List[int] = None
+    size_sds: List[float] = None
+    size_skews: List[float] = None
+    size_medians: List[float] = None
     voxel_count: int = 0
     voxel_volume_um3: float = np.nan
     used_mask: bool = False
@@ -266,6 +281,7 @@ def analyze_binarization_3d(
         island_voxels=[], void_voxels=[], total_island_voxels=[],
         mean_island_voxels=[], separations=[], anisotropies=[],
         correlation_lengths=[], connected=[], island_counts=[],
+        size_sds=[], size_skews=[], size_medians=[],
         voxel_volume_um3=voxel_volume,
         used_mask=masks is not None,
     )
@@ -301,6 +317,9 @@ def analyze_binarization_3d(
         detail.separations.append(props["separation"])
         detail.anisotropies.append(props["anisotropy"])
         detail.island_counts.append(props["count"])
+        detail.size_sds.append(props["sd"])
+        detail.size_skews.append(props["skew"])
+        detail.size_medians.append(props["median"])
         detail.void_voxels.append(find_largest_void_3d(binary))
         detail.connected.append(check_span_3d(binary))
         detail.correlation_lengths.append(correlation_length)

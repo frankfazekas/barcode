@@ -45,6 +45,15 @@ def find_largest_void(frame: np.ndarray):
 
 def find_island_properties(frame: np.ndarray, bin_config: BinarizationConfig):
     def get_nearest_neighbors(islands: list[tuple], k:float):
+        # A lone island has nothing to be separated from. Without this guard
+        # np.partition below is asked for kth=1 of a 1x1 distance matrix and raises
+        # "kth out of bounds", which analysis/run.py catches and turns into a blank
+        # binarization row. That is not rare: the top and bottom slices of a z-stack
+        # through a single cell routinely contain exactly one island, so it fires on
+        # roughly one file in fifteen of real Jurkat data in xyz mode. NaN is what the
+        # metric means here, and it matches what the 3D branch already returns.
+        if len(islands) < 2:
+            return np.nan
         k_num = int(np.ceil(k * len(islands)) - 1)
         points = np.array(islands, dtype = np.dtype([('x', 'float'), ('y', 'float')]))
         a, b = points.reshape(len(islands), 1), points.reshape(1, len(islands))

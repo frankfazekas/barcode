@@ -39,6 +39,10 @@ def build_config(args) -> BarcodeConfig:
     config.modules.optical_flow = args.flow
     v = config.volumetric
     v.enabled = True
+    # These scripts call the volumetric branch directly, bypassing the dispatch in
+    # core.pipeline, so the mode must be stated here too -- it is what decides the
+    # metric names and which families the CSV carries.
+    v.analysis_mode = "xyzt"
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
     v.threshold_offset = args.threshold_offset

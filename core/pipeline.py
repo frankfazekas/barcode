@@ -51,17 +51,30 @@ def save_analysis_results(
     settings_path = os.path.join(base_path, base_name + " Settings.yaml")
 
     physical_units = config.image_binarization_parameters.enable_physical_units
+    # The analysis mode decides which metric families this dataset carries; without it
+    # the writer falls back to the 2D layout and an xyz run would emit velocity columns
+    # it never computed.
+    mode = config.volumetric.mode
+
+    # Which metrics the barcode *shows*. The CSV above always carries the full set for
+    # the mode; this only trims the picture.
+    from core.metrics import selection_mask
+
+    barcode_metrics = selection_mask(
+        ChannelResults.get_headers(just_metrics=True, mode=mode),
+        config.writer.hidden_barcode_metrics,
+    )
 
     # Save CSV
     if all_results:
         try:
-            results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units)
+            results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units, mode=mode)
         except:
             counter = 2
             while True:
                 csv_path = os.path.join(base_path, f"{base_name} Summary {counter}.csv")
                 try:
-                    results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units)
+                    results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units, mode=mode)
                     break
                 except:
                     counter += 1
@@ -73,9 +86,11 @@ def save_analysis_results(
         try:
             # Multiple files: use all channels
             if not is_single_file and config.channels.parse_all_channels:
-                generate_combined_barcode(all_results, barcode_path, separate_channels=False)
+                generate_combined_barcode(all_results, barcode_path, separate_channels=False,
+                                          mode=mode, metrics_to_visualize=barcode_metrics)
             else:
-                generate_combined_barcode(all_results, barcode_path)
+                generate_combined_barcode(all_results, barcode_path, mode=mode,
+                                          metrics_to_visualize=barcode_metrics)
 
         except Exception as e:
             with open(ff_loc, "a", encoding="utf-8") as log_file:
@@ -97,14 +112,27 @@ def process_single_file(
 ) -> Tuple[List[ChannelResults], int]:
     """Process a single file and return analysis results."""
 
-    # Volumetric (3D) side-car pipeline. Off by default; when enabled it handles the
-    # file end to end and the 2D path below is not entered. See analysis/volumetric/.
-    if config.volumetric.enabled:
+    # Analysis mode decides which pipeline handles this file. xyt is the default and
+    # falls through to the original 2D path below, untouched. See core/modes.py.
+    mode = config.volumetric.mode
+    if mode.key == "xyzt":
         from analysis.volumetric.run import run_volumetric_pipeline
 
         return run_volumetric_pipeline(
             filepath, config, in_config, fail_file_loc, count, total
         )
+    if mode.key == "xyz":
+        from analysis.volumetric.slicewise import run_slicewise_pipeline
+
+        return run_slicewise_pipeline(
+            filepath, config, in_config, fail_file_loc, count, total
+        )
+
+    # xyt falls through to the original 2D path, but a file that declares itself a
+    # Z-stack must not be analysed as a time series. See core.modes.guard_declared_axes.
+    from core.modes import guard_declared_axes
+
+    guard_declared_axes(mode, filepath)
 
     # Load and validate file
     try:
@@ -223,7 +251,7 @@ def run_analysis(root_dir: str, config: BarcodeConfig, input_config: InputConfig
 
     # Volumetric time-lapse: group per-timepoint files into series before analysing, so
     # a series produces one row with real change metrics instead of N rows of NaN.
-    if config.volumetric.enabled and config.volumetric.timelapse_enabled:
+    if config.volumetric.mode.key == "xyzt" and config.volumetric.timelapse_enabled:
         from analysis.volumetric.run import run_volumetric_timelapse
 
         all_results = run_volumetric_timelapse(files_to_process, config, ff_loc)

@@ -95,11 +95,13 @@ class WriterConfigGUI:
     generate_barcode: tk.BooleanVar = field(init=False)
     save_rds: tk.BooleanVar = field(init=False)
     save_visualizations: tk.BooleanVar = field(init=False)
+    hidden_barcode_metrics: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         self.generate_barcode = tk.BooleanVar(value=self._core_config.generate_barcode)
         self.save_rds = tk.BooleanVar(value=self._core_config.save_rds)
         self.save_visualizations = tk.BooleanVar(value=self._core_config.save_visualizations)
+        self.hidden_barcode_metrics = list(self._core_config.hidden_barcode_metrics)
 
     @property
     def config(self) -> WriterConfig:
@@ -108,6 +110,7 @@ class WriterConfigGUI:
             generate_barcode=self.generate_barcode.get(),
             save_rds=self.save_rds.get(),
             save_visualizations=self.save_visualizations.get(),
+            hidden_barcode_metrics=self.hidden_barcode_metrics,
         )
 
     def update_gui(self, new_config: WriterConfig):
@@ -116,6 +119,7 @@ class WriterConfigGUI:
         self.generate_barcode.set(new_config.generate_barcode)
         self.save_rds.set(new_config.save_rds)
         self.save_visualizations.set(new_config.save_visualizations)
+        self.hidden_barcode_metrics.set(new_config.hidden_barcode_metrics)
 
 @dataclass
 class ChannelConfigGUI:
@@ -685,6 +689,7 @@ class VolumetricConfigGUI:
     """Auto-generated GUI wrapper for VolumetricConfig"""
     _core_config: VolumetricConfig = field(default_factory=VolumetricConfig)
 
+    analysis_mode: tk.StringVar = field(init=False)
     enabled: tk.BooleanVar = field(init=False)
     z_step_um: tk.DoubleVar = field(init=False)
     xy_step_um: tk.DoubleVar = field(init=False)
@@ -693,8 +698,11 @@ class VolumetricConfigGUI:
     segmentation_regex: tk.StringVar = field(init=False)
     segmentation_template: tk.StringVar = field(init=False)
     mask_spacing_um: tk.DoubleVar = field(init=False)
+    z_start: tk.IntVar = field(init=False)
+    z_end: tk.IntVar = field(init=False)
     make_isotropic: tk.BooleanVar = field(init=False)
     crop_padding_vox: tk.IntVar = field(init=False)
+    enable_component_stats: tk.BooleanVar = field(init=False)
     timelapse_enabled: tk.BooleanVar = field(init=False)
     timelapse_regex: tk.StringVar = field(init=False)
     threshold_offset: tk.DoubleVar = field(init=False)
@@ -724,6 +732,7 @@ class VolumetricConfigGUI:
     mesh_export_obj: tk.BooleanVar = field(init=False)
 
     def __post_init__(self):
+        self.analysis_mode = tk.StringVar(value=self._core_config.analysis_mode)
         self.enabled = tk.BooleanVar(value=self._core_config.enabled)
         self.z_step_um = tk.DoubleVar(value=self._core_config.z_step_um)
         self.xy_step_um = tk.DoubleVar(value=self._core_config.xy_step_um)
@@ -732,8 +741,11 @@ class VolumetricConfigGUI:
         self.segmentation_regex = tk.StringVar(value=self._core_config.segmentation_regex)
         self.segmentation_template = tk.StringVar(value=self._core_config.segmentation_template)
         self.mask_spacing_um = tk.DoubleVar(value=self._core_config.mask_spacing_um)
+        self.z_start = tk.IntVar(value=self._core_config.z_start)
+        self.z_end = tk.IntVar(value=self._core_config.z_end)
         self.make_isotropic = tk.BooleanVar(value=self._core_config.make_isotropic)
         self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
+        self.enable_component_stats = tk.BooleanVar(value=self._core_config.enable_component_stats)
         self.timelapse_enabled = tk.BooleanVar(value=self._core_config.timelapse_enabled)
         self.timelapse_regex = tk.StringVar(value=self._core_config.timelapse_regex)
         self.threshold_offset = tk.DoubleVar(value=self._core_config.threshold_offset)
@@ -766,6 +778,7 @@ class VolumetricConfigGUI:
     def config(self) -> VolumetricConfig:
         """Get current config from GUI values"""
         return VolumetricConfig(
+            analysis_mode=self.analysis_mode.get(),
             enabled=self.enabled.get(),
             z_step_um=self.z_step_um.get(),
             xy_step_um=self.xy_step_um.get(),
@@ -774,8 +787,11 @@ class VolumetricConfigGUI:
             segmentation_regex=self.segmentation_regex.get(),
             segmentation_template=self.segmentation_template.get(),
             mask_spacing_um=self.mask_spacing_um.get(),
+            z_start=self.z_start.get(),
+            z_end=self.z_end.get(),
             make_isotropic=self.make_isotropic.get(),
             crop_padding_vox=self.crop_padding_vox.get(),
+            enable_component_stats=self.enable_component_stats.get(),
             timelapse_enabled=self.timelapse_enabled.get(),
             timelapse_regex=self.timelapse_regex.get(),
             threshold_offset=self.threshold_offset.get(),
@@ -808,6 +824,7 @@ class VolumetricConfigGUI:
     def update_gui(self, new_config: VolumetricConfig):
         """Update GUI from new config values"""
         self._core_config = new_config
+        self.analysis_mode.set(new_config.analysis_mode)
         self.enabled.set(new_config.enabled)
         self.z_step_um.set(new_config.z_step_um)
         self.xy_step_um.set(new_config.xy_step_um)
@@ -816,8 +833,11 @@ class VolumetricConfigGUI:
         self.segmentation_regex.set(new_config.segmentation_regex)
         self.segmentation_template.set(new_config.segmentation_template)
         self.mask_spacing_um.set(new_config.mask_spacing_um)
+        self.z_start.set(new_config.z_start)
+        self.z_end.set(new_config.z_end)
         self.make_isotropic.set(new_config.make_isotropic)
         self.crop_padding_vox.set(new_config.crop_padding_vox)
+        self.enable_component_stats.set(new_config.enable_component_stats)
         self.timelapse_enabled.set(new_config.timelapse_enabled)
         self.timelapse_regex.set(new_config.timelapse_regex)
         self.threshold_offset.set(new_config.threshold_offset)

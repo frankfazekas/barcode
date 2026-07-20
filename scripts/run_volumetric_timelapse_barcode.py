@@ -29,7 +29,8 @@ from analysis.volumetric.binarization import analyze_binarization_3d
 from analysis.volumetric.flow import analyze_optical_flow_3d
 from analysis.volumetric.intensity import analyze_intensity_3d
 from analysis.volumetric.mesh import MeshingError, mesh_series
-from analysis.volumetric.run import _prepare_geometry, summarise_meshes
+from analysis.volumetric.run import (
+    _prepare_geometry, summarise_components, summarise_meshes)
 from analysis.volumetric.timelapse import group_timelapse, read_series
 from core import BarcodeConfig, ChannelResults
 from utils.writer import generate_combined_barcode, results_to_csv
@@ -42,12 +43,18 @@ def build_config(args) -> BarcodeConfig:
     config.modules.optical_flow = args.flow
     v = config.volumetric
     v.enabled = True
+    # These scripts call the volumetric branch directly, bypassing the dispatch in
+    # core.pipeline, so the mode must be stated here too -- it is what decides the
+    # metric names and which families the CSV carries.
+    v.analysis_mode = "xyzt"
     v.timelapse_enabled = True
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
     v.threshold_offset = args.threshold_offset
     v.crop_padding_vox = args.crop_padding
     v.mesh_enabled = args.mesh
+    v.enable_component_stats = args.component_stats
+    v.z_start, v.z_end = args.z_start, args.z_end
     if hasattr(v, 'mesh_curvature'):
         v.mesh_curvature = args.mesh and not args.no_curvature
     if args.seg_root or args.seg_template:
@@ -78,6 +85,12 @@ def main() -> int:
     p.add_argument("--timelapse-regex", default=None)
     p.add_argument("--mesh", action="store_true",
                    help="add the mesh + curvature columns (needs a segmentation)")
+    p.add_argument("--component-stats", action="store_true",
+                   help="add per-object count, size SD, skewness and median")
+    p.add_argument("--hide-metric", action="append", default=[], metavar="NAME",
+                   help="leave a metric off the barcode (repeatable)")
+    p.add_argument("--z-start", type=int, default=0)
+    p.add_argument("--z-end", type=int, default=0)
     p.add_argument("--no-curvature", action="store_true",
                    help="mesh geometry only; skip the curvature columns")
     p.add_argument("--out", default=None, help="output basename (default: <folder>/<series> Timepoints)")
@@ -120,6 +133,9 @@ def main() -> int:
             row = ChannelResults(filepath=group.paths[t], channel=0)
             row.binarization = binar
             row.intensity = inten
+            if vcfg.enable_component_stats:
+                # detail carries this timepoint's per-object size distribution.
+                row.components = summarise_components(detail)
             if config.modules.optical_flow:
                 # Flow for timepoint t is solved from a contiguous window centred on it,
                 # so unlike the static branches it reads its neighbours. Timepoints
@@ -178,8 +194,17 @@ def main() -> int:
                 "results", f"timepoints_{'with_masks' if masked else 'no_masks'}")
             os.makedirs(out_dir, exist_ok=True)
             base = os.path.join(out_dir, f"{group.series} Timepoints ({suffix})")
-        results_to_csv(results, base + ".csv", just_metrics=False, physical_units=False)
-        generate_combined_barcode(results, base)
+        from core.metrics import selection_mask
+        headers = ChannelResults.get_headers(
+            just_metrics=True, mode=vcfg.mode,
+            include_components=vcfg.enable_component_stats)
+        shown = selection_mask(headers, args.hide_metric)
+
+        results_to_csv(results, base + ".csv", just_metrics=False, physical_units=False,
+                       mode=vcfg.mode)
+        generate_combined_barcode(results, base, mode=vcfg.mode,
+                                  metrics_to_visualize=shown)
+        print(f"  {len(headers)} metrics in the CSV, {sum(shown)} on the barcode")
         print(f"  wrote {base}.csv")
         print(f"  wrote {base}*.png   ({len(results)} rows, one per timepoint)")
         print(f"  {time.time() - started:.1f}s")

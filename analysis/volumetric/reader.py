@@ -11,7 +11,7 @@ Returns ``(T, Z, Y, X)`` for a single channel, plus the physical voxel spacing.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Optional, Tuple
 
 import numpy as np
@@ -38,6 +38,8 @@ class VolumeStack:
     source_path: str
     channel: int = 0
     metadata_source: dict = field(default_factory=dict)
+    # (start, stop) of the analysed slices within the acquired stack; None = all of it.
+    z_range: tuple = None
 
     @property
     def n_timepoints(self) -> int:
@@ -64,6 +66,30 @@ class VolumeStack:
         """The ``(Z, Y, X)`` volume at timepoint ``t``."""
         return self.data[t]
 
+    def restrict_z(self, z_start: int = 0, z_end: int = 0) -> "VolumeStack":
+        """Return a copy limited to a range of z slices.
+
+        ``z_end`` of 0 means "to the last slice"; negatives index from the end, matching
+        Python slicing. Raises on an empty or reversed range rather than returning a
+        zero-slice stack, which would surface much later as an unexplained NaN.
+        """
+        n_z = self.n_slices
+        start = z_start + n_z if z_start < 0 else z_start
+        stop = n_z if z_end == 0 else (z_end + n_z if z_end < 0 else z_end)
+        start, stop = max(start, 0), min(stop, n_z)
+
+        if stop <= start:
+            raise ValueError(
+                f"{os.path.basename(self.source_path)}: z range [{z_start}, {z_end}) "
+                f"selects no slices from a {n_z}-slice stack."
+            )
+        if (start, stop) == (0, n_z):
+            return self
+
+        restricted = replace(self, data=self.data[:, start:stop])
+        restricted.z_range = (start, stop)
+        return restricted
+
     def describe(self) -> str:
         anisotropy = self.z_step_um / self.xy_step_um if self.xy_step_um else float("nan")
         return (
@@ -71,6 +97,7 @@ class VolumeStack:
             f"(T,Z,Y,X)={self.data.shape} dtype={self.data.dtype} "
             f"z={self.z_step_um:g}um xy={self.xy_step_um:g}um "
             f"anisotropy={anisotropy:.3f}x channel={self.channel}"
+            + (f" z[{self.z_range[0]}:{self.z_range[1]}]" if self.z_range else "")
         )
 
 

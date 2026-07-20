@@ -162,6 +162,7 @@ def generate_combined_barcode(
     separate_channels: bool = True,
     physical_units: bool = False,
     metrics_to_visualize: List[bool] = None,
+    mode=None,
 ) -> None:
     """
     Generate barcode visualization from structured ChannelResults.
@@ -180,10 +181,14 @@ def generate_combined_barcode(
     include_mesh = any(
         getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results
     )
+    include_components = any(
+        getattr(r, "components", None) is not None and r.components.is_populated()
+        for r in results
+    )
 
     if metrics_to_visualize is None:
-        metrics_to_visualize = [True] * len(
-            ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh))
+        metrics_to_visualize = [True] * len(ChannelResults.get_metrics(
+            just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components))
 
     def format_header_with_units(header: str, unit: Units) -> str:
         """Format header with unit annotation."""
@@ -192,8 +197,8 @@ def generate_combined_barcode(
         return f"{header}\n({unit})"
 
     # Convert structured results to array format (metrics only, no channel/flags)
-    data_arrays = [np.fromiter(compress(result.to_physical_array(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize), float) if physical_units else
-                   np.fromiter(compress(result.to_array(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize), float) for result in results]    
+    data_arrays = [np.fromiter(compress(result.to_physical_array(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize), float) if physical_units else
+                   np.fromiter(compress(result.to_array(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize), float) for result in results]    
     if not data_arrays:
         return
 
@@ -208,13 +213,13 @@ def generate_combined_barcode(
 
     # Get headers and units from structured results
     if physical_units:
-        headers = list(compress(ChannelResults.get_physical_headers(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
-        metrics = list(compress(ChannelResults.get_physical_metrics(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
-        units = list(compress(results[0].get_physical_units(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        headers = list(compress(ChannelResults.get_physical_headers(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
+        metrics = list(compress(ChannelResults.get_physical_metrics(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
+        units = list(compress(results[0].get_physical_units(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
     else:
-        headers = list(compress(ChannelResults.get_headers(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
-        metrics = list(compress(ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
-        units = list(compress(results[0].get_units(just_metrics=True, include_mesh=include_mesh), metrics_to_visualize))
+        headers = list(compress(ChannelResults.get_headers(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
+        metrics = list(compress(ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
+        units = list(compress(results[0].get_units(just_metrics=True, include_mesh=include_mesh, mode=mode, include_components=include_components), metrics_to_visualize))
     num_metrics = len(metrics)
 
     limits = get_data_limits(data, metrics, units)

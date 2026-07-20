@@ -69,6 +69,55 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
+    tk.Label(frame, text="Z Range", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    z_start_label = tk.Label(frame, text="First Z Slice")
+    z_start_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=10000, increment=1, textvariable=cv.z_start, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "First slice of the acquired stack to analyse. The full stack is often not the "
+        "right range: slices past the object are background, and including them drags "
+        "every metric toward it.",
+        row_idx, z_start_label,
+    )
+    row_idx += 1
+
+    z_end_label = tk.Label(frame, text="Last Z Slice (0 = to the end)")
+    z_end_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=-10000, to=10000, increment=1, textvariable=cv.z_end, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "One past the last slice to analyse. 0 means to the end of the stack; negative "
+        "values count back from the end, as in Python slicing.",
+        row_idx, z_end_label,
+    )
+    row_idx += 1
+
+    tk.Label(frame, text="Optional Metrics", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_component_stats,
+        "Per-Object Size Statistics",
+        "Add object count, size SD, size skewness and median size. These describe the "
+        "spread of the object-size distribution, which the mean and total cannot: one "
+        "dominant object plus debris gives the same mean as several even ones. "
+        "Volumetric modes only. Off by default so the barcode stays readable.",
+    )
+    row_idx += 2
+
     tk.Label(frame, text="Time-Lapse", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
     )

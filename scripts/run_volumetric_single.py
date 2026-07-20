@@ -35,6 +35,10 @@ def build_config(args) -> BarcodeConfig:
 
     v = config.volumetric
     v.enabled = True
+    # These scripts call the volumetric branch directly, bypassing the dispatch in
+    # core.pipeline, so the mode must be stated here too -- it is what decides the
+    # metric names and which families the CSV carries.
+    v.analysis_mode = "xyzt"
     v.flow_xyz_sigma = args.flow_xyz_sigma
     v.flow_t_sigma = args.flow_t_sigma
     v.flow_w_sigma = args.flow_w_sigma

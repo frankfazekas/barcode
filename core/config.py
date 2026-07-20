@@ -146,6 +146,12 @@ class WriterConfig(BaseConfig):
     save_rds: bool = False
     save_visualizations: bool = False
 
+    # Metrics to leave OFF the barcode image, by name. The CSV always carries the full
+    # set for the analysis mode -- hiding a column there would break the round-trip and
+    # make two runs of the same mode incomparable -- so this is purely about what the
+    # picture shows. Empty means show everything the mode produced.
+    hidden_barcode_metrics: List[str] = field(default_factory=list)
+
 @dataclass
 class BinarizationConfig(BaseConfig):
     threshold_offset: float = 0.1
@@ -180,6 +186,14 @@ class VolumetricConfig(BaseConfig):
     exactly as it did before this config existed. See ``analysis/volumetric/``.
     """
 
+    # Which of the three analyses to run -- see core/modes.py.
+    #   xyt  : planar images over time (the original BARCODE behaviour)
+    #   xyz  : for each timepoint, 2D metrics over z; flow disabled
+    #   xyzt : volumes over time; true 3D metrics, meshing, 3D flow
+    analysis_mode: str = "xyt"
+
+    # Superseded by analysis_mode. Kept so Settings.yaml files written before modes
+    # existed still load: enabled=True with no analysis_mode is migrated to xyzt.
     enabled: bool = False
 
     # Physical voxel size. Left at 0 these are read from the file's ImageJ metadata
@@ -196,9 +210,21 @@ class VolumetricConfig(BaseConfig):
     # Masks generally carry no spacing metadata; 0 means "assume isotropic at xy".
     mask_spacing_um: float = 0.0
 
+    # Z range to analyse, as slice indices into the acquired stack. The full stack is
+    # often not the right range: slices beyond the object are noise, and including them
+    # drags every metric toward background. z_end = 0 means "to the last slice", and
+    # negative values index from the end as in Python slicing.
+    z_start: int = 0
+    z_end: int = 0
+
     # Resample image + mask onto one isotropic grid, then crop to the mask bbox.
     make_isotropic: bool = True
     crop_padding_vox: int = 2
+
+    # Per-connected-component size distribution (count, SD, skewness, median). Off by
+    # default so the barcode does not widen unless the spread of object sizes is
+    # actually of interest. Volumetric modes only -- see AnalysisMode.supports_component_stats.
+    enable_component_stats: bool = False
 
     # Time-lapse assembly. Volumetric time series are often exported one file per
     # timepoint; grouping them restores the change metrics, which are NaN when each
@@ -214,6 +240,27 @@ class VolumetricConfig(BaseConfig):
     frame_step: int = 10
     percentage_frames_evaluated: float = 0.05
     invert_binarization: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "VolumetricConfig":
+        """Load, migrating pre-mode configs.
+
+        Before modes existed the volumetric pipeline was gated by ``enabled``. A YAML
+        carrying ``enabled: true`` but no ``analysis_mode`` therefore means xyzt; without
+        this it would silently load as xyt and analyse a Z-stack as a time series, which
+        is the exact failure modes were introduced to prevent.
+        """
+        data = dict(data)
+        if "analysis_mode" not in data and data.get("enabled"):
+            data["analysis_mode"] = "xyzt"
+        return cls(**data)
+
+    @property
+    def mode(self):
+        """The resolved AnalysisMode for this config."""
+        from core.modes import get_mode
+
+        return get_mode(self.analysis_mode)
 
     # Intensity branch. By default the histogram uses every voxel in the analysed
     # volume, matching the 2D branch; set intensity_use_mask to restrict it to voxels

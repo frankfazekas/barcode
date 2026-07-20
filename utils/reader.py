@@ -96,6 +96,23 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
     expected_mesh_physical_headers = ChannelResults.get_physical_headers(
         just_metrics=False, include_mesh=True)
 
+    # Every mode's header set, derived from the registry rather than hard-coded, so
+    # adding a mode cannot leave this check behind. A header list the reader does not
+    # recognise used to drop every row silently.
+    from core.modes import MODES
+
+    accepted_headers = [expected_headers, expected_physical_headers, expected_v1_headers,
+                        expected_mesh_headers, expected_mesh_physical_headers]
+    for _mode in MODES.values():
+        for _mesh in ((False, True) if _mode.supports_mesh else (False,)):
+            for _comp in ((False, True) if _mode.supports_component_stats else (False,)):
+                accepted_headers.append(ChannelResults.get_headers(
+                    just_metrics=False, include_mesh=_mesh, mode=_mode,
+                    include_components=_comp))
+                accepted_headers.append(ChannelResults.get_physical_headers(
+                    just_metrics=False, include_mesh=_mesh, mode=_mode,
+                    include_components=_comp))
+
     v1_header_length = 18 # Channel, 7 Image_Binarization, 6 Intensity_Distribution, 4 Optical_Flow
     v2_header_length = 26 # Channel, 12 Image_Binarization, 6 Intensity_Distribution, 7 Optical_Flow
     mesh_block_length = 9 # Mesh + curvature, appended by volumetric runs
@@ -108,13 +125,13 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
         reader = csv.reader(csvfile)
         headers = next(reader)
 
-        assert (
-            (headers == expected_headers)
-            or (headers == expected_physical_headers)
-            or (headers == expected_v1_headers)
-            or (headers == expected_mesh_headers)
-            or (headers == expected_mesh_physical_headers)
-        ), f"CSV headers {headers} do not match expected headers for BARCODE analysis"
+        assert headers in accepted_headers, (
+            f"CSV headers {headers} do not match any BARCODE header set "
+            f"(modes: {', '.join(MODES)})"
+        )
+
+        # Identify the layout once, rather than inferring it per row from a length.
+        layout = _identify_layout(headers)
 
         for row in reader:
             filename = row[0]
@@ -122,6 +139,13 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
             data = [get_value(value) for value in row[1:]]
             if np.isnan(data[0]):
                 raise ValueError(f"Invalid channel in row: {row}")
+
+            # A recognised mode layout is parsed from its own metric lists. This runs
+            # before the legacy handling below, which would otherwise strip the mesh
+            # block off the row first and leave nothing for the mesh fields.
+            if layout is not None:
+                results.append(_build_from_layout(filename, flags, data, layout))
+                continue
 
             mesh_values = None
             if len(data) == v3_header_length:
@@ -255,3 +279,97 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
                     concave_ratio=mesh_values[8],
                 )
     return results
+
+
+def _identify_layout(headers):
+    """Match ``headers`` against each mode's header sets.
+
+    Returns ``(mode, physical, include_mesh)`` or None when this is one of the legacy
+    layouts, which the length-based branches below still handle.
+    """
+    from core.modes import MODES
+
+    for mode in MODES.values():
+        for include_mesh in ((False, True) if mode.supports_mesh else (False,)):
+            for include_components in (
+                    (False, True) if mode.supports_component_stats else (False,)):
+                kw = dict(just_metrics=False, include_mesh=include_mesh, mode=mode,
+                          include_components=include_components)
+                if headers == ChannelResults.get_headers(**kw):
+                    return (mode, False, include_mesh, include_components)
+                if headers == ChannelResults.get_physical_headers(**kw):
+                    return (mode, True, include_mesh, include_components)
+    return None
+
+
+def _build_from_layout(filename, flags, data, layout):
+    """Rebuild a ChannelResults by position, using the layout's own metric lists.
+
+    Field order here mirrors each results class's ``get_data``; taking the counts from
+    ``get_metrics`` rather than hard-coding them means a family gaining a metric cannot
+    silently shift everything after it.
+    """
+    from core.results import ComponentResults, MeshResults
+
+    mode, physical, include_mesh, include_components = layout
+    channel = int(data[0])
+    values = data[1:]
+
+    n_bin = len(BinarizationResults.get_metrics(mode))
+    n_int = len(IntensityResults.get_metrics(mode))
+    n_flow = len(FlowResults.get_metrics()) if mode.supports_flow else 0
+    n_mesh = len(MeshResults.get_metrics()) if include_mesh else 0
+    n_comp = len(ComponentResults.get_metrics(mode)) if include_components else 0
+
+    binar = values[:n_bin]
+    inten = values[n_bin:n_bin + n_int]
+    flow = values[n_bin + n_int:n_bin + n_int + n_flow]
+    mesh = values[n_bin + n_int + n_flow:n_bin + n_int + n_flow + n_mesh]
+    comp = values[n_bin + n_int + n_flow + n_mesh:
+                  n_bin + n_int + n_flow + n_mesh + n_comp]
+
+    size_kwargs = (
+        dict(max_island_size_quantity=binar[1], max_void_size_quantity=binar[2],
+             island_size_initial_quantity=binar[5], island_size_initial2_quantity=binar[6],
+             mean_island_size_quantity=binar[8], total_island_size_quantity=binar[9])
+        if physical else
+        dict(max_island_size=binar[1], max_void_size=binar[2],
+             island_size_initial=binar[5], island_size_initial2=binar[6],
+             mean_island_size=binar[8], total_island_size=binar[9])
+    )
+
+    result = ChannelResults(
+        filepath=filename,
+        channel=channel,
+        total_flags=flags,
+        binarization=BinarizationResults(
+            connectivity=binar[0],
+            max_island_percent_change=binar[3],
+            max_void_percent_change=binar[4],
+            island_anisotropy=binar[7],
+            mean_island_separation=binar[10],
+            island_correlation_length=binar[11],
+            **size_kwargs,
+        ),
+        intensity=IntensityResults(
+            max_kurtosis=inten[0], max_median_skew=inten[1], max_mode_skew=inten[2],
+            kurtosis_diff=inten[3], median_skew_diff=inten[4], mode_skew_diff=inten[5],
+        ),
+    )
+    if n_flow:
+        result.flow = FlowResults(
+            mean_speed=flow[0], delta_speed=flow[1], mean_theta=flow[2],
+            mean_sigma_theta=flow[3], velocity_correlation_length=flow[4],
+            divergence=flow[5], curl=flow[6],
+        )
+    if n_mesh:
+        result.mesh = MeshResults(
+            mesh_volume=mesh[0], surface_area=mesh[1], sphericity=mesh[2],
+            equivalent_radius=mesh[3], height=mesh[4], volume_ratio=mesh[5],
+            mean_curvature=mesh[6], invagination_ratio=mesh[7], concave_ratio=mesh[8],
+        )
+    if n_comp:
+        result.components = ComponentResults(
+            count=comp[0], size_sd=comp[1], size_skew=comp[2], size_median=comp[3],
+        )
+    return result

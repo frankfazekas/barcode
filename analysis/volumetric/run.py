@@ -25,7 +25,7 @@ from analysis.volumetric.mesh import MeshingError, NucleusMesh, mesh_series
 from analysis.volumetric.reader import VolumeStack, read_volume
 from analysis.volumetric.segmentation import load_segmentation
 from core import BarcodeConfig, ChannelResults, VolumetricConfig
-from core.results import MeshResults
+from core.results import ComponentResults, MeshResults
 
 
 @dataclass
@@ -93,6 +93,27 @@ def summarise_meshes(meshes: List[NucleusMesh]) -> MeshResults:
         mean_curvature=mean_of([c.mean_curvature for c in curvatures]),
         invagination_ratio=mean_of([c.invagination_ratio for c in curvatures]),
         concave_ratio=mean_of([c.concave_ratio for c in curvatures]),
+    )
+
+
+def summarise_components(detail) -> ComponentResults:
+    """Reduce the per-timepoint size distributions to one row.
+
+    Sizes are expressed as a fraction of the analysed field, matching the binarization
+    family, so a run is comparable with another of a different crop size.
+    """
+    voxels = float(detail.voxel_count) or np.nan
+
+    def mean_of(values, scale=1.0):
+        array = np.asarray(values, dtype=np.float64)
+        finite = array[np.isfinite(array)]
+        return float(finite.mean() * scale) if finite.size else np.nan
+
+    return ComponentResults(
+        count=mean_of(detail.island_counts),
+        size_sd=mean_of(detail.size_sds, 1.0 / voxels),
+        size_skew=mean_of(detail.size_skews),
+        size_median=mean_of(detail.size_medians, 1.0 / voxels),
     )
 
 
@@ -246,6 +267,10 @@ def run_volumetric_analysis(
             z_step_um=vcfg.z_step_um or None,
             xy_step_um=vcfg.xy_step_um or None,
         )
+    # Same depth restriction as xyz: a volume padded with empty slices reports a
+    # different shape and a diluted intensity distribution.
+    stack = stack.restrict_z(vcfg.z_start, vcfg.z_end)
+
     volumes, masks, spacing_zyx, info, mask_paths = _prepare_geometry(stack, vcfg)
     frame_indices = select_frame_indices(volumes.shape[0], vcfg.frame_step)
 
@@ -263,6 +288,8 @@ def run_volumetric_analysis(
         results.binarization, detail.binarization = analyze_binarization_3d(
             volumes, spacing_zyx, vcfg, frame_indices, masks
         )
+        if vcfg.enable_component_stats:
+            results.components = summarise_components(detail.binarization)
 
     if config.modules.intensity_distribution:
         results.intensity, detail.intensity = analyze_intensity_3d(

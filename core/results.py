@@ -6,6 +6,7 @@ import numpy as np
 
 from core import Metrics, Units
 from core.config import BinarizationConfig
+from core.modes import AnalysisMode, get_mode
 
 
 @dataclass
@@ -70,41 +71,56 @@ class BinarizationResults(ResultsBase):
     structural_correlation_flag: int = 0
 
     @classmethod
-    def get_metrics(cls) -> List[Metrics]:
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        """Metric names for this mode.
+
+        A 3D mode measures volumes, not areas, so those eight slots take different
+        names; in xyz the two Change slots describe variation with depth. Connectivity,
+        anisotropy, separation and correlation length are dimension-neutral and keep one
+        name everywhere. ``mode=None`` gives the original 2D names.
+        """
+        volumetric = mode is not None and mode.is_volumetric
+        depth = mode is not None and mode.progression == "depth"
         return [
             Metrics.CONNECTIVITY,
-            Metrics.ISLAND_MAX_AREA,
-            Metrics.VOID_MAX_AREA,
-            Metrics.MAX_ISLAND_AREA_CHANGE,
-            Metrics.MAX_VOID_AREA_CHANGE,
-            Metrics.ISLAND_MAX_AREA_INITIAL,
-            Metrics.ISLAND_MAX_AREA_INITIAL2,
+            Metrics.ISLAND_MAX_VOLUME if volumetric else Metrics.ISLAND_MAX_AREA,
+            Metrics.VOID_MAX_VOLUME if volumetric else Metrics.VOID_MAX_AREA,
+            Metrics.MAX_ISLAND_VOLUME_CHANGE if volumetric
+            else (Metrics.MAX_ISLAND_AREA_CHANGE_Z if depth else Metrics.MAX_ISLAND_AREA_CHANGE),
+            Metrics.MAX_VOID_VOLUME_CHANGE if volumetric
+            else (Metrics.MAX_VOID_AREA_CHANGE_Z if depth else Metrics.MAX_VOID_AREA_CHANGE),
+            Metrics.ISLAND_MAX_VOLUME_INITIAL if volumetric else Metrics.ISLAND_MAX_AREA_INITIAL,
+            Metrics.ISLAND_MAX_VOLUME_INITIAL2 if volumetric else Metrics.ISLAND_MAX_AREA_INITIAL2,
             Metrics.ISLAND_ANISOTROPY,
-            Metrics.ISLAND_MEAN_AREA,
-            Metrics.ISLAND_TOTAL_AREA,
+            Metrics.ISLAND_MEAN_VOLUME if volumetric else Metrics.ISLAND_MEAN_AREA,
+            Metrics.ISLAND_TOTAL_VOLUME if volumetric else Metrics.ISLAND_TOTAL_AREA,
             Metrics.ISLAND_DISTANCE,
             Metrics.ISLAND_CORRELATION,
         ]
     
     @classmethod
-    def get_physical_metrics(cls) -> List[Metrics]:
+    def get_physical_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        volumetric = mode is not None and mode.is_volumetric
+        depth = mode is not None and mode.progression == "depth"
         return [
             Metrics.CONNECTIVITY,
-            Metrics.ISLAND_MAX_AREA_QUANTITY,
-            Metrics.VOID_MAX_AREA_QUANTITY,
-            Metrics.MAX_ISLAND_AREA_CHANGE,
-            Metrics.MAX_VOID_AREA_CHANGE,
-            Metrics.ISLAND_MAX_AREA_INITIAL_QUANTITY,
-            Metrics.ISLAND_MAX_AREA_INITIAL2_QUANTITY,
+            Metrics.ISLAND_MAX_VOLUME_QUANTITY if volumetric else Metrics.ISLAND_MAX_AREA_QUANTITY,
+            Metrics.VOID_MAX_VOLUME_QUANTITY if volumetric else Metrics.VOID_MAX_AREA_QUANTITY,
+            Metrics.MAX_ISLAND_VOLUME_CHANGE if volumetric
+            else (Metrics.MAX_ISLAND_AREA_CHANGE_Z if depth else Metrics.MAX_ISLAND_AREA_CHANGE),
+            Metrics.MAX_VOID_VOLUME_CHANGE if volumetric
+            else (Metrics.MAX_VOID_AREA_CHANGE_Z if depth else Metrics.MAX_VOID_AREA_CHANGE),
+            Metrics.ISLAND_MAX_VOLUME_INITIAL_QUANTITY if volumetric else Metrics.ISLAND_MAX_AREA_INITIAL_QUANTITY,
+            Metrics.ISLAND_MAX_VOLUME_INITIAL2_QUANTITY if volumetric else Metrics.ISLAND_MAX_AREA_INITIAL2_QUANTITY,
             Metrics.ISLAND_ANISOTROPY,
-            Metrics.ISLAND_MEAN_AREA_QUANTITY,
-            Metrics.ISLAND_TOTAL_AREA_QUANTITY,
+            Metrics.ISLAND_MEAN_VOLUME_QUANTITY if volumetric else Metrics.ISLAND_MEAN_AREA_QUANTITY,
+            Metrics.ISLAND_TOTAL_VOLUME_QUANTITY if volumetric else Metrics.ISLAND_TOTAL_AREA_QUANTITY,
             Metrics.ISLAND_DISTANCE,
             Metrics.ISLAND_CORRELATION,
         ]
 
     @classmethod
-    def get_units(cls) -> List[Units]:
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
         return [
             Units.PERCENT_FRAMES,
             Units.PERCENT_FOV,
@@ -121,18 +137,19 @@ class BinarizationResults(ResultsBase):
         ]
     
     @classmethod
-    def get_physical_units(cls) -> List[Units]:
+    def get_physical_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        size = Units.VOLUME if (mode is not None and mode.is_volumetric) else Units.AREA
         return [
             Units.PERCENT_FRAMES,
-            Units.AREA,
-            Units.AREA,
+            size,
+            size,
             Units.PERCENT_CHANGE,
             Units.PERCENT_CHANGE,
-            Units.AREA,
-            Units.AREA,
+            size,
+            size,
             Units.NONE,
-            Units.AREA,
-            Units.AREA,
+            size,
+            size,
             Units.LENGTH,
             Units.LENGTH,
         ]
@@ -241,26 +258,20 @@ class IntensityResults(ResultsBase):
     saturation_flag: int = 0
 
     @classmethod
-    def get_metrics(cls) -> List[Metrics]:
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        depth = mode is not None and mode.progression == "depth"
         return [
             Metrics.MAX_KURTOSIS,
             Metrics.MAX_MEDIAN_SKEW,
             Metrics.MAX_MODE_SKEW,
-            Metrics.KURTOSIS_DIFF,
-            Metrics.MEDIAN_SKEW_DIFF,
-            Metrics.MODE_SKEW_DIFF,
+            Metrics.KURTOSIS_DIFF_Z if depth else Metrics.KURTOSIS_DIFF,
+            Metrics.MEDIAN_SKEW_DIFF_Z if depth else Metrics.MEDIAN_SKEW_DIFF,
+            Metrics.MODE_SKEW_DIFF_Z if depth else Metrics.MODE_SKEW_DIFF,
         ]
 
     @classmethod
-    def get_units(cls) -> List[Units]:
-        return [
-            Units.NONE,
-            Units.NONE,
-            Units.NONE,
-            Units.NONE,
-            Units.NONE,
-            Units.NONE,
-        ]
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        return [Units.NONE] * 6
 
     def get_data(self) -> List[float]:
         return [
@@ -344,6 +355,73 @@ class MeshResults(ResultsBase):
         return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
 
 
+
+def _resolve(mode, include_mesh, include_components=None):
+    """Normalise the optional-family switches used across ChannelResults.
+
+    ``mode`` may be an AnalysisMode, a key string, or None for the legacy 2D layout.
+    Each optional family defaults to whatever the mode supports but can be forced either
+    way; the writer uses that to emit a family's columns only when data is really there,
+    so an xyzt run that skipped meshing does not produce nine empty columns.
+
+    If a fourth optional family ever appears, replace these positional flags with a
+    registry of (name, results class, capability predicate) -- three is the point at
+    which that starts paying for itself.
+    """
+    if mode is not None and not isinstance(mode, AnalysisMode):
+        mode = get_mode(mode)
+    if include_mesh is None:
+        include_mesh = bool(mode is not None and mode.supports_mesh)
+    if include_components is None:
+        include_components = False
+    with_flow = True if mode is None else mode.supports_flow
+    return mode, bool(include_mesh), with_flow, bool(include_components)
+
+
+@dataclass
+class ComponentResults(ResultsBase):
+    """Spread of the per-connected-component size distribution.
+
+    The binarization family already reports the largest, mean and total object size.
+    What it cannot say is whether those objects are uniform or wildly unequal -- one
+    dominant object plus debris gives the same mean as a handful of even ones. These
+    describe the *shape* of that distribution.
+
+    Off by default: the barcode is already wide, and a metric nobody reads is worse than
+    absent because it still takes a column and still gets normalised.
+    """
+
+    count: float = np.nan
+    size_sd: float = np.nan
+    size_skew: float = np.nan
+    size_median: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        volumetric = mode is not None and mode.is_volumetric
+        return [
+            Metrics.ISLAND_COUNT,
+            Metrics.ISLAND_VOLUME_SD if volumetric else Metrics.ISLAND_AREA_SD,
+            Metrics.ISLAND_VOLUME_SKEW if volumetric else Metrics.ISLAND_AREA_SKEW,
+            Metrics.ISLAND_VOLUME_MEDIAN if volumetric else Metrics.ISLAND_AREA_MEDIAN,
+        ]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        # Sizes are reported as a fraction of the analysed field, like the binarization
+        # family, so SD and median are dimensionless; skewness always is.
+        return [Units.NONE, Units.NONE, Units.NONE, Units.NONE]
+
+    def get_data(self) -> List[float]:
+        return [self.count, self.size_sd, self.size_skew, self.size_median]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
 @dataclass
 class ChannelResults(ResultsBase):
     """Complete analysis results for a single channel."""
@@ -357,61 +435,81 @@ class ChannelResults(ResultsBase):
     intensity: IntensityResults = field(default_factory=IntensityResults)
     flow: FlowResults = field(default_factory=FlowResults)
     mesh: MeshResults = field(default_factory=MeshResults)
+    components: ComponentResults = field(default_factory=ComponentResults)
 
     @classmethod
     def _get_base_headers(cls) -> List[str]:
         return ["Filepath", "Channel", "Flags"]
 
     @classmethod
-    def get_metrics(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Metrics]:
+    def get_metrics(cls, just_metrics: bool = False, include_mesh: bool = None,
+                    mode=None, include_components=None) -> List[Metrics]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         return (
             (
                 [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
                 if not just_metrics
                 else []
             )
-            + BinarizationResults.get_metrics()
-            + IntensityResults.get_metrics()
-            + FlowResults.get_metrics()
+            + BinarizationResults.get_metrics(mode)
+            + IntensityResults.get_metrics(mode)
+            + (FlowResults.get_metrics() if with_flow else [])
             + (MeshResults.get_metrics() if include_mesh else [])
+            + (ComponentResults.get_metrics(mode) if include_components else [])
         )
 
     @classmethod
-    def get_physical_metrics(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Metrics]:
+    def get_physical_metrics(cls, just_metrics: bool = False, include_mesh: bool = None,
+                             mode=None, include_components=None) -> List[Metrics]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         return (
             (
                 [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
                 if not just_metrics
                 else []
             )
-            + BinarizationResults.get_physical_metrics()
-            + IntensityResults.get_metrics()
-            + FlowResults.get_metrics()
+            + BinarizationResults.get_physical_metrics(mode)
+            + IntensityResults.get_metrics(mode)
+            + (FlowResults.get_metrics() if with_flow else [])
             + (MeshResults.get_metrics() if include_mesh else [])
+            + (ComponentResults.get_metrics(mode) if include_components else [])
         )
     
     @classmethod
-    def get_physical_headers(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[str]:
+    def get_physical_headers(cls, just_metrics: bool = False, include_mesh: bool = None,
+                             mode=None, include_components=None) -> List[str]:
         """Get headers for CSV output."""
-        return [metric.value for metric in cls.get_physical_metrics(just_metrics, include_mesh)]
+        return [m.value for m in cls.get_physical_metrics(
+            just_metrics, include_mesh, mode, include_components)]
 
     @classmethod
-    def get_units(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Units]:
+    def get_units(cls, just_metrics: bool = False, include_mesh: bool = None,
+                  mode=None, include_components=None) -> List[Units]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
-            + BinarizationResults.get_units()
-            + IntensityResults.get_units()
-            + FlowResults.get_units()
+            + BinarizationResults.get_units(mode)
+            + IntensityResults.get_units(mode)
+            + (FlowResults.get_units() if with_flow else [])
             + (MeshResults.get_units() if include_mesh else [])
+            + (ComponentResults.get_units(mode) if include_components else [])
         )
     
-    def get_physical_units(cls, just_metrics: bool = False, include_mesh: bool = False) -> List[Units]:
+    @classmethod
+    def get_physical_units(cls, just_metrics: bool = False, include_mesh: bool = None,
+                           mode=None, include_components=None) -> List[Units]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
-            + BinarizationResults.get_physical_units()
-            + IntensityResults.get_units()
-            + FlowResults.get_units()
+            + BinarizationResults.get_physical_units(mode)
+            + IntensityResults.get_units(mode)
+            + (FlowResults.get_units() if with_flow else [])
             + (MeshResults.get_units() if include_mesh else [])
+            + (ComponentResults.get_units(mode) if include_components else [])
         )
     
     def convert_flags(self) -> str:
@@ -427,38 +525,59 @@ class ChannelResults(ResultsBase):
         return ";".join(flag_lst) if flag_lst else "0"
             
 
-    def get_data(self, just_metrics: bool = False, include_mesh: bool = False) -> List[float]:
+    def get_data(self, just_metrics: bool = False, include_mesh: bool = None,
+                 mode=None, include_components=None) -> List[float]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         data = []
         self.total_flags = self.convert_flags()
         if not just_metrics:
             data = [self.filepath, self.channel, self.total_flags]
         data.extend(self.binarization.get_data())
         data.extend(self.intensity.get_data())
-        data.extend(self.flow.get_data())
+        if with_flow:
+            data.extend(self.flow.get_data())
         if include_mesh:
             data.extend(self.mesh.get_data())
+        if include_components:
+            data.extend(self.components.get_data())
         return data
     
-    def get_physical_data(self, just_metrics: bool = False, include_mesh: bool = False) -> List[float]:
+    def get_physical_data(self, just_metrics: bool = False, include_mesh: bool = None,
+                 mode=None, include_components=None) -> List[float]:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
         data = []
         self.total_flags = self.convert_flags()
         if not just_metrics:
             data = [self.filepath, self.channel, self.total_flags]
         data.extend(self.binarization.get_physical_data())
         data.extend(self.intensity.get_data())
-        data.extend(self.flow.get_data())
+        if with_flow:
+            data.extend(self.flow.get_data())
         if include_mesh:
             data.extend(self.mesh.get_data())
+        if include_components:
+            data.extend(self.components.get_data())
         return data
     
-    def get_dict_data(self, just_metrics: bool = False, include_mesh: bool = False) -> dict:
-        binarization_data = self.binarization.get_dict_data()
-        intensity_data = self.intensity.get_dict_data()
-        flow_data = self.flow.get_dict_data()
+    def get_dict_data(self, just_metrics: bool = False, include_mesh: bool = None,
+                      mode=None, include_components=None) -> dict:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
+        # Keys come from the mode-aware metric lists so a dict and a CSV row
+        # built from the same results always agree on names and membership.
+        binarization_data = dict(zip(
+            BinarizationResults.get_metrics(mode), self.binarization.get_data()))
+        intensity_data = dict(zip(
+            IntensityResults.get_metrics(mode), self.intensity.get_data()))
+        flow_data = self.flow.get_dict_data() if with_flow else {}
         mesh_data = self.mesh.get_dict_data() if include_mesh else {}
+        component_data = (self.components.get_dict_data(mode)
+                          if include_components else {})
         self.total_flags = self.convert_flags()
         if just_metrics:
-            data = binarization_data | intensity_data | flow_data | mesh_data
+            data = binarization_data | intensity_data | flow_data | mesh_data | component_data
         else:
             data = {Metrics.FILEPATH: self.filepath,
                     Metrics.CHANNEL: self.channel,
@@ -466,14 +585,23 @@ class ChannelResults(ResultsBase):
             data = data | binarization_data | intensity_data | flow_data | mesh_data
         return data
     
-    def get_physical_dict_data(self, just_metrics: bool = False, include_mesh: bool = False) -> dict:
-        binarization_data = self.binarization.get_physical_dict_data()
-        intensity_data = self.intensity.get_dict_data()
-        flow_data = self.flow.get_dict_data()
+    def get_physical_dict_data(self, just_metrics: bool = False, include_mesh: bool = None,
+                      mode=None, include_components=None) -> dict:
+        mode, include_mesh, with_flow, include_components = _resolve(
+            mode, include_mesh, include_components)
+        # Keys come from the mode-aware metric lists so a dict and a CSV row
+        # built from the same results always agree on names and membership.
+        binarization_data = dict(zip(
+            BinarizationResults.get_physical_metrics(mode), self.binarization.get_physical_data()))
+        intensity_data = dict(zip(
+            IntensityResults.get_metrics(mode), self.intensity.get_data()))
+        flow_data = self.flow.get_dict_data() if with_flow else {}
         mesh_data = self.mesh.get_dict_data() if include_mesh else {}
+        component_data = (self.components.get_dict_data(mode)
+                          if include_components else {})
         self.total_flags = self.convert_flags()
         if just_metrics:
-            data = binarization_data | intensity_data | flow_data | mesh_data
+            data = binarization_data | intensity_data | flow_data | mesh_data | component_data
         else:
             data = {Metrics.FILEPATH: self.filepath,
                     Metrics.CHANNEL: self.channel,

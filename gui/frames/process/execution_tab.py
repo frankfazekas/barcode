@@ -46,6 +46,47 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
         dir_entry.config(state=dir_state)
         browse_folder_btn.config(state=dir_state)
 
+    # Analysis mode governs the whole run -- which pipeline executes and which metrics
+    # the output can carry -- so it sits above the data selection. See core/modes.py.
+    from core.modes import MODES
+
+    cvol = config.volumetric
+
+    tk.Label(frame, text="Analysis Mode", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    mode_label = tk.Label(frame, text="Mode")
+    mode_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    mode_menu = ttk.Combobox(
+        frame,
+        textvariable=cvol.analysis_mode,
+        values=list(MODES),
+        width=8,
+        state="readonly",
+    )
+    mode_menu.grid(row=row_idx, column=1, sticky="w", padx=5, pady=5)
+
+    mode_description = tk.Label(frame, text="", wraplength=520, justify="left", fg="#555555")
+    mode_description.grid(row=row_idx + 1, column=0, columnspan=3, sticky="w", padx=(25, 5))
+
+    def describe_mode(*_args):
+        mode = MODES.get(cvol.analysis_mode.get())
+        mode_description.config(text=mode.description if mode else "")
+
+    cvol.analysis_mode.trace_add("write", describe_mode)
+    describe_mode()
+    create_popup(
+        frame,
+        "xyt analyses planar images over time (the original BARCODE behaviour). "
+        "xyz analyses each z-slice as a 2D image with depth as the progression axis. "
+        "xyzt analyses whole volumes over time. Each mode writes only the metrics it "
+        "supports, so the columns differ between modes.",
+        row_idx, mode_label,
+    )
+    row_idx += 2
+
     tk.Label(frame, text="Select Data", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
     )
@@ -273,6 +314,57 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
         "Save an .PNG BARCODE matrix for the dataset, plotting the 23 BARCODE metrics for each channel in the dataset on a color-coded scale.",
     )
     row_idx += 2
+
+    # Which metrics appear on the barcode image. The CSV always carries the full set for
+    # the mode; this only trims the picture, so a trimmed run stays comparable with an
+    # untrimmed one.
+    tk.Label(frame, text="Barcode Metrics", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    metric_menu = tk.Menubutton(frame, text="Choose Metrics to Show on the Barcode",
+                                relief="raised")
+    metric_menu.grid(row=row_idx, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+    metric_menu.menu = tk.Menu(metric_menu, tearoff=0)
+    metric_menu["menu"] = metric_menu.menu
+    metric_vars = {}
+
+    def sync_hidden_metrics(*_args):
+        co.hidden_barcode_metrics.clear()
+        co.hidden_barcode_metrics.extend(
+            name for name, var in metric_vars.items() if not var.get()
+        )
+        shown = len(metric_vars) - len(co.hidden_barcode_metrics)
+        metric_menu.config(text=f"Barcode Metrics ({shown} of {len(metric_vars)} shown)")
+
+    def rebuild_metric_menu(*_args):
+        """Rebuild when the mode changes -- each mode produces a different metric set."""
+        from core.results import ChannelResults
+
+        try:
+            mode_key = cvol.analysis_mode.get()
+            names = ChannelResults.get_headers(
+                just_metrics=True, mode=mode_key,
+                include_components=bool(cvol.enable_component_stats.get()),
+            )
+        except Exception:
+            return
+
+        previously_hidden = set(co.hidden_barcode_metrics)
+        metric_menu.menu.delete(0, "end")
+        metric_vars.clear()
+        for name in names:
+            var = tk.IntVar(value=0 if name in previously_hidden else 1)
+            var.trace_add("write", sync_hidden_metrics)
+            metric_vars[name] = var
+            metric_menu.menu.add_checkbutton(label=name, variable=var, onvalue=1, offvalue=0)
+        sync_hidden_metrics()
+
+    cvol.analysis_mode.trace_add("write", rebuild_metric_menu)
+    cvol.enable_component_stats.trace_add("write", rebuild_metric_menu)
+    rebuild_metric_menu()
+    row_idx += 1
 
     tk.Label(frame, text="Configuration Settings", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
