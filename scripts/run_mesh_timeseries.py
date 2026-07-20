@@ -191,10 +191,13 @@ def main() -> int:
                     else analyze_curvature(mesh.vertices_um, mesh.faces)
                 )
                 elapsed = time.time() - t0
-            except (MeshingError, OSError, ValueError, FileNotFoundError) as exc:
-                # One unusable timepoint must not abandon the rest of the series.
-                print(f"  [{done}/{total}] {label}: FAILED {type(exc).__name__}: {exc}",
-                      flush=True)
+            except Exception as exc:
+                # One unusable timepoint must not abandon the rest of the batch, and the
+                # meshing backend has several failure modes (missing mask, unreadable
+                # TIFF, CGAL giving up) that are not worth enumerating -- every one of
+                # them is recorded and reported at the end rather than swallowed.
+                print(f"  [{done}/{total}] {label}: FAILED {type(exc).__name__}: "
+                      f"{str(exc).strip()[:200]}", flush=True)
                 failures.append((label, f"{type(exc).__name__}: {exc}"))
                 continue
 

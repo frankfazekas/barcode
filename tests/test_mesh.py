@@ -127,6 +127,35 @@ def test_largest_component_rejects_empty_mask():
 
 
 # --------------------------------------------------------------------------- #
+# backend failure handling
+# --------------------------------------------------------------------------- #
+def test_backend_retries_a_transient_failure():
+    """pyiso2mesh's file-based backends fail intermittently under batch load."""
+    from analysis.volumetric import mesh as mesh_module
+
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise RuntimeError("jmeshlib command failed: loadOFF")
+        return "meshed"
+
+    assert mesh_module._backend(flaky, "flaky") == "meshed"
+    assert len(calls) == 3
+
+
+def test_backend_reports_a_persistent_failure_as_meshing_error():
+    from analysis.volumetric import mesh as mesh_module
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("cgalsurf exploded")
+
+    with pytest.raises(MeshingError, match="after 3 attempts"):
+        mesh_module._backend(broken, "broken")
+
+
+# --------------------------------------------------------------------------- #
 # the meshing chain
 # --------------------------------------------------------------------------- #
 @needs_iso2mesh

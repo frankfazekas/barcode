@@ -16,7 +16,7 @@ from analysis.volumetric.binarization import (
     VolumetricBinarizationDetail,
     analyze_binarization_3d,
 )
-from analysis.volumetric.flow import analyze_optical_flow_3d
+from analysis.volumetric.flow import VolumetricFlowDetail, analyze_optical_flow_3d
 from analysis.volumetric.intensity import (
     VolumetricIntensityDetail,
     analyze_intensity_3d,
@@ -38,6 +38,7 @@ class VolumetricRunDetail:
     resample_info: Dict[str, object] = field(default_factory=dict)
     binarization: Optional[VolumetricBinarizationDetail] = None
     intensity: Optional[VolumetricIntensityDetail] = None
+    flow: Optional[VolumetricFlowDetail] = None
     meshes: List[NucleusMesh] = field(default_factory=list)
     frame_indices: List[int] = field(default_factory=list)
 
@@ -255,15 +256,18 @@ def run_volumetric_analysis(
                 print(f"Meshing failed: {exc}", flush=True)
 
     if config.modules.optical_flow:
-        if len(frame_indices) < 2:
-            print(
-                "Only one timepoint; the flow branch needs at least two. Skipping.",
-                flush=True,
-            )
-        else:
-            results.flow = analyze_optical_flow_3d(
-                volumes, spacing_zyx, stack.exposure_time_s, vcfg, frame_indices
-            )
+        # Unlike the other branches, flow needs a contiguous window of 6*t_sigma+1
+        # volumes centred on each analysed timepoint, so the guard is on the series
+        # length rather than on how many frames were selected. analyze_optical_flow_3d
+        # reports the shortfall itself and returns empty results.
+        results.flow, detail.flow = analyze_optical_flow_3d(
+            volumes,
+            spacing_zyx,
+            stack.exposure_time_s,
+            vcfg,
+            frame_indices,
+            masks,
+        )
 
     return results, detail
 

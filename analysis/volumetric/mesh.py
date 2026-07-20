@@ -271,7 +271,9 @@ def generate_mesh(
 
     # 1) Surface extraction. Isovalue 0.99 on a 0/1 volume, radbound = maxrad.
     #    v2s returns faces as (M, 4): three 1-based node indices plus a region id.
-    vertices, faces_raw = _quiet(v2s, binary, 0.99, float(maxrad), verbose=verbose)[:2]
+    vertices, faces_raw = _backend(
+        v2s, "v2s", binary, 0.99, float(maxrad), verbose=verbose
+    )[:2]
     vertices = np.asarray(vertices, dtype=np.float64)[:, :3]
     faces_raw = np.asarray(faces_raw)
     if faces_raw.size == 0:
@@ -291,7 +293,9 @@ def generate_mesh(
     # 3) Decimate to that ratio. Only the three node columns are meshable; passing the
     #    region column through would write quads into the OFF file cgalsimp2 reads.
     faces = faces_raw[:, :3]
-    vertices, faces = _quiet(meshresample, vertices, faces, keep_ratio, verbose=verbose)
+    vertices, faces = _backend(
+        meshresample, "meshresample", vertices, faces, keep_ratio, verbose=verbose
+    )
     vertices = np.asarray(vertices, dtype=np.float64)
     faces = np.asarray(faces)[:, :3]
 
@@ -309,6 +313,32 @@ def generate_mesh(
         )
 
     return vertices, faces
+
+
+def _backend(func, name: str, *args, verbose: bool = False, attempts: int = 3, **kwargs):
+    """Call a pyiso2mesh entry point, retrying transient failures.
+
+    The CGAL and jmeshlib executables communicate through files in one fixed temporary
+    directory that every call reuses, and in long batches an occasional call fails to
+    read back a file it has just written (seen as ``jmeshlib command failed: ERROR-
+    loadOFF: Couldn't read indexes for face # N`` on a mesh that meshes cleanly on the
+    very next attempt). Retrying costs a few seconds and turns a batch-ending crash
+    into a hiccup. A genuinely bad mesh fails every attempt and is reported as a
+    :class:`MeshingError`, so nothing is swallowed.
+    """
+    last: Optional[Exception] = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _quiet(func, *args, verbose=verbose, **kwargs)
+        except (RuntimeError, OSError) as exc:
+            last = exc
+            if verbose or attempt > 1:
+                print(
+                    f"  {name} failed (attempt {attempt}/{attempts}): "
+                    f"{type(exc).__name__}: {str(exc).strip()[:160]}",
+                    flush=True,
+                )
+    raise MeshingError(f"iso2mesh {name} failed after {attempts} attempts: {last}")
 
 
 def _quiet(func, *args, verbose: bool = False, **kwargs):
