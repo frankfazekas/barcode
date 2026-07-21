@@ -30,7 +30,40 @@ from __future__ import annotations
 from typing import Dict, Optional, Tuple
 
 import numpy as np
-import SimpleITK as sitk
+
+# SimpleITK is a declared dependency (requirements.txt) but a heavy native one, so it is
+# imported softly here: a missing install must surface as a clear, actionable message at
+# the point of use, not a raw ModuleNotFoundError that crashes a run after the GUI has
+# already opened. See require_simpleitk. Historically this only bit runs that supplied a
+# segmentation (the only path that resampled); once no-mask runs also resample to an
+# isotropic grid, every volumetric run needs it, so the guard matters more.
+try:
+    import SimpleITK as sitk
+except ImportError as _exc:                     # pragma: no cover - only without the dep
+    sitk = None
+    _SIMPLEITK_IMPORT_ERROR: Optional[ImportError] = _exc
+else:
+    _SIMPLEITK_IMPORT_ERROR = None
+
+
+def require_simpleitk() -> None:
+    """Raise a clear, actionable error when SimpleITK is not installed.
+
+    The volumetric modes put the stack on an isotropic grid — with OR without a
+    segmentation — and that resampling is done by SimpleITK. Called at the entry of every
+    function here that touches ``sitk`` so the failure is explained once, up front, rather
+    than as an opaque import error somewhere deep in a run.
+    """
+    if sitk is None:
+        raise ImportError(
+            "Volumetric analysis needs the SimpleITK package to resample the stack onto "
+            "an isotropic grid, but it is not installed in this environment.\n\n"
+            "Install it with:\n"
+            "    pip install SimpleITK\n\n"
+            "(It is listed in requirements.txt, so 'pip install -r requirements.txt' "
+            "also works.) SimpleITK is required for every volumetric run — 2D (xyt) "
+            "analysis does not need it."
+        ) from _SIMPLEITK_IMPORT_ERROR
 
 
 def _ensure_3d_volume(array, label, allow_redundant_channels=False):
@@ -79,6 +112,7 @@ def _resample_array_to_reference(
     without an origin the masks were sampled from (0,0,0) and came out offset from the
     image by the whole crop. The shape check downstream cannot see a pure offset.
     """
+    require_simpleitk()
     source = _to_sitk(array, source_spacing_xyz_um)
     reference = _to_sitk(
         np.zeros(reference_shape_zyx, dtype=np.float32), reference_spacing_xyz_um,
@@ -177,6 +211,7 @@ def resample_images_to_isotropic(
 
     Returns ``(images_iso, spacing_iso_xyz, info)``.
     """
+    require_simpleitk()
     images = {name: _ensure_3d_volume(np.asarray(img), name) for name, img in images.items()}
     info: Dict[str, object] = {}
 
@@ -232,6 +267,7 @@ def prepare_volume(
     single-nucleus rotation pipeline where every quantity was absolute. It is wrong for
     BARCODE, whose normalised metrics are all relative to the analysed volume.
     """
+    require_simpleitk()
     info: Dict[str, object] = {}
 
     # Coerce loaded arrays to (Z, Y, X) -- the masks are saved RGBA.

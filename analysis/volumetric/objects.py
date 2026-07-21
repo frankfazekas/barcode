@@ -57,7 +57,6 @@ class ObjectResults:
     surface_area: float = np.nan
     sphericity: float = np.nan
     solidity: float = np.nan
-    concavity: float = np.nan
     aspect_ratio: float = np.nan
     mean_curvature: float = np.nan
 
@@ -79,7 +78,6 @@ class ObjectResults:
             Metrics.MESH_SURFACE_AREA,
             Metrics.MESH_SPHERICITY,
             Metrics.MESH_SOLIDITY,
-            Metrics.MESH_CONCAVITY,
             Metrics.MESH_ASPECT_RATIO,
             Metrics.CURVATURE_MEAN,
         ]
@@ -90,7 +88,7 @@ class ObjectResults:
             Units.VOLUME, Units.NONE, Units.NONE,
             Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
             Units.NONE, Units.NONE, Units.NONE,
-            Units.AREA, Units.NONE, Units.NONE, Units.NONE, Units.NONE,
+            Units.AREA, Units.NONE, Units.NONE, Units.NONE,
             Units.CURVATURE,
         ]
 
@@ -106,7 +104,7 @@ class ObjectResults:
             self.volume, self.anisotropy, self.contact_number,
             self.mfi, self.intensity_sd, self.intensity_cv, self.intensity_skew,
             self.entropy, self.entropy_normalized, self.bright_fraction,
-            self.surface_area, self.sphericity, self.solidity, self.concavity,
+            self.surface_area, self.sphericity, self.solidity,
             self.aspect_ratio, self.mean_curvature,
         ]
 
@@ -254,8 +252,6 @@ def _shape_of(mesh) -> Dict[str, float]:
         "surface_area": float(getattr(geometry, "surface_area_um2", np.nan)),
         "sphericity": float(getattr(geometry, "sphericity", np.nan)),
         "solidity": float(getattr(geometry, "mesh_solidity", np.nan)),
-        "concavity": float(getattr(curvature, "concave_ratio", np.nan))
-                     if curvature is not None else np.nan,
         "aspect_ratio": float(getattr(geometry, "aspect_ratio", np.nan)),
         "mean_curvature": float(getattr(curvature, "mean_curvature", np.nan))
                           if curvature is not None else np.nan,

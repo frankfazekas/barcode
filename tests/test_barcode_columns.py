@@ -35,7 +35,7 @@ def populated_xyzt_results(n=3):
         r.mesh = MeshResults(mesh_volume=500.0 + i)
         r.components = ComponentResults(count=1.0)
         r.curvature_range = CurvatureRangeResults(min_curvature=-0.05, max_curvature=0.4)
-        r.slice_profile = SliceProfileResults(broadest_index=80.0)
+        r.slice_profile = SliceProfileResults(max_area_index=80.0)
         r.mask_intensity = MaskIntensityResults(mfi=350.0)
         out.append(r)
     return out

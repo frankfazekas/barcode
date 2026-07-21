@@ -164,14 +164,15 @@ class Metrics(Enum):
     MESH_HEIGHT = "Mesh Height"
     # TCell nuc_aspect_ratio: lateral size over axial size, (MIP major + minor)/(2*height).
     # > 1 is a flat/oblate object, ~1 is round. Dimensionless, so it is size-independent.
-    MESH_ASPECT_RATIO = "Aspect Ratio"
+    # The column name spells out lateral/axial: a bare "Aspect Ratio" reads as an in-plane
+    # ratio, which this is not.
+    MESH_ASPECT_RATIO = "Lateral/Axial Ratio"
     MESH_VOLUME_RATIO = "Mesh Volume Ratio"
     # Convexity, as voxel counts (volume / convex-hull volume), matching
     # chromatin-analysis' morph3d_solidity and MATLAB's regionprops3 Solidity. 1 = convex;
-    # lower = more lobed. Concavity is its complement and is reported for readers who
-    # think in "how much of the hull is empty".
+    # lower = more lobed. Its complement (1 - Solidity) is not reported separately -- it
+    # carried no information Solidity does not.
     MESH_SOLIDITY = "Solidity"
-    MESH_CONCAVITY = "Concavity"
 
     # Curvature of that surface (analysis/volumetric/curvature.py).
     # <H> denotes the area-weighted surface average of the pointwise mean curvature
@@ -189,13 +190,13 @@ class Metrics(Enum):
     CURVATURE_MIN = "Minimum Curvature"
     CURVATURE_MAX = "Maximum Curvature"
 
-    # Where a volume is widest (analysis/volumetric/slice_profile.py). For a stack
-    # through a curved surface or a rounded object, the slice with the most foreground
-    # locates the equator, and its depth is a shape descriptor rather than a
+    # The slice of maximal foreground area (analysis/volumetric/slice_profile.py). For a
+    # stack through a curved surface or a rounded object, the slice with the most
+    # foreground locates the equator, and its depth is a shape descriptor rather than a
     # bookkeeping detail: it moves when the object flattens or tilts.
-    BROADEST_SLICE_INDEX = "Broadest Slice Index"
-    BROADEST_SLICE_DEPTH = "Broadest Slice Depth"
-    BROADEST_SLICE_AREA = "Broadest Slice Area"
+    MAX_AREA_SLICE_INDEX = "Maximal Area Slice Index"
+    MAX_AREA_SLICE_DEPTH = "Maximal Area Slice Depth"
+    MAX_AREA_SLICE_AREA = "Maximal Area Slice Area"
 
     # Intensity distribution WITHIN the segmentation (analysis/volumetric/mask_intensity.py).
     # Distinct from the intensity branch, which describes whichever voxels it was given

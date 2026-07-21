@@ -338,7 +338,6 @@ class MeshResults(ResultsBase):
             Metrics.MESH_ASPECT_RATIO,
             Metrics.MESH_VOLUME_RATIO,
             Metrics.MESH_SOLIDITY,
-            Metrics.MESH_CONCAVITY,
             Metrics.CURVATURE_MEAN,
             Metrics.CURVATURE_INVAGINATION,
             Metrics.CURVATURE_CONCAVE,
@@ -352,7 +351,6 @@ class MeshResults(ResultsBase):
             Units.NONE,
             Units.LENGTH,
             Units.LENGTH,
-            Units.NONE,
             Units.NONE,
             Units.NONE,
             Units.NONE,
@@ -374,7 +372,6 @@ class MeshResults(ResultsBase):
         "aspect_ratio",
         "volume_ratio",
         "solidity",
-        None,                             # Concavity = 1 - Solidity
         "mean_curvature",
         "invagination_ratio",
         "concave_ratio",
@@ -488,23 +485,23 @@ class SliceProfileResults(ResultsBase):
 
     Everything else in the volumetric branch reduces a stack to one number per
     timepoint and so cannot say *where* in depth anything happened. For a stack through
-    a curved surface or a rounded object the broadest slice locates the equator, and it
-    moves when the object flattens, tilts, or drifts through the focal range.
+    a curved surface or a rounded object the maximal-area slice locates the equator, and
+    it moves when the object flattens, tilts, or drifts through the focal range.
 
     The depth is measured from the first *analysed* slice, so it is unaffected by a
     z-range restriction -- but that also means it is not an absolute stage position.
     """
 
-    broadest_index: float = np.nan
-    broadest_depth: float = np.nan
-    broadest_area: float = np.nan
+    max_area_index: float = np.nan
+    max_area_depth: float = np.nan
+    max_area_area: float = np.nan
 
     @classmethod
     def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
         return [
-            Metrics.BROADEST_SLICE_INDEX,
-            Metrics.BROADEST_SLICE_DEPTH,
-            Metrics.BROADEST_SLICE_AREA,
+            Metrics.MAX_AREA_SLICE_INDEX,
+            Metrics.MAX_AREA_SLICE_DEPTH,
+            Metrics.MAX_AREA_SLICE_AREA,
         ]
 
     @classmethod
@@ -512,7 +509,7 @@ class SliceProfileResults(ResultsBase):
         return [Units.SLICE_INDEX, Units.LENGTH, Units.FRACTION_FOV]
 
     def get_data(self) -> List[float]:
-        return [self.broadest_index, self.broadest_depth, self.broadest_area]
+        return [self.max_area_index, self.max_area_depth, self.max_area_area]
 
     def get_dict_data(self, mode: AnalysisMode = None) -> dict:
         return dict(zip(self.get_metrics(mode), self.get_data()))

@@ -151,3 +151,66 @@ def test_the_config_field_reaches_the_reader(tmp_path):
 
 def test_the_default_config_overrides_nothing(tmp_path):
     assert BarcodeConfig().volumetric.axes_override == ""
+
+
+# ---------------------------------------------- channel-first (non-channel) override
+
+def _write_multichannel(path, axes, shape, channel_fills):
+    """A file whose declared axes include a real C, each channel a flat fill value."""
+    data = np.zeros(shape, np.uint16)
+    c = axes.index("C")
+    for ch, fill in enumerate(channel_fills):
+        idx = [slice(None)] * data.ndim
+        idx[c] = ch
+        data[tuple(idx)] = fill
+    tifffile.imwrite(str(path), data, imagej=True, metadata={"axes": axes})
+    return str(path)
+
+
+def test_a_five_d_stack_is_described_by_its_four_non_channel_axes(tmp_path):
+    """The requested behaviour: list T,Z,Y,X (never C); the channel is picked separately.
+
+    A 5D TZCYX file + override 'TZYX' takes the channel along the file's own C axis and
+    reads the rest as TZYX -- so the user never writes C in the override.
+    """
+    path = _write_multichannel(tmp_path / "g.tif", "TZCYX", (3, 6, 2, 5, 4), [100, 900])
+    ch1 = read_volume(path, channel=1, axes_override="TZYX")
+    assert ch1.data.shape == (3, 6, 5, 4)
+    assert ch1.data.mean() == 900, "channel 1 should be the 900-filled channel"
+    assert ch1.axes == "TZYX" and ch1.declared_axes == "TZCYX"
+    # channel 0 is the other fill, proving the index actually selects
+    assert read_volume(path, channel=0, axes_override="TZYX").data.mean() == 100
+
+
+def test_negative_channel_index_counts_from_the_end_in_a_channel_first_override(tmp_path):
+    path = _write_multichannel(tmp_path / "g.tif", "TZCYX", (2, 4, 3, 5, 4), [10, 20, 30])
+    assert read_volume(path, channel=-1, axes_override="TZYX").data.mean() == 30
+
+
+def test_a_four_d_single_volume_multichannel_uses_three_axes(tmp_path):
+    """ZCYX single volume + override 'ZYX' strips the channel, leaving ZYX."""
+    path = _write_multichannel(tmp_path / "m.tif", "ZCYX", (6, 2, 5, 4), [100, 900])
+    st = read_volume(path, channel=1, axes_override="ZYX")
+    assert st.data.shape == (1, 6, 5, 4) and st.data.mean() == 900
+
+
+def test_full_length_override_still_reinterprets_a_mislabelled_c(tmp_path):
+    """The Drosophila disambiguation: a 4-letter override on 4D data is FULL, not
+    channel-first, so ZCYX-that-is-really-TZYX is still rescued by 'TZYX'."""
+    path, _ = write_mislabelled(tmp_path / "m.tif", n_t=6, n_z=4)  # declares ZCYX, 4D
+    st = read_volume(path, axes_override="TZYX")
+    assert st.n_timepoints == 6 and st.n_slices == 4, "must reinterpret, not strip a channel"
+    assert st.axes == "TZYX"
+
+
+def test_a_channel_first_override_out_of_range_channel_is_reported(tmp_path):
+    path = _write_multichannel(tmp_path / "g.tif", "TZCYX", (2, 4, 2, 5, 4), [1, 2])
+    with pytest.raises(ValueError, match="channel 5 out of range"):
+        read_volume(path, channel=5, axes_override="TZYX")
+
+
+def test_a_full_channel_axis_override_is_still_accepted(tmp_path):
+    """Listing C explicitly (full length) keeps working for anyone who prefers it."""
+    path = _write_multichannel(tmp_path / "g.tif", "TZCYX", (3, 6, 2, 5, 4), [100, 900])
+    st = read_volume(path, channel=1, axes_override="TZCYX")
+    assert st.data.mean() == 900 and st.data.shape == (3, 6, 5, 4)

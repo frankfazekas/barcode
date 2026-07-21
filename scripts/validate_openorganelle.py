@@ -61,7 +61,7 @@ DEFAULT_LADDER: List[Tuple[str, float, float]] = [
 # grid, so a drift in them would not mean what it appears to mean.
 METRICS_OF_INTEREST = [
     "Mesh Volume", "Mesh Surface Area", "Sphericity", "Equivalent Sphere Radius",
-    "Aspect Ratio", "Solidity", "Concavity", "Mean Curvature <H>",
+    "Lateral/Axial Ratio", "Solidity", "Mean Curvature <H>",
     "Invagination Ratio", "Concave Area Fraction", "Mesh Height",
     "Maximum Island Volume Quantity", "Mean Island Separation",
     "Structural Correlation Length",

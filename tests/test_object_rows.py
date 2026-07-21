@@ -151,13 +151,14 @@ def test_all_seven_in_mask_columns_come_through():
 def test_the_column_set_is_per_object_only():
     """Field-level metrics are omitted, not repeated down every row."""
     headers = ObjectResults.get_headers(just_metrics=True)
-    assert len(headers) == 16
+    assert len(headers) == 15
     assert "Object Volume" in headers and "Contact Number" in headers
     # Shape columns come from each object's OWN mesh (object_mesh.mesh_objects); before
     # that existed they could only have carried the largest object's numbers.
-    for shape in ("Sphericity", "Solidity", "Concavity", "Aspect Ratio",
+    for shape in ("Sphericity", "Solidity", "Lateral/Axial Ratio",
                   "Mesh Surface Area", "Mean Curvature <H>"):
         assert shape in headers
+    assert "Concavity" not in headers, "Concavity was dropped (1 - Solidity, redundant)"
     for field_level in ("Connectivity", "Structural Correlation Length",
                         "Maximum Kurtosis", "Speed", "Mean Contact Number"):
         assert field_level not in headers, f"{field_level} is not a per-object metric"

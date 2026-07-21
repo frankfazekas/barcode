@@ -230,15 +230,13 @@ def create_flow_frame(parent, config: BarcodeConfigGUI, preview_config: PreviewC
             ax_flow.axis("off")
             canvas_flow.draw()
             if mode_key == "xyz":
-                message = ("No flow preview in xyz mode.\n"
-                           "Depth is the progression axis, so there is no motion to "
-                           "measure — the run skips this branch too.")
+                message = ("This flow preview applies only to 2D (xyt) analysis.\n"
+                           "In xyz mode there is no flow — depth is not motion — so the "
+                           "run does not compute it.")
             else:
-                message = ("No flow preview in xyzt mode.\n"
-                           "This preview compares two neighbouring planes of one file, "
-                           "which in a z-stack means two focal planes, not two "
-                           "timepoints.\nThe run itself computes true 3D flow across "
-                           "time; set it up under 3D Optical Flow on the Volumetric tab.")
+                message = ("This flow preview applies only to 2D (xyt) analysis.\n"
+                           "In volumetric mode the run computes true 3D flow over time; "
+                           "set it up under 3D Optical Flow on the Volumetric tab.")
             preview_label.config(image="", text=message, fg="#b45309", justify="left")
             return
         preview_label.config(fg="black", justify="center")

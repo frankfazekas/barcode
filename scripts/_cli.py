@@ -111,7 +111,7 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
     )
     group.add_argument(
         "--slice-profile", action="store_true",
-        help="add the broadest slice (index, depth, area) and raise flag digit 6 when "
+        help="add the maximal area slice (index, depth, area) and raise flag digit 6 when "
              "foreground reaches an edge of the analysed field. The only metrics that "
              "say WHERE in depth something is",
     )

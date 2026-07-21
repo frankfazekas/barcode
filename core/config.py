@@ -356,7 +356,7 @@ class VolumetricConfig(BaseConfig):
     # Only meaningful alongside the mesh family.
     enable_curvature_range: bool = False
 
-    # Broadest-slice depth and the field-of-view clipping flag
+    # Maximal-area-slice depth and the field-of-view clipping flag
     # (analysis/volumetric/slice_profile.py). The only metrics in the branch that say
     # *where* in depth something is, rather than reducing the stack to one number.
     enable_slice_profile: bool = False

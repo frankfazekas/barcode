@@ -93,59 +93,12 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     _show_mode()
     row_idx += 1
 
-    # Where each piece of "how to read this file" is set. The single most common
-    # confusion is the channel: there is no channel control on this tab, because it lives
-    # on Execution Settings and is shared with the 2D path -- and "Parse All Channels" is
-    # silently a no-op in the volumetric modes (analysis/volumetric/run.py analyses the
-    # one selected channel and warns). Said here, next to the geometry settings that DO
-    # live on this tab, so the division is visible without reading the log after a run.
-    tk.Label(frame, text="Reading the file", font=header).grid(
-        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
-    )
-    row_idx += 1
-
-    channel_note = tk.Label(frame, wraplength=640, justify="left", fg="gray25")
-    channel_note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 2))
-
-    def _describe_channel(*_args):
-        # Reads the SAME variables the Execution tab drives, so it always mirrors what is
-        # set there rather than keeping a second copy.
-        if config.channels.parse_all_channels.get():
-            channel_note.config(
-                text="Channel: “Parse All Channels” is set on Execution Settings, but the "
-                     "volumetric modes analyse ONE channel per run — the run will use "
-                     "“Choose Channel” and warn. Untick Parse All Channels, and run the "
-                     "other channels separately by changing Choose Channel.",
-                fg="#b45309")
-            return
-        try:
-            ch = config.channels.selected_channel.get()
-        except tk.TclError:
-            return
-        where = f"channel {ch}" + (" (counting back from the last)" if ch < 0 else "")
-        channel_note.config(
-            text=f"Channel: set on the Execution Settings tab (“Choose Channel”) — "
-                 f"currently {where}. One channel is analysed per run.\n"
-                 f"For a multi-channel (5D) file — e.g. T, Z, C, Y, X — “Choose Channel” "
-                 f"picks which channel; the Axis Order Override below then still lists "
-                 f"ALL axes including C (one letter per dimension of the file). The "
-                 f"chosen channel is taken along C, leaving T, Z, Y, X to analyse.",
-            fg="gray25")
-
-    config.channels.selected_channel.trace_add("write", _describe_channel)
-    config.channels.parse_all_channels.trace_add("write", _describe_channel)
-    _describe_channel()
-    row_idx += 1
-
-    tk.Label(
-        frame,
-        text="Everything else about reading the stack is set below on this tab: the "
-             "voxel size, the axis order (including which axis is the channel), and the "
-             "z / time ranges. Left at their defaults, voxel size and axis order are "
-             "read from the file’s own metadata.",
-        wraplength=640, justify="left", fg="gray25",
-    ).grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 4))
-    row_idx += 1
+    # The "Reading the file" prose block (a channel note mirroring Execution Settings,
+    # plus a "here's what lives on this tab" paragraph) was removed as too wordy -- the
+    # user found it superfluous. The facts it carried are still covered where they bite:
+    # the channel/Parse-All conflict is warned on the Execution tab next to those very
+    # controls, and the "list T,Z,Y,X, never C" rule is in the Axis Order Override
+    # tooltip. Nothing behavioural changed; only the on-screen explanatory text is gone.
 
     tk.Label(frame, text="Voxel Size", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
@@ -190,14 +143,14 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     create_popup(
         frame,
-        "The true axis order for a file whose header is wrong or undeclared. Give one "
-        "letter per dimension of the WHOLE file, from T, Z, C, Y, X.\n\n"
-        "Include the channel axis C if the file has one: a 5D stack is written e.g. "
-        "'TZCYX', and “Choose Channel” on Execution Settings then selects along that C. "
-        "This is not the 4 non-channel axes — it is every axis, C included.\n\n"
-        "Example: 'TZCYX' for a T,Z,C,Y,X hyperstack, or 'TZYX' for a stack that "
-        "declares 'ZCYX' because the microscope wrote its timepoints into ImageJ's "
-        "'channels' field.\n\n"
+        "The true axis order for a file whose header is wrong or undeclared. List the "
+        "REAL axes T, Z, Y, X (or just Z, Y, X for a single volume) — never C.\n\n"
+        "The channel is chosen on Execution Settings and taken out first, so the override "
+        "describes what is left. A 5D T,Z,C,Y,X file is written 'TZYX' here, not 'TZCYX'.\n\n"
+        "This also fixes a mislabelled file: a stack that declares 'ZCYX' but is really a "
+        "time series (the microscope wrote timepoints into the 'channels' field) is read "
+        "correctly as 'TZYX' — the same letters, because there is no real channel to "
+        "remove.\n\n"
         "Leave blank to trust the file. BARCODE never guesses an axis order but will "
         "accept being told; a wrong entry silently reinterprets every axis, so check it "
         "against the shape the log prints.",
@@ -767,8 +720,8 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame,
         row_idx,
         cv.enable_slice_profile,
-        "Broadest Slice & Clipping Flag",
-        "Add the index, depth and area of the widest z slice -- the only metrics that "
+        "Maximal Area Slice & Clipping Flag",
+        "Add the index, depth and area of the maximal area z slice -- the only metrics that "
         "say WHERE in depth something is, rather than reducing the stack to one number. "
         "For a stack through a curved surface or a rounded object it locates the "
         "equator, and it moves when the object flattens or tilts. Also raises flag "

@@ -646,7 +646,9 @@ def _prepare_geometry(
         x0, x1 = bbox["x"]
         masks_iso = masks[:, z0:z1, y0:y1, x0:x1]
     else:
-        from analysis.volumetric.resample import _resample_array_to_reference
+        from analysis.volumetric.resample import (
+            _resample_array_to_reference, require_simpleitk)
+        require_simpleitk()          # clear message before the raw import can fail
         import SimpleITK as sitk
 
         target = (spacing_iso[0], spacing_iso[1], spacing_iso[2])

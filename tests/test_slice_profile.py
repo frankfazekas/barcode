@@ -1,4 +1,4 @@
-"""Broadest slice, and the field-of-view clipping flag (digit 6).
+"""Maximal area slice, and the field-of-view clipping flag (digit 6).
 
 The shape tests use an ellipsoid because its widest slice is known in closed form -- the
 answer comes from geometry, not from running the code and pinning whatever it printed.
@@ -21,7 +21,7 @@ from core.results import ChannelResults, SliceProfileResults
 
 
 def ellipsoid(shape=(21, 60, 60), centre=None, radii=(8, 20, 20)):
-    """A filled ellipsoid, whose broadest slice is exactly its centre plane."""
+    """A filled ellipsoid, whose maximal-area slice is exactly its centre plane."""
     centre = centre if centre is not None else tuple(s // 2 for s in shape)
     zz, yy, xx = np.indices(shape)
     return (((zz - centre[0]) / radii[0]) ** 2
@@ -44,42 +44,42 @@ def test_slice_areas_rejects_a_non_volume():
         slice_areas(np.zeros((10, 10), bool))
 
 
-def test_the_broadest_slice_of_an_ellipsoid_is_its_centre():
+def test_the_max_area_slice_of_an_ellipsoid_is_its_centre():
     volume = ellipsoid(shape=(21, 60, 60), centre=(10, 30, 30), radii=(8, 20, 20))
     results, detail = slice_profile(volume, z_step_um=1.0)
-    assert detail.broadest_index == 10
-    assert results.broadest_index == 10.0
+    assert detail.max_area_index == 10
+    assert results.max_area_index == 10.0
 
 
-def test_an_off_centre_object_moves_the_broadest_slice():
+def test_an_off_centre_object_moves_the_max_area_slice():
     """The metric must track the object, not report the middle of the array."""
     volume = ellipsoid(shape=(31, 60, 60), centre=(7, 30, 30), radii=(5, 20, 20))
     results, _ = slice_profile(volume, z_step_um=1.0)
-    assert results.broadest_index == 7.0
+    assert results.max_area_index == 7.0
 
 
 def test_depth_scales_with_the_z_step():
     """Index is bookkeeping; depth is physical and must honour the voxel size."""
     volume = ellipsoid(shape=(21, 40, 40), centre=(10, 20, 20), radii=(8, 12, 12))
-    assert slice_profile(volume, z_step_um=1.0)[0].broadest_depth == pytest.approx(10.0)
-    assert slice_profile(volume, z_step_um=0.235)[0].broadest_depth == pytest.approx(2.35)
+    assert slice_profile(volume, z_step_um=1.0)[0].max_area_depth == pytest.approx(10.0)
+    assert slice_profile(volume, z_step_um=0.235)[0].max_area_depth == pytest.approx(2.35)
 
 
 def test_the_reported_area_is_the_area_of_that_slice():
     volume = np.zeros((5, 10, 10), bool)
     volume[1, :2, :] = True                  # 20%
-    volume[3, :7, :] = True                  # 70% -- the broadest
+    volume[3, :7, :] = True                  # 70% -- the maximal area
     results, _ = slice_profile(volume, z_step_um=1.0)
-    assert results.broadest_index == 3.0
-    assert results.broadest_area == pytest.approx(0.7)
+    assert results.max_area_index == 3.0
+    assert results.max_area_area == pytest.approx(0.7)
 
 
 def test_an_empty_volume_reports_nan_not_slice_zero():
     """argmax of an all-zero profile is 0, which would read as a real measurement."""
     results, detail = slice_profile(np.zeros((6, 8, 8), bool), z_step_um=1.0)
-    assert np.isnan(results.broadest_index)
-    assert np.isnan(results.broadest_depth)
-    assert detail.broadest_index == -1
+    assert np.isnan(results.max_area_index)
+    assert np.isnan(results.max_area_depth)
+    assert detail.max_area_index == -1
 
 
 # ------------------------------------------------------------------ clipping
@@ -117,33 +117,33 @@ def test_an_empty_volume_is_not_clipped():
     assert not touches_z_border(np.zeros((4, 6, 6), bool))
 
 
-def test_a_clipped_object_still_reports_its_broadest_slice():
+def test_a_clipped_object_still_reports_its_max_area_slice():
     """Clipping is a caveat on the numbers, not a reason to withhold them."""
     volume = np.zeros((7, 10, 10), bool)
     volume[2:5, :, :] = True                 # spans the whole field
     results, detail = slice_profile(volume, 1.0)
     assert detail.clipped and detail.clipped_xy
-    assert results.broadest_area == pytest.approx(1.0)
+    assert results.max_area_area == pytest.approx(1.0)
 
 
 # ------------------------------------------------------------------ reduction
 
 
 def test_summarising_averages_over_timepoints():
-    per_frame = [SliceProfileResults(broadest_index=4.0, broadest_depth=1.0,
-                                     broadest_area=0.5),
-                 SliceProfileResults(broadest_index=6.0, broadest_depth=1.5,
-                                     broadest_area=0.7)]
+    per_frame = [SliceProfileResults(max_area_index=4.0, max_area_depth=1.0,
+                                     max_area_area=0.5),
+                 SliceProfileResults(max_area_index=6.0, max_area_depth=1.5,
+                                     max_area_area=0.7)]
     summary = summarise_slice_profile(per_frame)
-    assert summary.broadest_index == pytest.approx(5.0)
-    assert summary.broadest_area == pytest.approx(0.6)
+    assert summary.max_area_index == pytest.approx(5.0)
+    assert summary.max_area_area == pytest.approx(0.6)
 
 
 def test_summarising_ignores_empty_timepoints():
-    per_frame = [SliceProfileResults(broadest_index=4.0),
+    per_frame = [SliceProfileResults(max_area_index=4.0),
                  SliceProfileResults(),          # all NaN
-                 SliceProfileResults(broadest_index=6.0)]
-    assert summarise_slice_profile(per_frame).broadest_index == pytest.approx(5.0)
+                 SliceProfileResults(max_area_index=6.0)]
+    assert summarise_slice_profile(per_frame).max_area_index == pytest.approx(5.0)
 
 
 # ------------------------------------------------------------------ schema
@@ -169,8 +169,8 @@ def test_the_family_is_opt_in_and_adds_three_columns():
     with_profile = ChannelResults.get_headers(
         just_metrics=False, mode="xyzt", include_slice_profile=True)
     assert len(with_profile) == len(base) + 3
-    assert "Broadest Slice Depth" in with_profile
-    assert "Broadest Slice Depth" not in base
+    assert "Maximal Area Slice Depth" in with_profile
+    assert "Maximal Area Slice Depth" not in base
     assert len(ChannelResults.get_headers(just_metrics=False)) == 28, "2D must not move"
 
 

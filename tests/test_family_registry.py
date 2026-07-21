@@ -292,15 +292,16 @@ def test_every_optional_family_survives_a_csv_round_trip(tmp_path):
     """Read-back must reproduce what was written, for ALL eight families.
 
     The reader rebuilt each family by zipping its CSV block onto
-    ``__dataclass_fields__``. That works only while the two are the same length, and
-    MeshResults writes a DERIVED column -- Concavity = 1 - Solidity -- so its block is 12
-    wide against 11 fields. ``zip`` truncated in silence and shifted every column from
-    Concavity onward, which read Mean Curvature <H> back as 1 - Solidity: a positive
-    dimensionless number in a column declared 1/um, where the real value is signed.
+    ``__dataclass_fields__``. That works only while the two are the same length. MeshResults
+    once wrote a DERIVED column -- Concavity = 1 - Solidity -- making its block 12 wide
+    against 11 fields; ``zip`` truncated in silence and shifted every column from Concavity
+    onward, reading Mean Curvature <H> back as 1 - Solidity: a positive dimensionless number
+    in a column declared 1/um, where the real value is signed.
 
-    Only mesh was affected, and only mesh has a derived column -- which is exactly why a
-    test over one family could not have caught it. This covers all of them, and asserts
-    the width invariant directly so the next derived column fails loudly.
+    Concavity has since been dropped (it carried no information Solidity does not), so no
+    family currently has a derived column -- but the ``_CSV_FIELDS``/``from_values``
+    machinery and this round-trip test remain, asserting the width invariant directly so the
+    next derived column fails loudly rather than silently shifting.
     """
     from core.modes import get_mode
     from core.results import OPTIONAL_FAMILIES

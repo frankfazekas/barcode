@@ -85,7 +85,7 @@ def test_every_new_family_is_off_by_default_in_every_mode():
 
     for mode in MODES.values():
         headers = ChannelResults.get_headers(just_metrics=False, mode=mode)
-        for name in ("Minimum Curvature", "Broadest Slice Depth", "In-Mask MFI"):
+        for name in ("Minimum Curvature", "Maximal Area Slice Depth", "In-Mask MFI"):
             assert name not in headers, f"{name} leaked into {mode.key}"
 
 
@@ -112,8 +112,8 @@ def test_switch_names_are_validated():
 
 @pytest.mark.parametrize("switch,populated", [
     ("include_curvature_range", CurvatureRangeResults(min_curvature=-0.5, max_curvature=2.0)),
-    ("include_slice_profile", SliceProfileResults(broadest_index=6.0, broadest_depth=1.8,
-                                                  broadest_area=0.25)),
+    ("include_slice_profile", SliceProfileResults(max_area_index=6.0, max_area_depth=1.8,
+                                                  max_area_area=0.25)),
     ("include_mask_intensity", MaskIntensityResults(mfi=880.0, sd=40.0, cv=0.045,
                                                     skewness=0.3, entropy=4.2,
                                                     entropy_normalized=0.7,
@@ -182,10 +182,10 @@ def test_slice_profile_and_clipping_come_out_of_a_real_run(tmp_path):
     # The cylinders occupy z 4..8 x 0.3 um = 1.2..2.4 um, and linear interpolation ramps
     # the boundary over roughly one acquired slice either side, so the first thresholded
     # slice sits a little below 1.2.
-    assert 0.85 <= results.slice_profile.broadest_depth <= 2.45, (
-        f"broadest slice at {results.slice_profile.broadest_depth} um is outside the "
+    assert 0.85 <= results.slice_profile.max_area_depth <= 2.45, (
+        f"maximal-area slice at {results.slice_profile.max_area_depth} um is outside the "
         f"cylinders' 1.2-2.4 um extent")
-    assert results.slice_profile.broadest_area > 0
+    assert results.slice_profile.max_area_area > 0
     assert results.fov_clip_flag == 0
     assert "6" not in results.convert_flags()
     assert len(detail.slice_profile) == len(detail.frame_indices)
