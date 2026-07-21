@@ -565,11 +565,42 @@ def read_volume(
         }
 
     declared = axes
+    channel_taken_early = False
     if axes_override:
-        axes = validate_axes_override(axes_override, array.shape, os.path.basename(path))
-        if axes != declared:
-            print(f"{os.path.basename(path)}: reading axes as {axes} "
+        override_norm = str(axes_override).strip().upper()
+        # Channel-first override. The intended, documented form lists only the
+        # NON-channel axes (T, Z, Y, X — never C): the channel is chosen on Execution
+        # Settings and taken from the file's own C axis here, and the override then
+        # describes what remains. Detected by the override being exactly one axis shorter
+        # than the data while the file cleanly declares a single C. This lets a genuine
+        # 5D TZCYX file be described as "TZYX".
+        #
+        # A FULL-length override (one letter per data dimension) still reinterprets every
+        # axis, C included -- which is how a mislabelled file is rescued: the Drosophila
+        # stack declares ZCYX for data that is really TZYX, is 4-dimensional, and is fixed
+        # with the 4-letter "TZYX". That is len == ndim, so it takes the branch below, not
+        # this one. The two 4-letter cases are told apart by the file's dimension count.
+        if (len(override_norm) == array.ndim - 1
+                and "C" not in override_norm
+                and declared.count("C") == 1):
+            c_index = declared.index("C")
+            n_ch = array.shape[c_index]
+            if not -n_ch <= channel < n_ch:
+                raise ValueError(
+                    f"{os.path.basename(path)}: channel {channel} out of range for "
+                    f"{n_ch} channel(s)."
+                )
+            array = np.take(array, channel, axis=c_index)   # supports negative indices
+            channel_taken_early = True
+            axes = validate_axes_override(override_norm, array.shape, os.path.basename(path))
+            print(f"{os.path.basename(path)}: took channel {channel} along the declared "
+                  f"C axis; reading the remaining axes as {axes} "
                   f"(file declares {declared}).", flush=True)
+        else:
+            axes = validate_axes_override(override_norm, array.shape, os.path.basename(path))
+            if axes != declared:
+                print(f"{os.path.basename(path)}: reading axes as {axes} "
+                      f"(file declares {declared}).", flush=True)
 
     unknown = set(axes) & _UNKNOWN_AXES
     if unknown:
@@ -602,13 +633,17 @@ def read_volume(
             axes = missing + axes
     array = np.transpose(array, [axes.index(a) for a in "TZCYX"])
 
+    # When a channel-first override already extracted the channel along the declared C,
+    # the array has no C axis (a length-1 one was inserted above), so the pick here is
+    # the sole remaining channel, not the user's index -- which was consumed early.
+    pick = 0 if channel_taken_early else channel
     n_channels = array.shape[2]
-    if not -n_channels <= channel < n_channels:
+    if not -n_channels <= pick < n_channels:
         raise ValueError(
             f"{os.path.basename(path)}: channel {channel} out of range for "
             f"{n_channels} channel(s)."
         )
-    data = np.ascontiguousarray(array[:, :, channel])
+    data = np.ascontiguousarray(array[:, :, pick])
 
     # Physical spacing: explicit argument > file metadata > warn-and-default.
     # Both readers have already reduced their own metadata to microns above.

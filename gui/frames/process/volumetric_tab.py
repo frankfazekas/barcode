@@ -125,8 +125,11 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         where = f"channel {ch}" + (" (counting back from the last)" if ch < 0 else "")
         channel_note.config(
             text=f"Channel: set on the Execution Settings tab (“Choose Channel”) — "
-                 f"currently {where}. There is no channel control here; one channel is "
-                 f"analysed per run.",
+                 f"currently {where}. One channel is analysed per run.\n"
+                 f"For a multi-channel (5D) file — e.g. T, Z, C, Y, X — “Choose Channel” "
+                 f"picks which channel; the Axis Order Override below then still lists "
+                 f"ALL axes including C (one letter per dimension of the file). The "
+                 f"chosen channel is taken along C, leaving T, Z, Y, X to analyse.",
             fg="gray25")
 
     config.channels.selected_channel.trace_add("write", _describe_channel)
@@ -187,11 +190,16 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     create_popup(
         frame,
-        "The true axis order, one letter per dimension, for a file whose header is "
-        "wrong -- for example 'TZYX' for a stack that declares 'ZCYX' because the "
-        "microscope wrote its timepoints into ImageJ's 'channels' field. Leave blank "
-        "to trust the file. BARCODE never guesses an axis order, but it will accept "
-        "being told: a wrong entry here silently reinterprets every axis, so check it "
+        "The true axis order for a file whose header is wrong or undeclared. Give one "
+        "letter per dimension of the WHOLE file, from T, Z, C, Y, X.\n\n"
+        "Include the channel axis C if the file has one: a 5D stack is written e.g. "
+        "'TZCYX', and “Choose Channel” on Execution Settings then selects along that C. "
+        "This is not the 4 non-channel axes — it is every axis, C included.\n\n"
+        "Example: 'TZCYX' for a T,Z,C,Y,X hyperstack, or 'TZYX' for a stack that "
+        "declares 'ZCYX' because the microscope wrote its timepoints into ImageJ's "
+        "'channels' field.\n\n"
+        "Leave blank to trust the file. BARCODE never guesses an axis order but will "
+        "accept being told; a wrong entry silently reinterprets every axis, so check it "
         "against the shape the log prints.",
         row_idx, axes_label,
     )
