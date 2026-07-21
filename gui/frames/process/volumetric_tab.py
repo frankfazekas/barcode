@@ -147,10 +147,6 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "REAL axes T, Z, Y, X (or just Z, Y, X for a single volume) — never C.\n\n"
         "The channel is chosen on Execution Settings and taken out first, so the override "
         "describes what is left. A 5D T,Z,C,Y,X file is written 'TZYX' here, not 'TZCYX'.\n\n"
-        "This also fixes a mislabelled file: a stack that declares 'ZCYX' but is really a "
-        "time series (the microscope wrote timepoints into the 'channels' field) is read "
-        "correctly as 'TZYX' — the same letters, because there is no real channel to "
-        "remove.\n\n"
         "Leave blank to trust the file. BARCODE never guesses an axis order but will "
         "accept being told; a wrong entry silently reinterprets every axis, so check it "
         "against the shape the log prints.",

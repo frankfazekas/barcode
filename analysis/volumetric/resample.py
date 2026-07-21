@@ -56,13 +56,16 @@ def require_simpleitk() -> None:
     """
     if sitk is None:
         raise ImportError(
-            "Volumetric analysis needs the SimpleITK package to resample the stack onto "
-            "an isotropic grid, but it is not installed in this environment.\n\n"
+            "This run resamples the stack onto an isotropic grid, which needs the "
+            "SimpleITK package — but it is not installed in this environment.\n\n"
             "Install it with:\n"
             "    pip install SimpleITK\n\n"
             "(It is listed in requirements.txt, so 'pip install -r requirements.txt' "
-            "also works.) SimpleITK is required for every volumetric run — 2D (xyt) "
-            "analysis does not need it."
+            "also works.)\n\n"
+            "SimpleITK is only needed when 'Resample to Isotropic Voxels' is on (the "
+            "default). You can untick it on the Volumetric tab to run without SimpleITK, "
+            "but then the 3D shape and connectivity metrics are measured on non-cubic "
+            "voxels. 2D (xyt) analysis never needs SimpleITK."
         ) from _SIMPLEITK_IMPORT_ERROR
 
 

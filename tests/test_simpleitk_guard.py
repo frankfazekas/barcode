@@ -28,6 +28,9 @@ def test_require_simpleitk_message_is_actionable(monkeypatch):
     assert "pip install SimpleITK" in msg
     assert "requirements.txt" in msg
     assert "2D (xyt)" in msg, "should say 2D does not need it"
+    # It must be honest that this is optional, not "required for every run":
+    assert "Resample to Isotropic Voxels" in msg
+    assert "untick" in msg.lower()
 
 
 def test_every_resample_entry_point_guards(monkeypatch):
