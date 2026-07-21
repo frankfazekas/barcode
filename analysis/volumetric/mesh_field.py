@@ -57,6 +57,7 @@ from scipy import ndimage
 from analysis.volumetric.mesh import (
     DEFAULT_ISOVALUE,
     resolve_maxrad,
+    warn_if_maxrad_coarse,
     MeshGeometry,
     MeshingError,
     convex_hull_voxel_count,
@@ -95,6 +96,10 @@ class FieldMeshes:
     skipped_small: List[int] = field(default_factory=list)
     skipped_border: List[int] = field(default_factory=list)
     failed: Dict[int, str] = field(default_factory=dict)
+    # Objects meshed with a triangle bound too coarse for their size. Not failures --
+    # they produce a closed, plausible mesh whose volume is simply too small, which is
+    # precisely why they need saying out loud rather than being left to inspection.
+    warnings: List[str] = field(default_factory=list)
 
     def __len__(self) -> int:
         return len(self.meshes)
@@ -107,6 +112,9 @@ class FieldMeshes:
             lines.append(f"skipped (too small) : {len(self.skipped_small)}")
         if self.skipped_border:
             lines.append(f"skipped (at border) : {len(self.skipped_border)}")
+        if self.warnings:
+            lines.append(f"maxrad too coarse   : {len(self.warnings)} object(s); "
+                         f"e.g. {self.warnings[0]}")
         if self.failed:
             lines.append(f"failed to mesh      : {len(self.failed)} "
                          f"{sorted(self.failed)[:5]}")
@@ -251,10 +259,6 @@ def mesh_field(
     result = FieldMeshes(frame_index=frame_index,
                          n_labels=int(np.count_nonzero(np.unique(array))))
 
-    # Resolved once: maxrad in microns must mean the same physical size for
-    # every object in the field, not be recomputed per crop.
-    maxrad_vox = resolve_maxrad(maxrad, maxrad_units, float(voxel_size))
-
     for label_id, sub, offset, skip in iter_objects(array, min_voxels, exclude_border):
         if skip == "border":
             result.skipped_border.append(label_id)
@@ -264,6 +268,14 @@ def mesh_field(
             continue
 
         try:
+            # Per object: "voxels" and "um" give the same answer for every object,
+            # but "relative" deliberately does not -- that is the point of it.
+            maxrad_vox = resolve_maxrad(maxrad, maxrad_units, float(voxel_size),
+                                        int(sub.sum()))
+            warning = warn_if_maxrad_coarse(maxrad_vox, int(sub.sum()),
+                                            f"label {label_id}")
+            if warning:
+                result.warnings.append(warning)
             vertices_vox, faces = generate_mesh(
                 sub, maxrad=maxrad_vox, area_frac=area_frac,
                 smoothing_iterations=smoothing_iterations,

@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
-from utils.gui import create_option_section, create_popup
+from utils.gui import create_option_section, create_popup, volumetric_submode_var
 
 # from core import BarcodeConfig, InputConfig
 from gui.config import BarcodeConfigGUI, InputConfigGUI
@@ -57,108 +57,58 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
     )
     row_idx += 1
 
-    # The dropdown used to offer the bare keys "xyt / xyz / xyzt", which say nothing about
-    # what they do -- AnalysisMode.label existed but was never shown anywhere. The
-    # combobox now displays "key - label" while cvol.analysis_mode still holds the bare
-    # key that core/modes.py, the YAML, and the CLI all expect.
-    _display = {k: f"{k}  -  {m.label}" for k, m in MODES.items()}
-    _to_key = {v: k for k, v in _display.items()}
+    # One checkbox, not a three-way dropdown. "xyt / xyz / xyzt" named the axes rather
+    # than the question, and the real question here is binary: is the third axis of this
+    # file depth, or time? Which of the two volumetric modes is meant -- one 3D object,
+    # or a stack of 2D slices -- is a z-stack question, so it lives on the Volumetric tab
+    # next to everything else about z. analysis_mode still holds the bare key that
+    # core/modes.py, the YAML and the CLI expect; this is purely how it is presented.
+    submode = volumetric_submode_var(config)
 
-    mode_label = tk.Label(frame, text="Mode")
-    mode_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    volumetric_on = tk.BooleanVar(value=cvol.analysis_mode.get() != "xyt")
 
-    mode_display_var = tk.StringVar(
-        value=_display.get(cvol.analysis_mode.get(), _display["xyt"]))
-    mode_menu = ttk.Combobox(
-        frame,
-        textvariable=mode_display_var,
-        values=list(_display.values()),
-        width=34,
-        state="readonly",
-    )
-    mode_menu.grid(row=row_idx, column=1, columnspan=2, sticky="w", padx=5, pady=5)
-
+    tk.Checkbutton(frame, variable=volumetric_on).grid(row=row_idx, column=0, sticky="w", padx=5)
+    volumetric_caption = tk.Label(frame, text="Volumetric (3D) Analysis", font=("TkDefaultFont", 13))
+    volumetric_caption.grid(row=row_idx, column=0, sticky="w", padx=(25, 5))
+    # Everything this control needs to say lives in the popup, not on the page. The
+    # wording states only what the switch itself decides -- which axis is which -- and
+    # deliberately does NOT list metrics: meshing needs its own checkbox AND a
+    # segmentation, curvature rides on the mesh, and 3D flow needs the flow branch and
+    # more than one timepoint, so naming them here would promise output the run may not
+    # produce. It also says nothing about "single vs time series", which is not a choice:
+    # per-timepoint FILES are grouped by "Group Files Into Time Series", while a single
+    # 4D file already carries its timepoints and needs no setting at all.
     create_popup(
         frame,
-        "Which axis of your file means what. Each mode writes only the metrics it can "
-        "support, so the CSV columns differ between modes. The table below maps the data "
-        "you have onto the mode that reads it correctly.",
-        row_idx, mode_label,
+        (chr(10) * 2).join([
+            "Which axis is the third one. Tick this when it is DEPTH (a z-stack); "
+            "leave it unticked when it is TIME (an ordinary 2D movie).",
+            "Unticked is the original BARCODE behaviour and the reference-validated "
+            "path: each frame measured as a flat image, optical flow as a true velocity.",
+            "Ticked, the Volumetric tab decides how the stack is measured: as one 3D "
+            "object, or as separate 2D slices through depth.",
+            "A z-stack left unticked is silently analysed as a time series, which "
+            "reports flow between focal planes as though it were motion.",
+        ]),
+        row_idx, volumetric_caption,
     )
-    row_idx += 1
-
-    mode_description = tk.Label(frame, text="", wraplength=560, justify="left", fg="#555555")
-    mode_description.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(25, 5))
-    row_idx += 1
-
-    # "What do I have?" -> mode. These are the four situations users actually arrive
-    # with; note that two of them are the same mode, separated only by whether the
-    # timepoints live in one file or in one file each.
-    tk.Label(frame, text="Which mode do I want?", font=("TkDefaultFont", 13, "bold")).grid(
-        row=row_idx, column=0, columnspan=3, sticky="w", padx=(25, 5), pady=(12, 2)
-    )
-    row_idx += 1
-
-    CHOICES = [
-        ("A flat movie: one plane, many timepoints",
-         "xyt", "Areas per frame; flow is a real velocity."),
-        ("One z-stack, and I want per-slice 2D metrics down through it",
-         "xyz", "Each slice measured as its own 2D image; Change = variation with depth."),
-        ("One z-stack, and I want to measure it as a solid object",
-         "xyzt", "True 3D volume, meshing, curvature. Change metrics are NaN (1 timepoint)."),
-        ("A z-stack at every timepoint (a 3D movie)",
-         "xyzt", "As above, plus 3D flow and real Change metrics over time."),
-    ]
-
-    choice_rows = []
-    for text, key, effect in CHOICES:
-        bullet = tk.Label(frame, text="•", fg="gray45")
-        bullet.grid(row=row_idx, column=0, sticky="nw", padx=(30, 0))
-        what = tk.Label(frame, text=text, justify="left", wraplength=330, anchor="w")
-        what.grid(row=row_idx, column=0, sticky="w", padx=(45, 5))
-        arrow = tk.Label(frame, text=f"→  {key}", fg="#1d4ed8", font=("TkDefaultFont", 12, "bold"))
-        arrow.grid(row=row_idx, column=1, sticky="w", padx=5)
-        note = tk.Label(frame, text=effect, fg="gray40", justify="left",
-                        wraplength=300, anchor="w", font=("TkDefaultFont", 11))
-        note.grid(row=row_idx, column=2, sticky="w", padx=5)
-        choice_rows.append((key, bullet, what, arrow, note))
-        row_idx += 1
-
-    # The last two rows are one mode; what separates them is the Time-Lapse setting, and
-    # getting that wrong is the quiet failure (every Change metric silently NaN).
-    tk.Label(
-        frame,
-        text="The last two are the same mode. If each timepoint is a separate file, also "
-             "tick “Group Files Into Time Series” on the Volumetric tab — otherwise every "
-             "volume is analysed alone and all Change metrics come out NaN. A single file "
-             "that already holds all timepoints needs nothing extra.",
-        fg="#b45309", wraplength=560, justify="left", font=("TkDefaultFont", 11),
-    ).grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(45, 5), pady=(2, 6))
     row_idx += 1
 
     def describe_mode(*_args):
-        key = cvol.analysis_mode.get()
-        mode = MODES.get(key)
-        mode_description.config(text=mode.description if mode else "")
-        # Keep the dropdown's text in step when the key is changed from elsewhere
-        # (loading a YAML, or the volumetric tab).
-        wanted = _display.get(key)
-        if wanted and mode_display_var.get() != wanted:
-            mode_display_var.set(wanted)
-        # Highlight whichever guidance rows point at the active mode.
-        for row_key, bullet, what, arrow, note in choice_rows:
-            on = row_key == key
-            what.config(fg="black" if on else "gray55")
-            arrow.config(fg="#1d4ed8" if on else "gray60")
-            note.config(fg="gray40" if on else "gray65")
-            bullet.config(fg="#1d4ed8" if on else "gray70")
+        # Keep the checkbox honest when the key is set from elsewhere (loading a YAML).
+        should_be_on = cvol.analysis_mode.get() != "xyt"
+        if volumetric_on.get() != should_be_on:
+            volumetric_on.set(should_be_on)
 
-    def on_display_changed(*_args):
-        key = _to_key.get(mode_display_var.get())
-        if key and cvol.analysis_mode.get() != key:
-            cvol.analysis_mode.set(key)
+    def _sync_from_widgets(*_args):
+        """Checkbox + the Volumetric tab's sub-choice -> the one key everything reads."""
+        wanted = submode.get() if volumetric_on.get() else "xyt"
+        if cvol.analysis_mode.get() != wanted:
+            cvol.analysis_mode.set(wanted)
+        describe_mode()
 
-    mode_display_var.trace_add("write", on_display_changed)
+    volumetric_on.trace_add("write", _sync_from_widgets)
+    submode.trace_add("write", _sync_from_widgets)
     cvol.analysis_mode.trace_add("write", describe_mode)
     describe_mode()
     row_idx += 1

@@ -63,7 +63,7 @@ def create_popup(parent, description, row, title_label):
 
     def show_popup(event=None):
         _dismiss_popup()  # never stack a second box on top of an existing one
-        popup = tk.Label(parent, text=description, bg="#202020", fg="white", relief="flat", borderwidth=4, wraplength=600)
+        popup = tk.Label(parent, text=description, bg="#202020", fg="white", relief="flat", borderwidth=4, wraplength=600, justify="left")
         popup.place(x=info_icon.winfo_rootx() - parent.winfo_rootx() + info_icon.winfo_width() + 10, y=info_icon.winfo_rooty() - parent.winfo_rooty() - 20)
         popup.tkraise()
         _active_popup["widget"] = popup
@@ -73,6 +73,25 @@ def create_popup(parent, description, row, title_label):
     # A popup outlives its icon if the tab is destroyed mid-hover.
     info_icon.bind("<Destroy>", _dismiss_popup)
     _bind_popup_dismissal(parent)
+
+def volumetric_submode_var(config):
+    """How a z-stack is measured: "xyzt" (one 3D object) or "xyz" (2D slices in depth).
+
+    The Execution tab owns a single Volumetric on/off checkbox, so it can only say xyt vs
+    "not xyt"; which of the two volumetric modes is meant lives on the Volumetric tab.
+    That choice has to survive unticking the box and ticking it again, and analysis_mode
+    cannot hold it (it is "xyt" while the box is off), so it is kept here and shared
+    between the two tabs by hanging it off the config wrapper they both already receive.
+
+    Created on first use, so it does not matter which tab is built first.
+    """
+    existing = getattr(config, "_volumetric_submode_var", None)
+    if existing is None:
+        current = config.volumetric.analysis_mode.get()
+        existing = tk.StringVar(value=current if current in ("xyz", "xyzt") else "xyzt")
+        config._volumetric_submode_var = existing
+    return existing
+
 
 def label_preview_axis(config, frame_number_label):
     """Keep the preview slider's caption honest about which axis it steps along.

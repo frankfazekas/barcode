@@ -125,6 +125,12 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
              "reason rather than a misleading 0",
     )
     group.add_argument(
+        "--fingerprint", action="store_true",
+        help="write a per-volume card (projections, grouped metrics, distributions). "
+             "For inspecting ONE run closely; the barcode is the tool for comparing "
+             "many, so this is off unless asked for",
+    )
+    group.add_argument(
         "--list-metrics", action="store_true",
         help="print the metrics this mode would produce, then exit",
     )
@@ -149,6 +155,7 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.enable_slice_profile = getattr(args, "slice_profile", False)
     v.enable_mask_intensity = getattr(args, "mask_intensity", False)
     v.enable_packing_topology = getattr(args, "packing", False)
+    v.write_fingerprint = getattr(args, "fingerprint", False)
     v.frame_interval_s = getattr(args, "frame_interval", 0) or v.frame_interval_s
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))

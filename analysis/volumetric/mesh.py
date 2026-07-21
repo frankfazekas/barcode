@@ -152,23 +152,41 @@ class MeshingError(RuntimeError):
     """Raised when a mesh cannot be produced or is unusable."""
 
 
-def resolve_maxrad(maxrad: float, units: str, voxel_size_um: float) -> float:
+def equivalent_radius_voxels(object_voxels: float) -> float:
+    """Radius of a sphere with the same voxel count -- the object's own length scale."""
+    return float((3.0 * max(float(object_voxels), 1.0) / (4.0 * np.pi)) ** (1.0 / 3.0))
+
+
+# Above this ratio of maxrad to the object's equivalent radius, the triangles are a
+# large fraction of the object and the mesh loses volume fast. Measured on spheres:
+# 0.08 -> 0.3% error, 0.13 -> 0.9%, 0.31 -> 7.4%. 0.15 is the point past which the
+# error stops being negligible.
+COARSE_MAXRAD_RATIO = 0.15
+
+
+def resolve_maxrad(maxrad: float, units: str, voxel_size_um: float,
+                   object_voxels: Optional[float] = None) -> float:
     """Convert a triangle-size bound to voxels, which is what ``v2s`` wants.
 
-    ``maxrad`` bounds the triangle size, and it is the single biggest control on mesh
-    accuracy -- but it is expressed in VOXELS, so the same setting means a different
-    physical size on every dataset, and a different fraction of the object on every
-    object. Measured against closed-form spheres on a 0.108 um grid:
+    ``maxrad`` bounds the triangle size and is the single biggest control on mesh
+    accuracy. Measured against closed-form spheres:
 
-        sphere radius (vox)      16      16      40      65
-        maxrad (vox)              5       2       5       5
-        surface area / exact  0.926   0.993   0.991   0.997
+        object radius (vox)      65      40      16      16
+        maxrad (vox)              5       5       5       2
+        surface area / exact  0.997   0.991   0.926   0.993
 
-    One setting, four answers, because what matters is maxrad relative to the object.
-    Stating it in microns at least makes it mean the same physical thing across datasets
-    acquired at different voxel sizes, which is why this exists.
+    One setting, four answers, because what matters is maxrad relative to the OBJECT.
+    Hence three ways to say it:
 
-    ``units`` is "voxels" (as stored, the historical behaviour) or "um"/"microns".
+    * ``"voxels"``   as stored -- a different physical size on every dataset, and a
+                     different fraction of every object. The historical meaning.
+    * ``"um"``       microns, converted with the isotropic voxel size, so one setting
+                     means one physical size across acquisitions at different sampling.
+    * ``"relative"`` a fraction of THIS object's equivalent-sphere radius, resolved per
+                     object. The only one that holds accuracy constant across a field
+                     containing objects of very different sizes; 0.1 is a good value.
+
+    ``object_voxels`` is the object's voxel count, required only for ``"relative"``.
     """
     text = str(units or "voxels").strip().lower()
     if text in ("voxel", "voxels", "vox", ""):
@@ -180,17 +198,45 @@ def resolve_maxrad(maxrad: float, units: str, voxel_size_um: float) -> float:
                 f"{voxel_size_um}; cannot convert. Set the spacing, or use voxels."
             )
         return float(maxrad) / float(voxel_size_um)
+    if text in ("relative", "fraction", "rel"):
+        if object_voxels is None:
+            raise MeshingError(
+                "mesh_maxrad_units='relative' needs the object's size, which is only "
+                "known where the mask is. Call through mesh_nucleus or mesh_field."
+            )
+        return max(0.25, float(maxrad) * equivalent_radius_voxels(object_voxels))
     raise MeshingError(
-        f"Unknown maxrad units {units!r}; expected 'voxels' or 'um'."
+        f"Unknown maxrad units {units!r}; expected 'voxels', 'um' or 'relative'."
     )
 
 
-def maxrad_from_config(config, voxel_size_um: float) -> float:
+def warn_if_maxrad_coarse(maxrad_vox: float, object_voxels: float,
+                          label: str = "") -> Optional[str]:
+    """Say so when the triangle bound is large relative to the object.
+
+    Silence here is how a 30% volume error reaches a figure: nothing else in the chain
+    fails, the mesh is closed and plausible, and only its size is wrong.
+    """
+    radius = equivalent_radius_voxels(object_voxels)
+    if radius <= 0 or maxrad_vox / radius <= COARSE_MAXRAD_RATIO:
+        return None
+    where = f"{label}: " if label else ""
+    return (
+        f"{where}maxrad {maxrad_vox:.2f} vox is {maxrad_vox / radius:.0%} of this "
+        f"object's radius ({radius:.1f} vox). Above ~{COARSE_MAXRAD_RATIO:.0%} the mesh "
+        f"loses volume quickly -- expect several percent, tens of percent past ~30%. "
+        f"Lower mesh_maxrad, or set mesh_maxrad_units='relative'."
+    )
+
+
+def maxrad_from_config(config, voxel_size_um: float,
+                       object_voxels: Optional[float] = None) -> float:
     """``config.mesh_maxrad`` in voxels, honouring ``mesh_maxrad_units``."""
     return resolve_maxrad(
         getattr(config, "mesh_maxrad", 5.0),
         getattr(config, "mesh_maxrad_units", "voxels"),
         voxel_size_um,
+        object_voxels,
     )
 
 
@@ -834,6 +880,7 @@ def mesh_nucleus(
     frame_index: int = 0,
     solidity: bool = True,
     isovalue: float = DEFAULT_ISOVALUE,
+    maxrad_units: str = "voxels",
 ) -> NucleusMesh:
     """Mesh one segmented nucleus and measure it.
 
@@ -856,6 +903,12 @@ def mesh_nucleus(
         )
 
     binary = largest_component(mask_zyx)
+    # Resolved here because "relative" needs the object, and warned here because this is
+    # the last point that knows both the setting and what it is being applied to.
+    maxrad = resolve_maxrad(maxrad, maxrad_units, float(spacing[0]), int(binary.sum()))
+    warning = warn_if_maxrad_coarse(maxrad, int(binary.sum()), f"frame {frame_index}")
+    if warning:
+        print(f"  {warning}", flush=True)
     vertices_vox, faces = generate_mesh(
         binary,
         isovalue=isovalue,
@@ -919,12 +972,13 @@ def mesh_series(
     """Mesh the analysed timepoints of a ``(T, Z, Y, X)`` mask series."""
     ensure_iso2mesh_binaries(getattr(config, "mesh_iso2mesh_bin", "") or "")
     # The grid is isotropic by the time meshing runs, so any axis gives the voxel size.
-    maxrad_vox = maxrad_from_config(config, float(np.asarray(spacing_zyx_um)[0]))
+    units = getattr(config, "mesh_maxrad_units", "voxels")
     meshes = [
         mesh_nucleus(
             masks[index],
             spacing_zyx_um,
-            maxrad=maxrad_vox,
+            maxrad=getattr(config, "mesh_maxrad", 5.0),
+            maxrad_units=units,
             isovalue=getattr(config, "mesh_isovalue", DEFAULT_ISOVALUE),
             area_frac=config.mesh_area_frac,
             smoothing_iterations=config.mesh_smoothing_iterations,

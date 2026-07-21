@@ -63,6 +63,13 @@ class VolumetricRunDetail:
     mask_intensity: List[MaskIntensityDetail] = field(default_factory=list)
     frame_indices: List[int] = field(default_factory=list)
 
+    # One analysed timepoint, kept only when the fingerprint card is enabled. These are
+    # the post-range, post-resampling voxels, so the card cannot show something other
+    # than what was measured.
+    analysed_volume: Optional[np.ndarray] = field(default=None, repr=False)
+    analysed_mask: Optional[np.ndarray] = field(default=None, repr=False)
+    representative_frame: Optional[int] = None
+
 
 def _frame_binary(volumes, masks, frame_idx, vcfg):
     """The binary volume for one timepoint, by the binarization branch's own rule.
@@ -687,6 +694,15 @@ def run_volumetric_analysis(
         resample_info=info,
         frame_indices=frame_indices,
     )
+    # Keep ONE analysed timepoint for the fingerprint card, so the picture shows exactly
+    # the voxels the metrics came from -- after the z/t range and after resampling.
+    # Guarded on the setting because it holds a whole volume alive (~47 MB on the Jurkat
+    # grid) for the life of the run, which a large batch should not pay for unasked.
+    if getattr(vcfg, "write_fingerprint", False) and frame_indices:
+        representative = frame_indices[len(frame_indices) // 2]
+        detail.representative_frame = int(representative)
+        detail.analysed_volume = volumes[representative]
+        detail.analysed_mask = None if masks is None else masks[representative]
     results = ChannelResults(filepath=filepath, channel=channel)
     results.z_range_flag = 1 if (stack.z_range or stack.t_range) else 0
     # Acquired voxels, not the resampled/cropped ones -- see _dim_flag.
@@ -904,4 +920,26 @@ def run_volumetric_pipeline(
         raise
 
     print(f"Volumetric: {detail.shape_zyx} @ {tuple(round(s, 4) for s in detail.spacing_zyx_um)} um")
+
+    if getattr(config.volumetric, "write_fingerprint", False):
+        try:
+            from visualization.fingerprint import build_fingerprint
+
+            stem = os.path.splitext(os.path.basename(filepath))[0]
+            frame = detail.representative_frame
+            written = build_fingerprint(
+                detail.analysed_volume, detail.analysed_mask, detail.spacing_zyx_um,
+                results, detail, config.volumetric.mode,
+                title=f"{stem}  —  {config.volumetric.mode.key}"
+                      + (f", timepoint {frame}" if frame is not None else ""),
+                figpath=os.path.join(os.path.dirname(filepath), f"{stem} Fingerprint.png"),
+                dpi=getattr(config.volumetric, "fingerprint_dpi", 110),
+            )
+            print(f"  fingerprint: {os.path.basename(written)}", flush=True)
+        except Exception as exc:
+            # A figure must never cost a run its metrics; the CSV is already written.
+            with open(fail_file_loc, "a", encoding="utf-8") as log_file:
+                log_file.write(f"File: {filepath}, Module: Fingerprint, Exception: {exc}\n")
+            print(f"  fingerprint skipped: {exc}", flush=True)
+
     return [results], count

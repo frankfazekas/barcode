@@ -45,12 +45,12 @@ METADATA = os.path.join("_allen_metadata", "metadata.csv")
 # ``scale_micron`` column names. Read it from the file rather than assuming.
 DEFAULT_SCALE_UM = 0.108333
 
-# staged folder -> (Allen volume column, Allen area column)
-# Suffix -> (Allen volume column, Allen area column). Matched by suffix because the
+# Suffix -> (Allen volume column, Allen area column, Allen depth column). Matched by
+# suffix because the
 # staged folder carries whatever --name the stager was given (subset, full, ...).
 TARGETS = {
-    "nucleus": ("NUC_shape_volume", "NUC_roundness_surface_area"),
-    "cell": ("MEM_shape_volume", "MEM_roundness_surface_area"),
+    "nucleus": ("NUC_shape_volume", "NUC_roundness_surface_area", "NUC_position_depth"),
+    "cell": ("MEM_shape_volume", "MEM_roundness_surface_area", "MEM_position_depth"),
 }
 
 
@@ -139,7 +139,8 @@ def meshed_by_label(folder: str, fov: str, xy_um: float, maxrad: float
     labels = read_tiff_any(path)
     field = mesh_field(labels, (xy_um,) * 3, maxrad=maxrad, min_voxels=512,
                        curvature=False, solidity=False)
-    return {int(m.label): (m.geometry.volume_um3, m.geometry.surface_area_um2)
+    return {int(m.label): (m.geometry.volume_um3, m.geometry.surface_area_um2,
+                          m.geometry.height_um)
             for m in field.meshes}
 
 
@@ -239,24 +240,33 @@ def main() -> int:
         print("\n" + "=" * 74)
         print("MESH metrics vs Allen -- volume and SURFACE AREA, per cell")
         for name, folder in staged.items():
-            vol_col, area_col = discovered[name][1]
-            pv, pa, mv, ma = [], [], [], []
+            vol_col, area_col, depth_col = discovered[name][1]
+            pv, pa, ph, mv, ma, mh = [], [], [], [], [], []
             for fov in fovs[: args.mesh_fields]:
                 published_v = dict(allen.get(fov, {}).get(vol_col, []))
                 published_a = dict(allen.get(fov, {}).get(area_col, []))
+                published_h = dict(allen.get(fov, {}).get(depth_col, []))
                 meshed = meshed_by_label(folder, fov, scale_um, args.mesh_maxrad)
-                for label, (volume, area) in meshed.items():
+                for label, (volume, area, height) in meshed.items():
                     if label in published_v and label in published_a:
                         pv.append(published_v[label] * voxel_um3)
                         pa.append(published_a[label] * scale_um ** 2)
+                        # position_depth is a z extent in voxels on the isotropic grid.
+                        ph.append(published_h.get(label, float("nan")) * scale_um)
                         mv.append(volume)
                         ma.append(area)
+                        mh.append(height)
             if not pv:
                 continue
-            pv, pa, mv, ma = map(np.asarray, (pv, pa, mv, ma))
+            pv, pa, ph, mv, ma, mh = map(np.asarray, (pv, pa, ph, mv, ma, mh))
             print(f"\n=== {name}   ({len(pv)} cells, maxrad {args.mesh_maxrad})")
             for label, published, measured in (("mesh volume", pv, mv),
-                                               ("surface area", pa, ma)):
+                                               ("surface area", pa, ma),
+                                               ("height", ph, mh)):
+                keep = np.isfinite(published) & np.isfinite(measured) & (published > 0)
+                published, measured = published[keep], measured[keep]
+                if published.size < 3:
+                    continue
                 ratio = measured / published
                 print(f"  {label:<14} BARCODE/Allen median {np.median(ratio):.4f}   "
                       f"IQR [{np.percentile(ratio, 25):.3f}, "

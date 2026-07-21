@@ -3,7 +3,7 @@ import re
 import tkinter as tk
 from tkinter import ttk, filedialog
 
-from utils.gui import create_option_section, create_popup
+from utils.gui import create_option_section, create_popup, volumetric_submode_var
 
 from gui.config import BarcodeConfigGUI, InputConfigGUI
 
@@ -28,36 +28,66 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    # There is deliberately no "Enable Volumetric" checkbox here. There used to be one,
+    # No "Enable Volumetric" checkbox here: that switch lives on Execution Settings, so
+    # the 2D-or-3D decision is made once, before anything else. (There used to be one,
     # bound to cv.enabled, back when core/pipeline.py gated on that flag. Commit 7b972d9
-    # ("xyz along with xyzt mode") replaced the gate with mode.key, because one boolean
-    # cannot express three modes -- but the checkbox stayed, silently doing nothing in a
-    # fresh session while still *looking* live (an old Settings.yaml with enabled: true
-    # migrates to xyzt in core/config.py, which is why it seemed to work). cv.enabled is
-    # now load-bearing only for that migration; Mode on Execution Settings is the switch.
-    mode_note = tk.Label(
-        frame,
-        text="Set Mode to xyz or xyzt on the Execution Settings tab to use these options.",
-        fg="gray25",
-        wraplength=640,
-        justify="left",
+    # replaced the gate with mode.key and the checkbox stayed behind doing nothing.)
+    #
+    # What belongs here is the choice the Execution checkbox cannot express: given that
+    # the third axis IS depth, do we measure the stack as one solid object or as a pile
+    # of separate 2D slices? That is the xyzt/xyz split, and it is a z-stack question.
+    submode = volumetric_submode_var(config)
+
+    tk.Label(frame, text="Measure each z-stack as:").grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 2)
     )
-    mode_note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 5))
     row_idx += 1
 
-    mode_state = tk.Label(frame, fg="gray25")
-    mode_state.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 5))
+    SUBMODES = [
+        # States what this choice alone gives you. Meshing, curvature and 3D flow are
+        # also only available here, but each needs its own setting below (and meshing a
+        # segmentation), so listing them as though they came for free overpromised.
+        ("xyzt", "One 3D object",
+         "Volumes, sphericity and 3D connectivity, measured on the whole stack at once. "
+         "Surface meshing, curvature and 3D flow are possible only here, each switched "
+         "on separately below."),
+        ("xyz", "Separate 2D slices through depth",
+         "Each slice measured as a flat image; Change metrics describe variation with "
+         "depth. No flow — displacement between focal planes is not motion."),
+    ]
+    submode_widgets = []
+    for key, title, blurb in SUBMODES:
+        radio = tk.Radiobutton(frame, variable=submode, value=key)
+        radio.grid(row=row_idx, column=0, sticky="w", padx=(20, 0))
+        title_label = tk.Label(frame, text=title, font=("TkDefaultFont", 13))
+        title_label.grid(row=row_idx, column=0, sticky="w", padx=(45, 5))
+        blurb_label = tk.Label(frame, text=blurb, fg="gray40", wraplength=560,
+                               justify="left", font=("TkDefaultFont", 11))
+        blurb_label.grid(row=row_idx + 1, column=0, columnspan=3, sticky="w", padx=(45, 5))
+        submode_widgets.append((radio, title_label, blurb_label))
+        row_idx += 2
+
+    mode_state = tk.Label(frame, wraplength=620, justify="left")
+    mode_state.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(4, 5))
 
     def _show_mode(*_args):
-        from core.modes import MODES
-
+        """Grey the whole section out when Volumetric is off, rather than let it look live."""
         key = cv.analysis_mode.get()
-        mode = MODES.get(key)
-        if mode is None or key == "xyt":
+        active = key != "xyt"
+        for radio, title_label, blurb_label in submode_widgets:
+            state = "normal" if active else "disabled"
+            radio.config(state=state)
+            title_label.config(fg="black" if active else "gray60")
+            blurb_label.config(fg="gray40" if active else "gray70")
+        if active:
             mode_state.config(
-                text=f"Current mode: {key} — these settings are not used.", fg="#b45309")
+                text=f"Volumetric analysis is ON (mode {key}) — these settings apply.",
+                fg="#15803d")
         else:
-            mode_state.config(text=f"Current mode: {key} — these settings apply.", fg="#15803d")
+            mode_state.config(
+                text="Volumetric analysis is OFF — nothing on this tab is used. Tick "
+                     "“Volumetric (3D) Analysis” on the Execution Settings tab to turn it on.",
+                fg="#b45309")
 
     cv.analysis_mode.trace_add("write", _show_mode)
     _show_mode()

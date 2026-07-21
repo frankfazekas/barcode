@@ -495,3 +495,46 @@ def test_maxrad_from_config_reads_both_fields():
     ) == pytest.approx(2.0)
     # A config predating the field must keep behaving as it always did.
     assert maxrad_from_config(SimpleNamespace(mesh_maxrad=5.0), 0.1) == 5.0
+
+
+def test_relative_maxrad_scales_with_the_object():
+    """The point of "relative": a fixed fraction of each object's own radius.
+
+    A 4/3 pi r^3 ball of radius 20 has ~33500 voxels, so 0.1 relative is ~2 voxels; the
+    same setting on a radius-5 object is ~0.5. That is what keeps mesh accuracy constant
+    across a field whose objects differ in size, which neither voxels nor microns do.
+    """
+    from analysis.volumetric.mesh import equivalent_radius_voxels, resolve_maxrad
+
+    big = 4 / 3 * np.pi * 20 ** 3
+    small = 4 / 3 * np.pi * 5 ** 3
+    assert equivalent_radius_voxels(big) == pytest.approx(20, rel=1e-6)
+    assert resolve_maxrad(0.1, "relative", 0.1, big) == pytest.approx(2.0, rel=1e-6)
+    assert resolve_maxrad(0.1, "relative", 0.1, small) == pytest.approx(0.5, rel=1e-6)
+
+
+def test_relative_maxrad_has_a_floor():
+    """Below about a quarter voxel the mesher gains nothing and costs a great deal."""
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    assert resolve_maxrad(0.01, "relative", 0.1, 8.0) == 0.25
+
+
+def test_relative_maxrad_without_the_object_size_raises():
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    with pytest.raises(MeshingError, match="needs the object's size"):
+        resolve_maxrad(0.1, "relative", 0.1)
+
+
+def test_coarse_maxrad_is_reported_not_swallowed():
+    """A too-coarse bound yields a closed, plausible mesh that is simply too small.
+
+    Nothing downstream fails, so if this is not said out loud it reaches a figure.
+    """
+    from analysis.volumetric.mesh import warn_if_maxrad_coarse
+
+    tiny = 4 / 3 * np.pi * 6 ** 3          # radius 6: maxrad 5 is 83% of it
+    assert "maxrad" in warn_if_maxrad_coarse(5.0, tiny)
+    big = 4 / 3 * np.pi * 65 ** 3          # radius 65: maxrad 5 is 8%, which is fine
+    assert warn_if_maxrad_coarse(5.0, big) is None

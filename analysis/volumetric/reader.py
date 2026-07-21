@@ -337,34 +337,154 @@ def _xy_spacing_from_tags(page, unit_name=None) -> Optional[float]:
 
 
 TIFF_SUFFIXES = (".tif", ".tiff")
+ND2_SUFFIX = ".nd2"
+SUPPORTED_SUFFIXES = TIFF_SUFFIXES + (ND2_SUFFIX,)
 
 
-def require_tiff(path: str) -> None:
-    """Reject non-TIFF input up front, with a message that says what to do.
+def require_supported(path: str) -> None:
+    """Reject input this module cannot read, with a message that says what to do.
 
-    ``utils.setup.find_files`` accepts ``.nd2``/``.mp4``/``.avi`` as well, so a folder of
-    ND2s is happily discovered and then handed to ``tifffile``, which fails per file with
-    "not a TIFF file" -- true, but it does not tell you that the volumetric modes are
-    TIFF-only or how to proceed. The 2D branch does read ND2 (via the ``nd2`` package in
-    ``utils.reader``); this module has never had an equivalent path.
+    ``utils.setup.find_files`` also accepts ``.mp4``/``.avi``, so a folder of those is
+    happily discovered and then handed to a reader that fails per file with something
+    unhelpful about file magic.
     """
     suffix = os.path.splitext(path)[1].lower()
-    if suffix in TIFF_SUFFIXES:
+    if suffix in SUPPORTED_SUFFIXES:
         return
-    extra = ""
-    if suffix == ".nd2":
-        extra = (" The 2D (xyt) mode reads ND2 directly; for xyz/xyzt, export the stack "
-                 "to an ImageJ TIFF first (Fiji: File > Save As > Tiff) so the z spacing "
-                 "is carried over in the metadata.")
     raise ValueError(
-        f"The volumetric modes read TIFF only, but got '{suffix or 'no extension'}': "
-        f"{os.path.basename(path)}.{extra}"
+        f"The volumetric modes read TIFF and ND2, but got "
+        f"'{suffix or 'no extension'}': {os.path.basename(path)}. Convert it in "
+        f"ImageJ/FIJI first (File > Save As > Tiff), saving as a hyperstack so the axis "
+        f"order and z spacing are carried in the metadata."
     )
+
+
+# Kept as an alias: this used to be the TIFF-only gate, and external callers (and the
+# tests that pin the ND2 rejection) still name it.
+def require_tiff(path: str) -> None:
+    """Deprecated alias for :func:`require_supported`. ND2 is now read directly."""
+    require_supported(path)
+
+
+def _nd2_frame_interval_s(handle) -> Optional[float]:
+    """Seconds between timepoints, from the ND2's own acquisition loop.
+
+    Preferred over the per-frame event timestamps: the loop states the *requested*
+    period, which is what "the spacing between timepoints" means, whereas the events are
+    wall-clock arrival times that drift and, on a z-series, carry one entry per PLANE
+    rather than per timepoint -- so differencing them yields the z dwell, which is
+    exactly the confusion ``resolve_frame_interval`` exists to prevent.
+
+    Returns None when the file declares no time loop, which is the honest answer for a
+    single-timepoint z-stack.
+    """
+    try:
+        from nd2 import structures as nd2_structures
+    except Exception:                                   # pragma: no cover - import guard
+        return None
+
+    for loop in getattr(handle, "experiment", None) or []:
+        params = getattr(loop, "parameters", None)
+        if isinstance(loop, getattr(nd2_structures, "TimeLoop", ())):
+            period_ms = getattr(params, "periodMs", None)
+            if period_ms:
+                return float(period_ms) / 1000.0
+        if isinstance(loop, getattr(nd2_structures, "NETimeLoop", ())):
+            # A multi-period ("ND" time) acquisition. Only a single uniform period can be
+            # represented by one frame interval, so anything else is declined rather than
+            # averaged -- an averaged period is wrong for every timepoint individually.
+            periods = [p for p in (getattr(params, "periods", None) or [])
+                       if getattr(p, "periodMs", None)]
+            unique = {round(float(p.periodMs), 6) for p in periods}
+            if len(unique) == 1:
+                return float(unique.pop()) / 1000.0
+            if len(unique) > 1:
+                print(
+                    f"  {os.path.basename(handle.path)}: the ND2 declares "
+                    f"{len(unique)} different time periods, so no single frame interval "
+                    f"describes it; set Frame Interval explicitly.",
+                    flush=True,
+                )
+            return None
+    return None
+
+
+def _nd2_z_step_um(handle) -> Optional[float]:
+    """Z step from the ND2's z-stack loop, as a fallback for ``voxel_size().z``."""
+    try:
+        from nd2 import structures as nd2_structures
+    except Exception:                                   # pragma: no cover - import guard
+        return None
+
+    for loop in getattr(handle, "experiment", None) or []:
+        if isinstance(loop, getattr(nd2_structures, "ZStackLoop", ())):
+            step = getattr(getattr(loop, "parameters", None), "stepUm", None)
+            if step:
+                return abs(float(step))
+    return None
+
+
+def _read_nd2(path: str):
+    """Load an ND2 as ``(array, axes, z_um, xy_um, interval_s, metadata)``.
+
+    ND2 states its own axis order and voxel size, which is what this module wants and
+    what a TIFF so often lacks -- so there is no guessing here either.
+
+    Note this is not the same as the 2D branch's ND2 path in ``utils/reader.py``, which
+    *rejects* anything with a Z axis ("Z-stack identified, skipping to next file"). That
+    left a volumetric ND2 readable by neither pipeline.
+    """
+    import nd2
+
+    with nd2.ND2File(path) as handle:
+        sizes = dict(handle.sizes)
+        axes = "".join(sizes.keys())
+
+        # 'P' (multi-point) and friends are not a data axis this module can collapse:
+        # each position is a different field of view and averaging or concatenating them
+        # would silently pool unrelated cells.
+        unsupported = set(axes) - _KNOWN_AXES
+        if unsupported:
+            raise ValueError(
+                f"{os.path.basename(path)}: ND2 declares axes {axes!r}, which contains "
+                f"{sorted(unsupported)!r}. Multi-point and other extra loops are not "
+                f"supported -- split the file into one series per position first "
+                f"(NIS-Elements: File > Save As, or Fiji's Bio-Formats importer with "
+                f"'Split positions')."
+            )
+
+        array = np.asarray(handle.asarray())
+        voxel = handle.voxel_size()
+        xy_um = float(voxel.x) if getattr(voxel, "x", 0) else None
+        z_um = float(voxel.z) if getattr(voxel, "z", 0) else None
+        if z_um is None:
+            z_um = _nd2_z_step_um(handle)
+        interval_s = _nd2_frame_interval_s(handle)
+        metadata = {
+            "nd2": {
+                "sizes": sizes,
+                "voxel_size_xyz_um": tuple(float(v) for v in voxel),
+                "frame_interval_s": interval_s,
+            },
+        }
+
+    if array.ndim != len(axes):
+        raise ValueError(
+            f"{os.path.basename(path)}: ND2 declares axes {axes!r} but the array is "
+            f"{array.ndim}-dimensional {array.shape}."
+        )
+    return array, axes, z_um, xy_um, interval_s, metadata
 
 
 def read_axes(path: str) -> Tuple[str, Tuple[int, ...]]:
     """Return the declared axis order and shape without loading pixel data."""
-    require_tiff(path)
+    require_supported(path)
+    if os.path.splitext(path)[1].lower() == ND2_SUFFIX:
+        import nd2
+
+        with nd2.ND2File(path) as handle:
+            sizes = dict(handle.sizes)
+        return "".join(sizes.keys()), tuple(int(v) for v in sizes.values())
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
         return series.axes, tuple(int(v) for v in series.shape)
@@ -390,14 +510,31 @@ def read_volume(
     so it also rescues the ``IQS`` "undetermined axis" files this module otherwise
     refuses. The distinction the module keeps is between guessing and being told.
     """
-    require_tiff(path)
-    with tifffile.TiffFile(path) as tf:
-        series = tf.series[0]
-        axes = series.axes
-        array = series.asarray()
-        ij = tf.imagej_metadata or {}
-        unit_name = ij.get("unit")
-        tag_xy = _xy_spacing_from_tags(tf.pages[0], unit_name)
+    require_supported(path)
+    if os.path.splitext(path)[1].lower() == ND2_SUFFIX:
+        array, axes, z_declared, tag_xy, file_interval, metadata_source = _read_nd2(path)
+        unit_name = "micron"          # nd2 reports voxel size in microns by definition
+    else:
+        with tifffile.TiffFile(path) as tf:
+            series = tf.series[0]
+            axes = series.axes
+            array = series.asarray()
+            ij = tf.imagej_metadata or {}
+            unit_name = ij.get("unit")
+            tag_xy = _xy_spacing_from_tags(tf.pages[0], unit_name)
+
+        # ImageJ's `spacing` is stated in the same `unit` as the lateral calibration, so a
+        # nm- or inch-calibrated stack needs converting rather than reading as microns.
+        z_declared = ij.get("spacing")
+        if z_declared is not None and unit_name is not None:
+            um_per_unit = unit_to_um(unit_name)
+            z_declared = None if um_per_unit is None else float(z_declared) * um_per_unit
+        file_interval = ij.get("finterval")
+        metadata_source = {
+            "imagej": {k: v for k, v in ij.items() if k not in ("Labels", "LUTs")},
+            "xresolution_um_per_px": tag_xy,
+            "unit": unit_name,
+        }
 
     declared = axes
     if axes_override:
@@ -409,14 +546,14 @@ def read_volume(
     unknown = set(axes) & _UNKNOWN_AXES
     if unknown:
         raise ValueError(
-            f"{os.path.basename(path)}: TIFF declares axes {axes!r}, which contains "
+            f"{os.path.basename(path)}: file declares axes {axes!r}, which contains "
             f"undetermined axes {sorted(unknown)!r}. BARCODE will not guess whether "
             f"these are Z or T — re-save as an ImageJ hyperstack with explicit axes."
         )
     unsupported = set(axes) - _KNOWN_AXES
     if unsupported:
         raise ValueError(
-            f"{os.path.basename(path)}: unsupported TIFF axes {sorted(unsupported)!r} "
+            f"{os.path.basename(path)}: unsupported axes {sorted(unsupported)!r} "
             f"in {axes!r}; expected some arrangement of T, Z, C, Y, X."
         )
     if "Y" not in axes or "X" not in axes:
@@ -446,26 +583,21 @@ def read_volume(
     data = np.ascontiguousarray(array[:, :, channel])
 
     # Physical spacing: explicit argument > file metadata > warn-and-default.
-    # ImageJ's `spacing` is stated in the same `unit` as the lateral calibration, so a
-    # nm- or inch-calibrated stack needs converting rather than reading as microns.
-    z_declared = ij.get("spacing")
-    if z_declared is not None and unit_name is not None:
-        um_per_unit = unit_to_um(unit_name)
-        z_declared = None if um_per_unit is None else float(z_declared) * um_per_unit
-
+    # Both readers have already reduced their own metadata to microns above.
     z_um = z_step_um if z_step_um is not None else z_declared
     xy_um = xy_step_um if xy_step_um is not None else tag_xy
-    # `timing_from_file` must describe the FILE, so it is decided from the file's own tag
-    # before the caller's override is folded in. Deriving it from the merged value made a
-    # caller-supplied exposure_time_s report as "from the file's ImageJ finterval tag",
-    # which is the one claim the flag exists to make honestly. Latent today -- no call
-    # site passes it -- but the flag is load-bearing for Speed.
-    timing_from_file_tag = ij.get("finterval") is not None
-    exposure = exposure_time_s if exposure_time_s is not None else ij.get("finterval")
-    # Whether the timing came from THE FILE. Without this the fallback below is
-    # indistinguishable from a genuine 1 s interval, and the message that exists to warn
-    # about exactly that could never fire.
-    timing_from_file = timing_from_file_tag
+    # `timing_from_file` must describe the FILE, so it is decided from the file's own
+    # value before the caller's override is folded in. Deriving it from the merged value
+    # made a caller-supplied exposure_time_s report as coming from the file, which is the
+    # one claim the flag exists to make honestly. It is load-bearing for Speed.
+    #
+    # ND2 is the format where this finally pays off: an ImageJ `finterval` is routinely
+    # the z dwell or a leftover 1, which is why `resolve_frame_interval` distrusts it,
+    # whereas an ND2's time loop states the real period between timepoints. Both arrive
+    # here as `file_interval`; the difference is that an ND2 z-stack with no time loop
+    # reports None rather than a misleading number.
+    timing_from_file = file_interval is not None
+    exposure = exposure_time_s if exposure_time_s is not None else file_interval
 
     if z_um is None:
         print(
@@ -493,11 +625,7 @@ def read_volume(
         declared_axes=declared,
         source_path=path,
         channel=channel,
-        metadata_source={
-            "imagej": {k: v for k, v in ij.items() if k not in ("Labels", "LUTs")},
-            "xresolution_um_per_px": tag_xy,
-            "unit": unit_name,
-        },
+        metadata_source=metadata_source,
     )
 
 

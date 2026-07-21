@@ -259,6 +259,16 @@ class VolumetricConfig(BaseConfig):
     crop_to_mask: bool = False
     crop_padding_vox: int = 2
 
+    # One summary card per analysed volume, beside the Summary CSV: projections, a
+    # grouped metric table and the distributions behind the scalars.
+    #
+    # OFF by default. It is a per-volume *report*, and the work here is exploratory --
+    # comparing FOVs, objects and timepoints -- which is what the barcode is for. A
+    # document per volume does not help you find structure across a hundred of them.
+    # Useful for inspecting one run closely; not the thing to generate by default.
+    write_fingerprint: bool = False
+    fingerprint_dpi: int = 110
+
     # Per-connected-component size distribution (count, SD, skewness, median). Off by
     # default so the barcode does not widen unless the spread of object sizes is
     # actually of interest. Volumetric modes only -- see AnalysisMode.supports_component_stats.
