@@ -709,6 +709,10 @@ class VolumetricConfigGUI:
     crop_padding_vox: tk.IntVar = field(init=False)
     write_fingerprint: tk.BooleanVar = field(init=False)
     fingerprint_dpi: tk.IntVar = field(init=False)
+    object_mesh: tk.BooleanVar = field(init=False)
+    object_mesh_maxrad: tk.DoubleVar = field(init=False)
+    object_mesh_min_voxels: tk.IntVar = field(init=False)
+    object_mesh_limit: tk.IntVar = field(init=False)
     enable_component_stats: tk.BooleanVar = field(init=False)
     t_start: tk.DoubleVar = field(init=False)
     t_end: tk.DoubleVar = field(init=False)
@@ -785,6 +789,10 @@ class VolumetricConfigGUI:
         self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
         self.write_fingerprint = tk.BooleanVar(value=self._core_config.write_fingerprint)
         self.fingerprint_dpi = tk.IntVar(value=self._core_config.fingerprint_dpi)
+        self.object_mesh = tk.BooleanVar(value=self._core_config.object_mesh)
+        self.object_mesh_maxrad = tk.DoubleVar(value=self._core_config.object_mesh_maxrad)
+        self.object_mesh_min_voxels = tk.IntVar(value=self._core_config.object_mesh_min_voxels)
+        self.object_mesh_limit = tk.IntVar(value=self._core_config.object_mesh_limit)
         self.enable_component_stats = tk.BooleanVar(value=self._core_config.enable_component_stats)
         self.t_start = tk.DoubleVar(value=self._core_config.t_start)
         self.t_end = tk.DoubleVar(value=self._core_config.t_end)
@@ -864,6 +872,10 @@ class VolumetricConfigGUI:
             crop_padding_vox=self.crop_padding_vox.get(),
             write_fingerprint=self.write_fingerprint.get(),
             fingerprint_dpi=self.fingerprint_dpi.get(),
+            object_mesh=self.object_mesh.get(),
+            object_mesh_maxrad=self.object_mesh_maxrad.get(),
+            object_mesh_min_voxels=self.object_mesh_min_voxels.get(),
+            object_mesh_limit=self.object_mesh_limit.get(),
             enable_component_stats=self.enable_component_stats.get(),
             t_start=self.t_start.get(),
             t_end=self.t_end.get(),
@@ -943,6 +955,10 @@ class VolumetricConfigGUI:
         self.crop_padding_vox.set(new_config.crop_padding_vox)
         self.write_fingerprint.set(new_config.write_fingerprint)
         self.fingerprint_dpi.set(new_config.fingerprint_dpi)
+        self.object_mesh.set(new_config.object_mesh)
+        self.object_mesh_maxrad.set(new_config.object_mesh_maxrad)
+        self.object_mesh_min_voxels.set(new_config.object_mesh_min_voxels)
+        self.object_mesh_limit.set(new_config.object_mesh_limit)
         self.enable_component_stats.set(new_config.enable_component_stats)
         self.t_start.set(new_config.t_start)
         self.t_end.set(new_config.t_end)

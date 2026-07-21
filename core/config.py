@@ -277,6 +277,14 @@ class VolumetricConfig(BaseConfig):
     write_fingerprint: bool = False
     fingerprint_dpi: int = 110
 
+    # Mesh EVERY object separately instead of only the largest, so sphericity, solidity,
+    # concavity and curvature become per-object quantities. Off by default: it is one
+    # iso2mesh call per object (~2.5 s), so a 839-cell field is ~35 minutes.
+    object_mesh: bool = False
+    object_mesh_maxrad: float = 0.1        # fraction of each object's own radius
+    object_mesh_min_voxels: int = 64
+    object_mesh_limit: int = 0     # 0 = every object; N = the first N, for iterating
+
     # Per-connected-component size distribution (count, SD, skewness, median). Off by
     # default so the barcode does not widen unless the spread of object sizes is
     # actually of interest. Volumetric modes only -- see AnalysisMode.supports_component_stats.

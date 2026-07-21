@@ -34,7 +34,7 @@ from analysis.volumetric.intensity import (
     analyze_intensity_3d,
     analyze_intensity_magnitude,
 )
-from analysis.volumetric.mesh import MeshingError, NucleusMesh, mesh_series
+from analysis.volumetric.mesh import MeshingError, ObjectMesh, mesh_series
 from analysis.volumetric.packing import (
     VolumetricPackingDetail, packing_topology, summarise_packing)
 from analysis.volumetric.provenance import build_range_results
@@ -57,7 +57,7 @@ class VolumetricRunDetail:
     binarization: Optional[VolumetricBinarizationDetail] = None
     intensity: Optional[VolumetricIntensityDetail] = None
     flow: Optional[VolumetricFlowDetail] = None
-    meshes: List[NucleusMesh] = field(default_factory=list)
+    meshes: List[ObjectMesh] = field(default_factory=list)
     packing: List[VolumetricPackingDetail] = field(default_factory=list)
     slice_profile: List[SliceProfileDetail] = field(default_factory=list)
     mask_intensity: List[MaskIntensityDetail] = field(default_factory=list)
@@ -243,7 +243,7 @@ def select_frame_indices(n_frames: int, frame_step: int) -> List[int]:
     return indices
 
 
-def summarise_meshes(meshes: List[NucleusMesh]) -> MeshResults:
+def summarise_meshes(meshes: List[ObjectMesh]) -> MeshResults:
     """Reduce per-timepoint meshes to the one row the CSV holds.
 
     Averaged over analysed timepoints, matching how every other volumetric metric is
@@ -335,7 +335,7 @@ def _check_mesh_aggregation(mode: str) -> None:
     )
 
 
-def _export_meshes(filepath: str, meshes: List[NucleusMesh]) -> None:
+def _export_meshes(filepath: str, meshes: List[ObjectMesh]) -> None:
     """Write one OBJ per analysed timepoint, beside the data it came from.
 
     The GUI's *Export Mesh as .OBJ* switch is a bool with nowhere to put the files, so
@@ -900,10 +900,24 @@ def run_volumetric_analysis(
         representative = frame_indices[len(frame_indices) // 2]
         labels = masks[representative]
         if labels.dtype != bool:
+            object_meshes = {}
+            if getattr(vcfg, "object_mesh", False):
+                from analysis.volumetric.object_mesh import mesh_objects
+
+                object_meshes, mesh_detail = mesh_objects(
+                    labels, spacing_zyx, vcfg,
+                    min_voxels=getattr(vcfg, "object_mesh_min_voxels", 64),
+                    maxrad=getattr(vcfg, "object_mesh_maxrad", 0.1),
+                    limit=getattr(vcfg, "object_mesh_limit", 0),
+                    frame_index=int(representative),
+                )
+                print(f"  {mesh_detail.describe()}", flush=True)
+
             detail.object_rows = extract_objects(
                 labels, spacing_zyx, detail,
                 filepath=filepath,
                 fov=os.path.splitext(os.path.basename(filepath))[0],
+                meshes=object_meshes,
             )
 
     return results, detail

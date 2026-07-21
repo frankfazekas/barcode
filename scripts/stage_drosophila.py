@@ -26,11 +26,11 @@ import os
 import numpy as np
 import tifffile
 
-IMAGE = (r"L:\FF\Hackathon\full_datasets\drosophila_Erika"
+IMAGE = (r"L:\FF\Hackathon\full_datasets\_open_data\drosophila_Erika"
          r"\20241021_gap43mCh_CyO_ZipWT_mem_barcode.tif")
-MASK = (r"L:\FF\Hackathon\full_datasets\drosophila_Erika"
+MASK = (r"L:\FF\Hackathon\full_datasets\_open_data\drosophila_Erika"
         r"\20241021_gap43mCh_CyO_ZipWT_4Dseg_zstitch.npy")
-OUT = (r"L:\FF\Hackathon\full_datasets\drosophila_Erika\BARCODE\staged")
+OUT = (r"L:\FF\Hackathon\full_datasets\_open_data\drosophila_Erika\BARCODE\staged")
 
 XY_STEP, Z_STEP = 0.195, 0.235
 

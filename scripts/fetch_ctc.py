@@ -36,8 +36,8 @@ gold truth *is* dense (the phantoms are known), so those prefer ``_GT/SEG``.
 Usage::
 
     python scripts/fetch_ctc.py --list
-    python scripts/fetch_ctc.py Fluo-N3DH-CHO --root L:/FF/Hackathon/full_datasets
-    python scripts/fetch_ctc.py --all --root L:/FF/Hackathon/full_datasets
+    python scripts/fetch_ctc.py Fluo-N3DH-CHO --root L:/FF/Hackathon/full_datasets/_open_data
+    python scripts/fetch_ctc.py --all --root L:/FF/Hackathon/full_datasets/_open_data
 
 Downloads are cached in ``<root>/_ctc_downloads`` and resumed, so re-running is cheap.
 """
@@ -61,7 +61,7 @@ from scripts._staging import mask_z_to_isotropic, read_tiff_any, write_volume
 BASE_URL = "https://data.celltrackingchallenge.net/training-datasets"
 
 # Never stage onto C: -- that drive holds code, not data (see CLAUDE.md).
-DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets"
+DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets\_open_data"
 
 
 @dataclass(frozen=True)

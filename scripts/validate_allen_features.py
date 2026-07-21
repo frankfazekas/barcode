@@ -12,7 +12,7 @@ and ``FOVId``. Every field of view held locally under ``AllenCell_data`` appears
 
     curl -L -o <root>/_allen_metadata/metadata.csv \\
         https://allencell.s3.amazonaws.com/aics/hipsc_single_cell_image_dataset/metadata.csv
-    python scripts/validate_allen_features.py --root L:/FF/Hackathon/full_datasets
+    python scripts/validate_allen_features.py --root L:/FF/Hackathon/full_datasets/_open_data
 
 **The QC filter is the trap.** Allen's table keeps only cells that passed quality
 control -- complete cells, away from the field edge -- while the segmentation labels
@@ -38,7 +38,7 @@ import numpy as np
 
 from scripts._staging import read_tiff_any
 
-DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets"
+DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets\_open_data"
 METADATA = os.path.join("_allen_metadata", "metadata.csv")
 
 # Allen report volumes and areas as voxel counts on the isotropic grid their

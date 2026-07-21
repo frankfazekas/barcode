@@ -19,7 +19,7 @@ from analysis.volumetric.mesh import (
     largest_component,
     mesh_geometry,
     mesh_has_holes,
-    mesh_nucleus,
+    mesh_object,
     mip_axis_lengths,
     mesh_series,
     mesh_volume,
@@ -179,7 +179,7 @@ def test_sphere_aspect_ratio_shows_the_known_face_centroid_offset():
     ``aspect_ratio``. Pinned so the offset stays a documented property rather than
     drifting silently if the height definition ever changes.
     """
-    g = mesh_nucleus(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1)).geometry
+    g = mesh_object(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1)).geometry
 
     assert g.mip_major_um == pytest.approx(g.mip_minor_um, rel=0.02)   # round in xy
     assert g.mip_major_um == pytest.approx(2 * 22.0 * 0.1, rel=0.02)   # true diameter
@@ -193,7 +193,7 @@ def test_oblate_object_reports_a_high_aspect_ratio():
     zz, yy, xx = np.indices((40, 80, 80))
     flat = (((zz - 19.5) / 8.0) ** 2 + ((yy - 39.5) / 30.0) ** 2
             + ((xx - 39.5) / 30.0) ** 2) <= 1.0
-    g = mesh_nucleus(flat, (0.1, 0.1, 0.1)).geometry
+    g = mesh_object(flat, (0.1, 0.1, 0.1)).geometry
     assert g.aspect_ratio > 3.0
 
 
@@ -251,7 +251,7 @@ def test_degenerate_inputs_do_not_raise():
 
 @needs_iso2mesh
 def test_sphere_is_almost_perfectly_solid():
-    mesh = mesh_nucleus(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1))
+    mesh = mesh_object(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1))
     g = mesh.geometry
     assert 0.97 < g.solidity <= 1.0
     assert 0.97 < g.mesh_solidity <= 1.0
@@ -262,7 +262,7 @@ def test_sphere_is_almost_perfectly_solid():
 @needs_iso2mesh
 def test_solidity_can_be_skipped():
     """The voxel hull is the one costly extra, so it must be optional."""
-    mesh = mesh_nucleus(_ball(), (0.1, 0.1, 0.1), solidity=False)
+    mesh = mesh_object(_ball(), (0.1, 0.1, 0.1), solidity=False)
     assert np.isnan(mesh.geometry.solidity)
     assert np.isfinite(mesh.geometry.mesh_solidity)   # geometric hull is free
 
@@ -302,7 +302,7 @@ def test_backend_reports_a_persistent_failure_as_meshing_error():
 @needs_iso2mesh
 def test_sphere_mesh_recovers_analytic_geometry():
     radius_vox, spacing = 16.0, 0.1
-    mesh = mesh_nucleus(_ball(radius=radius_vox), (spacing, spacing, spacing))
+    mesh = mesh_object(_ball(radius=radius_vox), (spacing, spacing, spacing))
     geometry = mesh.geometry
 
     radius_um = radius_vox * spacing
@@ -328,8 +328,8 @@ def test_sphere_mesh_recovers_analytic_geometry():
 def test_smoothing_iterations_shrink_the_surface():
     """HC smoothing pulls the surface in; zero iterations must leave it alone."""
     mask = _ball()
-    rough = mesh_nucleus(mask, (0.1, 0.1, 0.1), smoothing_iterations=0)
-    smooth = mesh_nucleus(mask, (0.1, 0.1, 0.1), smoothing_iterations=10)
+    rough = mesh_object(mask, (0.1, 0.1, 0.1), smoothing_iterations=0)
+    smooth = mesh_object(mask, (0.1, 0.1, 0.1), smoothing_iterations=10)
     assert smooth.geometry.surface_area_um2 < rough.geometry.surface_area_um2
 
 
@@ -377,15 +377,15 @@ def mesh_module_generate_unsmoothed(mask):
 @needs_iso2mesh
 def test_matlab_compat_changes_the_decimation_ratio():
     mask = _ball()
-    default = mesh_nucleus(mask, (0.1, 0.1, 0.1))
-    compat = mesh_nucleus(mask, (0.1, 0.1, 0.1), matlab_compat=True)
+    default = mesh_object(mask, (0.1, 0.1, 0.1))
+    compat = mesh_object(mask, (0.1, 0.1, 0.1), matlab_compat=True)
     assert default.geometry.n_faces != compat.geometry.n_faces
 
 
 @needs_iso2mesh
 def test_anisotropic_spacing_is_refused():
     with pytest.raises(MeshingError, match="isotropic"):
-        mesh_nucleus(_ball(), (0.3, 0.065, 0.065))
+        mesh_object(_ball(), (0.3, 0.065, 0.065))
 
 
 @needs_iso2mesh
@@ -426,7 +426,7 @@ def test_mesh_series_can_skip_curvature():
 
 @needs_iso2mesh
 def test_write_obj_round_trips_counts_and_axis_order(tmp_path):
-    mesh = mesh_nucleus(_ball(), (0.1, 0.1, 0.1))
+    mesh = mesh_object(_ball(), (0.1, 0.1, 0.1))
     path = write_obj(str(tmp_path / "nucleus.obj"), mesh.vertices_um, mesh.faces)
 
     vertices, faces = [], []

@@ -35,7 +35,7 @@ Genuinely independent checks live elsewhere:
 V3 is a correlation, not an identity -- see the note on that check. V4 and V6 are not
 pass/fail; they measure spread and threshold-dependence respectively.
 
-    python scripts/validate_open_data.py --root L:/FF/Hackathon/full_datasets
+    python scripts/validate_open_data.py --root L:/FF/Hackathon/full_datasets/_open_data
     python scripts/validate_open_data.py --root ... --dataset ctc_Fluo-N3DH-CHO_01
 
 Writes a per-dataset CSV and a summary CSV under ``<root>/_validation``, and prints the
@@ -702,7 +702,7 @@ def write_markdown(findings: Sequence[Finding], entries: Sequence[Staged],
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate BARCODE volumetric metrics against published ground truth.")
-    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets")
+    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets\_open_data")
     parser.add_argument("--dataset", default=None, help="only this staged folder name")
     parser.add_argument("--frame-limit", type=int, default=None,
                         help="use only the first N frames (fast trial)")

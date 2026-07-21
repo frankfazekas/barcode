@@ -51,6 +51,16 @@ class ObjectResults:
     entropy_normalized: float = np.nan
     bright_fraction: float = np.nan
 
+    # Shape, from this object's OWN mesh. Absent until per-object meshing is enabled --
+    # `mesh.mesh_object` starts with `largest_component`, so a whole-field mesh describes
+    # one cell and these would otherwise be that cell's numbers on every row.
+    surface_area: float = np.nan
+    sphericity: float = np.nan
+    solidity: float = np.nan
+    concavity: float = np.nan
+    aspect_ratio: float = np.nan
+    mean_curvature: float = np.nan
+
     # ---- the surface the writer and the barcode renderer expect -------------------
 
     @classmethod
@@ -66,6 +76,12 @@ class ObjectResults:
             Metrics.MASK_INTENSITY_ENTROPY,
             Metrics.MASK_INTENSITY_ENTROPY_NORM,
             Metrics.MASK_INTENSITY_BRIGHT_FRACTION,
+            Metrics.MESH_SURFACE_AREA,
+            Metrics.MESH_SPHERICITY,
+            Metrics.MESH_SOLIDITY,
+            Metrics.MESH_CONCAVITY,
+            Metrics.MESH_ASPECT_RATIO,
+            Metrics.CURVATURE_MEAN,
         ]
 
     @classmethod
@@ -74,6 +90,8 @@ class ObjectResults:
             Units.VOLUME, Units.LENGTH, Units.NONE,
             Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
             Units.NONE, Units.NONE, Units.NONE,
+            Units.AREA, Units.NONE, Units.NONE, Units.NONE, Units.NONE,
+            Units.CURVATURE,
         ]
 
     @classmethod
@@ -88,6 +106,8 @@ class ObjectResults:
             self.volume, self.diameter, self.contact_number,
             self.mfi, self.intensity_sd, self.intensity_cv, self.intensity_skew,
             self.entropy, self.entropy_normalized, self.bright_fraction,
+            self.surface_area, self.sphericity, self.solidity, self.concavity,
+            self.aspect_ratio, self.mean_curvature,
         ]
 
     def to_array(self, just_metrics: bool = True, mode=None, **_) -> np.ndarray:
@@ -143,6 +163,7 @@ def extract_objects(
     detail=None,
     filepath: str = "",
     fov: str = "",
+    meshes=None,
 ) -> List[ObjectResults]:
     """Join the per-object values a run already produced into one row per object."""
     labels = np.asarray(labels)
@@ -165,6 +186,8 @@ def extract_objects(
                      "entropy_normalized", "bright_fraction")
     }
 
+    meshes = meshes or {}
+
     rows: List[ObjectResults] = []
     for object_id in present:
         object_id = int(object_id)
@@ -185,8 +208,32 @@ def extract_objects(
             entropy=intensity["entropy"].get(object_id, np.nan),
             entropy_normalized=intensity["entropy_normalized"].get(object_id, np.nan),
             bright_fraction=intensity["bright_fraction"].get(object_id, np.nan),
+            **_shape_of(meshes.get(object_id)),
         ))
     return rows
+
+
+def _shape_of(mesh) -> Dict[str, float]:
+    """Shape columns from one object's mesh, all NaN when it has none.
+
+    An object can legitimately lack a mesh -- too small, or rejected because its meshed
+    volume disagreed with its voxel count -- and NaN is the honest answer there. Falling
+    back to the field mesh would put one cell's shape on every row.
+    """
+    if mesh is None:
+        return {}
+    geometry = mesh.geometry
+    curvature = getattr(mesh, "curvature", None)
+    return {
+        "surface_area": float(getattr(geometry, "surface_area_um2", np.nan)),
+        "sphericity": float(getattr(geometry, "sphericity", np.nan)),
+        "solidity": float(getattr(geometry, "mesh_solidity", np.nan)),
+        "concavity": float(getattr(curvature, "concave_ratio", np.nan))
+                     if curvature is not None else np.nan,
+        "aspect_ratio": float(getattr(geometry, "aspect_ratio", np.nan)),
+        "mean_curvature": float(getattr(curvature, "mean_curvature", np.nan))
+                          if curvature is not None else np.nan,
+    }
 
 
 def objects_to_csv(rows: Sequence[ObjectResults], path: str) -> str:

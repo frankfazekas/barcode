@@ -22,7 +22,7 @@ Each dataset is run twice where masks exist: once with the published segmentatio
 once without. The pair is the measurement of how much BARCODE's own thresholding can be
 trusted on data where nobody has provided a mask -- which is most real data.
 
-    python scripts/run_open_data_suite.py --root L:/FF/Hackathon/full_datasets
+    python scripts/run_open_data_suite.py --root L:/FF/Hackathon/full_datasets/_open_data
     python scripts/run_open_data_suite.py --root ... --flow --only ctc_Fluo-N3DH-CHO_01
 
 Resumable: a dataset whose outputs already exist is skipped unless ``--force``.
@@ -145,7 +145,7 @@ def run(job: Job, log_dir: str, timeout: float) -> Job:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run and validate every staged open dataset.")
-    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets")
+    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets\_open_data")
     parser.add_argument("--only", action="append", default=[],
                         help="staged folder name (repeatable); default is all of them")
     parser.add_argument("--flow", action="store_true",

@@ -173,6 +173,10 @@ def _write_object_outputs(all_results, base_path, base_name, config, ff_loc) -> 
                 rows, os.path.join(base_path, f"{base_name} Objects Barcode"),
                 separate_channels=False, mode=config.volumetric.mode,
                 results_cls=ObjectResults,
+                # Thousands of objects would otherwise grow the figure to tens of
+                # thousands of pixels tall -- readable by nothing. Rows compress to a
+                # population strip, which is what a per-object comparison wants anyway.
+                max_height_inches=30,
             )
             print(f"  object barcode: {scope}", flush=True)
     except Exception as exc:

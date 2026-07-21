@@ -184,6 +184,7 @@ def generate_combined_barcode(
     metrics_to_visualize: List[bool] = None,
     mode=None,
     results_cls=None,
+    max_height_inches: float = None,
 ) -> None:
     """
     Generate barcode visualization from structured ChannelResults.
@@ -307,11 +308,17 @@ def generate_combined_barcode(
         # let the rows compress instead; imshow already stretches them to fill the axes,
         # so a tall barcode stays readable while an unwritten one helps nobody.
         _dpi = 300
-        max_inches = 65000 / _dpi
-        if height > max_inches:
-            print(f"  barcode: {len(filtered_data)} rows exceeds the figure limit; "
-                  f"compressing rows to fit", flush=True)
-            height = max_inches
+        # Two separate ceilings. The hard one is matplotlib's; the soft one is what the
+        # caller can actually look at -- 4176 object rows at the growth rate above is a
+        # 50,000-pixel strip, which renders fine and cannot be read. Callers with many
+        # rows pass a smaller max_height_inches; the default is the hard limit, so
+        # existing barcodes are unchanged.
+        hard_limit = 65000 / _dpi
+        ceiling = min(hard_limit, max_height_inches or hard_limit)
+        if height > ceiling:
+            print(f"  barcode: {len(filtered_data)} rows compressed to fit "
+                  f"{ceiling:.0f} in ({ceiling * _dpi:.0f} px)", flush=True)
+            height = ceiling
         fig = plt.figure(figsize=(num_metrics, height), dpi=_dpi)
 
         if height == 9:

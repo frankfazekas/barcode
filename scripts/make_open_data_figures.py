@@ -78,7 +78,7 @@ from visualization.panels import (  # noqa: E402
     stretch,
 )
 
-DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets"
+DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets\_open_data"
 
 # Okabe-Ito: colourblind-safe qualitative palette.
 

@@ -517,7 +517,7 @@ def analyze_curvature(
     """Curvatures and the shape metrics derived from them, for one mesh.
 
     ``vertices_um`` is (N, 3) in microns and ``faces`` is 1-based, as
-    :func:`analysis.volumetric.mesh.mesh_nucleus` returns them. ``z_axis`` names the
+    :func:`analysis.volumetric.mesh.mesh_object` returns them. ``z_axis`` names the
     vertex column holding z -- 0 for this package's (z, y, x) order, 2 for MATLAB's
     (y, x, z).
 

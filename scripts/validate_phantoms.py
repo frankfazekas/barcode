@@ -41,10 +41,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 from analysis.volumetric.curvature import analyze_curvature
-from analysis.volumetric.mesh import MeshingError, mesh_nucleus
+from analysis.volumetric.mesh import MeshingError, mesh_object
 from scripts._staging import mask_z_to_isotropic
 
-DEFAULT_OUT = r"L:\FF\Hackathon\full_datasets\_validation"
+DEFAULT_OUT = r"L:\FF\Hackathon\full_datasets\_open_data\_validation"
 
 
 # ------------------------------------------------------------------ the phantoms
@@ -223,7 +223,7 @@ def measure(phantom: Phantom, maxrad: float = 5.0, curvature: bool = True,
     extra = {} if smoothing is None else {"smoothing_iterations": smoothing}
     out.smoothing = smoothing
     try:
-        mesh = mesh_nucleus(phantom.mask, spacing, maxrad=maxrad, solidity=True, **extra)
+        mesh = mesh_object(phantom.mask, spacing, maxrad=maxrad, solidity=True, **extra)
     except (MeshingError, Exception) as error:          # meshing is a native backend
         out.failed = f"{type(error).__name__}: {error}"
         return out

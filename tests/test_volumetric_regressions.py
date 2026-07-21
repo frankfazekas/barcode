@@ -336,12 +336,12 @@ def test_the_pipeline_mesher_closes_an_object_touching_a_face():
     coordinates. It also makes the winding sign unreliable, which `curvature` uses to
     decide whether to flip every face.
     """
-    from analysis.volumetric.mesh import mesh_nucleus
+    from analysis.volumetric.mesh import mesh_object
 
     mask = np.zeros((24, 40, 40), bool)
     mask[:, 12:28, 12:28] = True          # spans the full depth: touches both z faces
 
-    geometry = mesh_nucleus(mask, (0.1, 0.1, 0.1), maxrad=2.0).geometry
+    geometry = mesh_object(mask, (0.1, 0.1, 0.1), maxrad=2.0).geometry
     assert not geometry.has_holes, "a border-touching object must still mesh closed"
     assert geometry.outward, "a closed outward surface must have positive signed volume"
     assert geometry.volume_um3 > 0

@@ -38,7 +38,7 @@ from analysis.volumetric.curvature import CONCAVE, CONVEX, HYPERBOLOID, analyze_
 from analysis.volumetric.mesh import (
     MeshingError,
     ensure_iso2mesh_binaries,
-    mesh_nucleus,
+    mesh_object,
     resolve_maxrad,
     write_obj,
 )
@@ -162,7 +162,7 @@ def main() -> int:
 
     config = build_config(args)
 
-    # Meshing needs an isotropic grid, and mesh_nucleus guards for it -- but it can only
+    # Meshing needs an isotropic grid, and mesh_object guards for it -- but it can only
     # inspect the tuple it is handed, and this script used to hand it (s, s, s), which
     # passes by construction however the mask was actually sampled. With no way to state
     # a z spacing at all, a mask on the acquired grid (z 0.3 / xy 0.065) run with the
@@ -213,9 +213,9 @@ def main() -> int:
                         mask.astype(np.uint8), z_spacing, xy_spacing) > 0
 
                 t0 = time.time()
-                # mesh_nucleus takes voxels; convert here so --mesh-maxrad-units um
+                # mesh_object takes voxels; convert here so --mesh-maxrad-units um
                 # means the same physical size whatever this dataset's voxel size is.
-                mesh = mesh_nucleus(mask, spacing,
+                mesh = mesh_object(mask, spacing,
                                     maxrad=resolve_maxrad(
                                         args.mesh_maxrad, args.mesh_maxrad_units,
                                         float(spacing[0])),

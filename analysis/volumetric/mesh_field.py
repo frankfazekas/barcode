@@ -1,6 +1,6 @@
 """Per-object meshing for a field of many objects.
 
-``mesh.py`` meshes *one* object: ``mesh_nucleus`` calls ``largest_component`` and throws
+``mesh.py`` meshes *one* object: ``mesh_object`` calls ``largest_component`` and throws
 the rest away. That is right for an isolated nucleus and wrong for a confluent field --
 an epithelium segmented by Cellpose is hundreds of touching cells, and collapsing it to
 the largest one discards the tissue.
@@ -234,7 +234,7 @@ def mesh_field(
     ``FieldMeshes.failed`` and the rest continue.
     """
     spacing = np.asarray(spacing_zyx_um, dtype=np.float64)
-    # Arity first, as mesh.mesh_nucleus does. Without it a scalar or 2-tuple sails through
+    # Arity first, as mesh.mesh_object does. Without it a scalar or 2-tuple sails through
     # the isotropy test (min == max) and fails later on `spacing[0]` with an IndexError
     # instead of the MeshingError the caller handles.
     if spacing.size != 3:

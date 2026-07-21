@@ -1,4 +1,8 @@
-"""Surface meshing of a segmented 3D nucleus.
+"""Surface meshing of a segmented 3D object.
+
+Not nucleus-specific despite its provenance: the MATLAB original meshed nuclei, and
+this meshes whatever object it is handed -- a nucleus, a cell, one label out of a
+Cellpose field.
 
 A port of the meshing step in ``TCell-3D-Morphodynamics``
 (``src/morphology/mesh/generate_mesh.m`` plus the mesh-derived scalars computed at
@@ -31,7 +35,7 @@ Conventions worth knowing before reading further:
 * **Vertices come out in voxel units** and are scaled by the isotropic voxel size at
   the end, exactly as MATLAB does (``V = V * params.psize``). ``maxrad`` is therefore
   in voxels, and the mask must be on an isotropic grid for it to mean the same thing
-  in every direction -- :func:`mesh_nucleus` enforces that.
+  in every direction -- :func:`mesh_object` enforces that.
 * iso2mesh's vertices sit in a 1-based voxel frame (a vertex at array index 0 comes
   back as 1.0). That offset is left in place for parity with MATLAB; it cancels out of
   every extent- or size-based metric, and only shifts absolute ``z_min``/``z_max``
@@ -202,7 +206,7 @@ def resolve_maxrad(maxrad: float, units: str, voxel_size_um: float,
         if object_voxels is None:
             raise MeshingError(
                 "mesh_maxrad_units='relative' needs the object's size, which is only "
-                "known where the mask is. Call through mesh_nucleus or mesh_field."
+                "known where the mask is. Call through mesh_object or mesh_field."
             )
         return max(0.25, float(maxrad) * equivalent_radius_voxels(object_voxels))
     raise MeshingError(
@@ -857,7 +861,7 @@ def mesh_geometry(
 # entry point
 # --------------------------------------------------------------------------- #
 @dataclass
-class NucleusMesh:
+class ObjectMesh:
     """A meshed nucleus: vertices in microns (z, y, x), 1-based faces, and scalars."""
 
     vertices_um: np.ndarray
@@ -867,7 +871,7 @@ class NucleusMesh:
     curvature: Optional["CurvatureResults"] = None
 
 
-def mesh_nucleus(
+def mesh_object(
     mask_zyx: np.ndarray,
     spacing_zyx_um: Sequence[float],
     maxrad: float = 5.0,
@@ -881,8 +885,8 @@ def mesh_nucleus(
     solidity: bool = True,
     isovalue: float = DEFAULT_ISOVALUE,
     maxrad_units: str = "voxels",
-) -> NucleusMesh:
-    """Mesh one segmented nucleus and measure it.
+) -> ObjectMesh:
+    """Mesh one segmented object and measure it.
 
     ``solidity`` controls only the voxel-count convex hull, which is the one costly
     extra (a qhull build plus a point-in-hull test over the bounding box); the geometric
@@ -932,7 +936,7 @@ def mesh_nucleus(
         mask=binary,
         voxel_size_um=voxel_size,
     )
-    return NucleusMesh(
+    return ObjectMesh(
         vertices_um=vertices_um, faces=faces, geometry=geometry, frame_index=frame_index
     )
 
@@ -968,13 +972,13 @@ def mesh_series(
     frame_indices: Sequence[int],
     config,
     verbose: bool = False,
-) -> List[NucleusMesh]:
+) -> List[ObjectMesh]:
     """Mesh the analysed timepoints of a ``(T, Z, Y, X)`` mask series."""
     ensure_iso2mesh_binaries(getattr(config, "mesh_iso2mesh_bin", "") or "")
     # The grid is isotropic by the time meshing runs, so any axis gives the voxel size.
     units = getattr(config, "mesh_maxrad_units", "voxels")
     meshes = [
-        mesh_nucleus(
+        mesh_object(
             masks[index],
             spacing_zyx_um,
             maxrad=getattr(config, "mesh_maxrad", 5.0),

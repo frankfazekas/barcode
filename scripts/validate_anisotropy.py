@@ -125,7 +125,7 @@ def run_batch(folder: str) -> Optional[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Check that physical metrics do not depend on the z sampling.")
-    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets")
+    parser.add_argument("--root", default=r"L:\FF\Hackathon\full_datasets\_open_data")
     parser.add_argument("--dataset", required=True, help="staged folder name")
     parser.add_argument("--factors", type=int, nargs="+", default=[1, 2, 3, 4])
     parser.add_argument("--frames", type=int, default=6,

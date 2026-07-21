@@ -13,8 +13,8 @@ from analysis.volumetric.curvature import CurvatureResults, analyze_curvature
 from analysis.volumetric.mesh import (
     MeshGeometry,
     MeshingError,
-    NucleusMesh,
-    mesh_nucleus,
+    ObjectMesh,
+    mesh_object,
     write_obj,
 )
 from analysis.volumetric.reader import VolumeStack, read_volume
@@ -29,7 +29,7 @@ __all__ = [
     "analyze_curvature",
     "MeshGeometry",
     "MeshingError",
-    "NucleusMesh",
-    "mesh_nucleus",
+    "ObjectMesh",
+    "mesh_object",
     "write_obj",
 ]

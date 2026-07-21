@@ -133,6 +133,18 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
              "reason rather than a misleading 0",
     )
     group.add_argument(
+        "--object-mesh", action="store_true",
+        help="mesh EVERY object rather than only the largest, giving per-object "
+             "sphericity, solidity, concavity, aspect ratio and curvature. Without it "
+             "those columns are empty for object rows, because a whole-field mesh "
+             "describes one cell. Costs ~2.5 s per object",
+    )
+    group.add_argument(
+        "--object-mesh-limit", type=int, default=0, metavar="N",
+        help="mesh only the first N objects (0 = all). For iterating on settings without "
+             "paying ~35 min a field; the rest get NaN shape columns and the run says so",
+    )
+    group.add_argument(
         "--fingerprint", action="store_true",
         help="write a per-volume card (projections, grouped metrics, distributions). "
              "For inspecting ONE run closely; the barcode is the tool for comparing "
@@ -165,6 +177,8 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.enable_mask_intensity = getattr(args, "mask_intensity", False)
     v.enable_packing_topology = getattr(args, "packing", False)
     v.write_fingerprint = getattr(args, "fingerprint", False)
+    v.object_mesh = getattr(args, "object_mesh", False)
+    v.object_mesh_limit = getattr(args, "object_mesh_limit", 0)
     v.frame_interval_s = getattr(args, "frame_interval", 0) or v.frame_interval_s
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))

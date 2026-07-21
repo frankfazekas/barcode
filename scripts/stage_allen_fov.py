@@ -63,7 +63,7 @@ import tifffile
 
 from scripts._staging import mask_z_to_isotropic, read_tiff_any, write_volume
 
-DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets"
+DEFAULT_ROOT = r"L:\FF\Hackathon\full_datasets\_open_data"
 
 # Fallbacks only. The real values are read per file from each OME header; these are what
 # the sampled FOVs carry, kept so a file with a stripped header fails loudly against a
