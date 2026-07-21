@@ -31,8 +31,15 @@ Four things genuinely differ from the 2D branch, and each forced a decision:
   removing those voxels first would make the derivatives describe the hole pattern
   instead of the flow. They are computed on the full field and masked at the reduction.
 
-Sign convention: upstream puts (0,0) at the top-left with +y pointing *down*. The 2D
-branch flips to y-up (``-1 * np.flipud(downV)``), so ``vy`` is negated here to match.
+Sign convention: upstream puts (0,0) at the top-left with +y pointing *down*, and the 2D
+branch flips to y-up. Note how it does that -- ``downU = np.flipud(downU)`` *and*
+``downV = -1*np.flipud(downV)``: flipping the array as well as negating the component,
+which is a real coordinate reflection. Negating the component alone is not; it produces a
+field belonging to no frame, and since divergence and curl differentiate ``field[..., 1]``
+along array axis 1, doing so made them wrong (a uniform expansion ``v = k*r`` reported
+``div = k`` instead of ``3k``). The velocity field here is therefore left in the array's
+own frame, and y-up is applied only to the reported direction vector -- the one place a
+sign convention is observable.
 """
 from __future__ import annotations
 
@@ -193,12 +200,19 @@ def _select_centres(n_frames: int, frame_indices: List[int], size: int) -> Tuple
 def analyze_optical_flow_3d(
     volume_series: np.ndarray,
     spacing_zyx: Tuple[float, float, float],
-    exposure_time_s: float,
+    frame_interval_s: float,
     config: VolumetricConfig,
     frame_indices: List[int],
     masks: Optional[np.ndarray] = None,
 ) -> Tuple[FlowResults, VolumetricFlowDetail]:
     """Flow metrics over a ``(T, Z, Y, X)`` series.
+
+    ``frame_interval_s`` is the seconds between consecutive TIMEPOINTS -- what
+    ``run.resolve_frame_interval`` returns. It was called ``exposure_time_s`` here, which
+    named the file's ImageJ tag rather than the quantity actually passed and invited
+    exactly the confusion ``core/config.py`` warns about: on a per-timepoint export that
+    tag usually describes the z acquisition, and every speed is a distance divided by
+    this number.
 
     ``masks`` is the per-timepoint segmentation on the same grid, or None. When
     ``config.flow_use_mask`` is set it restricts which voxels enter the metrics; the
@@ -213,7 +227,7 @@ def analyze_optical_flow_3d(
         t_sigma=int(config.flow_t_sigma),
         used_mask=bool(masks is not None and config.flow_use_mask),
         downsample=max(int(config.flow_downsample), 1),
-        frame_interval_s=float(exposure_time_s) if exposure_time_s else 1.0,
+        frame_interval_s=float(frame_interval_s) if frame_interval_s else 1.0,
     )
 
     if n_frames < size:
@@ -260,9 +274,20 @@ def analyze_optical_flow_3d(
         )
 
         # voxels/frame -> um/s. The window is contiguous, so one frame is one exposure.
-        dt = float(exposure_time_s) if exposure_time_s else 1.0
+        #
+        # The y component is NOT negated here, deliberately. BARCODE reports directions
+        # y-up while the array indexes y-down, but flipping the sign of a component
+        # without also flipping the axis is not a coordinate change -- it is a field that
+        # exists in no frame at all. The spatial operators below differentiate
+        # `field[..., 1]` along array axis 1, so a lone negation made `_divergence_3d`
+        # compute dvx/dx - dvy/dy + dvz/dz: a uniform expansion v = k*r reported k instead
+        # of 3k, and pure shear reported curl 2w instead of 0. (The 2D branch does the
+        # reflection properly -- optical_flow.py flips the array with flipud AND negates.)
+        # The y-up convention is applied instead to the reported direction vector alone,
+        # which is the only place a sign convention is observable.
+        dt = float(frame_interval_s) if frame_interval_s else 1.0
         vx = vx * dx / dt
-        vy = -vy * dy / dt  # upstream is y-down; BARCODE reports y-up.
+        vy = vy * dy / dt
         vz = vz * dz / dt
 
         valid = np.ones(vx.shape, dtype=bool)
@@ -297,6 +322,10 @@ def analyze_optical_flow_3d(
         with np.errstate(invalid="ignore", divide="ignore"):
             unit = field / speed[..., None]
         mean_unit = np.array([_nanmean(unit[..., i]) for i in range(3)])
+        # y-up for the *reported* direction only (see the unit-conversion comment above).
+        # Negating a mean unit vector cannot disturb a derivative, and `resultants` below
+        # takes its magnitude, so this is the whole extent of the convention.
+        mean_unit[1] = -mean_unit[1]
         mean_units.append(mean_unit)
         # np.sum, not np.nansum: when every voxel was masked out the mean unit vector is
         # all-NaN, and nansum would turn that into a resultant of 0 — which reads as
@@ -311,7 +340,11 @@ def analyze_optical_flow_3d(
 
         radii, radial = velocity_correlation_3d(raw_field, (dz, dy, dx))
         if radii.size:
-            detail.r_max_um = float(radii[-1])
+            # The outermost radial bin is the likeliest to be empty, and an empty bin
+            # carries NaN, so `radii[-1]` could report the cut-off radius as NaN. Take
+            # the largest radius that actually has data.
+            finite_radii = radii[np.isfinite(radii)]
+            detail.r_max_um = float(finite_radii[-1]) if finite_radii.size else np.nan
             detail.correlation_lengths.append(
                 correlation_length_from_radial(radial, radii, _CORRELATION_THRESHOLD)
             )

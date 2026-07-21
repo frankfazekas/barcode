@@ -287,9 +287,20 @@ class VolumetricConfig(BaseConfig):
     # in a confluent field every cell touches its neighbours, so connectivity labelling
     # collapses the whole tissue to one object and there is no graph to build.
     enable_packing_topology: bool = False
+    # Both of these count VOXELS, and the shared-face threshold weights a z-normal face
+    # the same as an xy-normal one, so both assume an isotropic grid. Keep make_isotropic
+    # on for this family: at 4.6x anisotropy one voxel of dilation bridges 0.3 um in z and
+    # 0.065 um in xy, and whether a contact clears the threshold then depends on its
+    # orientation rather than its area.
     packing_contact_dilation_vox: int = 1     # bridge a background gap between labels
     packing_min_contact_voxels: int = 5       # reject spurious one-voxel touches
     packing_exclude_border_objects: bool = True
+    # Which faces make an object a "border" object: "xy" ignores the z faces, "all" uses
+    # all six, "none" excludes nothing. Defaults to "xy", matching mesh_field: a packing
+    # is a monolayer, so its segmentation spans the full acquired depth and every object
+    # touches both z faces -- with "all" that excluded the entire field and every packing
+    # metric came back NaN.
+    packing_border_mode: str = "xy"
 
     # Extensive intensity metrics -- total, mean, SD, density. The intensity branch is
     # otherwise entirely intensive (histogram shape), so nothing in it scales with the
@@ -380,8 +391,9 @@ class VolumetricConfig(BaseConfig):
     # the solved velocity is noise. Voxels below this percentile of it are dropped from
     # every metric. 0 keeps all of them.
     flow_reliability_percentile: float = 50.0
-    # Restrict the metrics to voxels inside the segmentation. On by default because a
-    # cropped nucleus is mostly background, which would otherwise dominate mean speed.
+    # Restrict the metrics to voxels inside the segmentation. On by default because the
+    # analysed field is the whole acquired volume, most of which is background whose noise
+    # velocities would otherwise dominate mean speed.
     # Flow is still solved on the whole volume so gradients at the boundary stay correct.
     flow_use_mask: bool = True
     # Block-average the volumes before solving. Reliability needs a 3x3 eigendecomposition

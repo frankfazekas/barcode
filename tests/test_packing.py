@@ -108,12 +108,44 @@ def test_dilation_bridges_a_thin_background_gap():
 # ------------------------------------------------------------------ border
 
 
-def test_border_labels_finds_objects_on_every_face():
+def test_border_labels_ignores_the_z_faces_by_default():
+    """A packing is a monolayer, so spanning the full depth is normal, not incomplete.
+
+    With all six faces every object in an epithelium is a border object and the whole
+    family returned NaN. "xy" matches mesh_field.touches_border; "all" is still available
+    for a volume where z really is a boundary.
+    """
     labels = np.zeros((8, 8, 8), np.int32)
     labels[0, 3, 3] = 1            # on the low z face
     labels[3:5, 3:5, 3:5] = 2      # interior
     labels[3, 3, 7] = 3            # on the high x face
-    assert border_labels(labels) == {1, 3}
+
+    assert border_labels(labels) == {3}, "z-face objects are not cut off in xy"
+    assert border_labels(labels, "all") == {1, 3}
+    assert border_labels(labels, "none") == set()
+
+
+def test_a_monolayer_spanning_the_full_depth_still_reports_a_packing():
+    """The regression: every cell touches both z faces, so 'all' excluded the field."""
+    from core import BarcodeConfig
+
+    tile = np.zeros((30, 30), np.int32)
+    for i in range(3):
+        for j in range(3):
+            tile[i * 10:(i + 1) * 10, j * 10:(j + 1) * 10] = i * 3 + j + 1
+    labels = np.repeat(tile[None], 6, axis=0)      # no z padding: spans the full depth
+
+    config = BarcodeConfig().volumetric
+    config.packing_contact_dilation_vox = 0
+    config.packing_min_contact_voxels = 1
+
+    results, detail = packing_topology(labels, config)
+    assert detail.interior_ids == [5], "only the centre tile is away from the xy edge"
+    assert results.contact_number_mean == pytest.approx(4.0)
+
+    config.packing_border_mode = "all"
+    _, six_faced = packing_topology(labels, config)
+    assert not six_faced.interior_ids and "edge of the field" in six_faced.reason
 
 
 def test_interior_objects_keep_neighbours_that_sit_on_the_border():

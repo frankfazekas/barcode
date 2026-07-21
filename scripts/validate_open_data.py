@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
-"""Check BARCODE's volumetric metrics against independently published ground truth.
+"""Cross-checks on the volumetric branch, run against staged open datasets.
 
-The 2D branch can be regressed against the hackathon reference barcodes. The volumetric
-branch has had no such anchor: it was developed on one dataset, with masks we made
-ourselves, so every check available until now was self-consistency -- does the number
-stay the same -- rather than correctness -- is the number right.
+    V1  mask fidelity: object count    distinct labels in the mask as supplied
+    V2  mask fidelity: object volume   voxels in the mask as supplied x voxel size
+    V3  speed                          centroid displacement of TRACKED objects / dt
+    V4  replicate spread               independent sequences / fields of one specimen
+    V6  mask vs threshold              the same specimen analysed both ways
 
-Open data supplies the missing anchor, because for these datasets somebody else already
-determined the answer. Each check below states a quantity BARCODE reports, an
-independent way to compute that same quantity, and what a disagreement would mean.
+**V1 and V2 are NOT validation that any metric is correct, and must not be reported as
+such.** When a segmentation resolves it *replaces* intensity thresholding as the
+binarization (see ``segmentation_enabled`` in ``core/config.py``), so
+``Total Island Volume`` IS the mask's voxel count times the voxel volume -- and the
+"truth" these checks compare it against is the mask's voxel count times the voxel
+volume, read from the same file. Same arithmetic, same data, twice.
 
-    V1  object count      distinct labels in the published mask
-    V2  object volume     voxels in the published mask x published voxel size
-    V3  speed             centroid displacement of TRACKED objects / published dt
-    V4  replicate spread  independent sequences / fields of the same specimen
-    V5  determinism       the same input analysed twice
+They therefore measure exactly one thing, which is still worth measuring: that a mask
+survives the pipeline intact. Axis order, voxel spacing, isotropic resampling and
+cropping neither lose nor corrupt voxels on the way through. That is a genuine
+regression guard -- it caught a diagnostic comparing a single object against a whole
+field -- but it says nothing about whether volume is computed correctly, because
+nothing here computes volume a second, independent way. An agreement of exactly 0.00%
+is the signature of that circularity, not of accuracy.
 
-V1 and V2 are exact: the mask is the definition of the object, so any disagreement is
-BARCODE's. V3 is a correlation, not an identity -- see the note on that check. V4 is not
-pass/fail but the measurement that says which barcode columns carry signal rather than
-noise. V5 is pass/fail.
+Genuinely independent checks live elsewhere:
+
+* ``validate_phantoms.py``   -- closed-form volume, area, sphericity and curvature of
+                                digitized spheres, ellipsoids and tori. Mathematics,
+                                not another file, and the only route to curvature.
+* ``validate_allen_features.py`` -- per-cell volume and height published by the Allen
+                                Institute's own pipeline for the same segmentations.
+* V3 below                   -- speeds derived from the challenge's tracking annotation,
+                                which is a different computation over different files.
+
+V3 is a correlation, not an identity -- see the note on that check. V4 and V6 are not
+pass/fail; they measure spread and threshold-dependence respectively.
 
     python scripts/validate_open_data.py --root L:/FF/Hackathon/full_datasets
     python scripts/validate_open_data.py --root ... --dataset ctc_Fluo-N3DH-CHO_01
@@ -442,10 +456,10 @@ def check_dataset(entry: Staged, downloads: str, frame_limit: Optional[int],
             measured, reference, n = _align(counts, truth.counts)
             rel = _mean_relative(measured, reference)
             findings.append(Finding(
-                label, "V1 object count", header,
+                label, "V1 mask fidelity: count", header,
                 float(np.nanmean(measured)), float(np.nanmean(reference)), rel,
                 _verdict(rel, tolerance),
-                f"per-frame vs distinct labels in the published mask, {n} frames"))
+                f"per-frame vs labels in the mask AS SUPPLIED, {n} frames"))
 
         # V2 -- volume against the mask's own voxel count. Two independent forms: the
         # total is unambiguous, while the largest also checks that the pipeline picked
@@ -467,10 +481,10 @@ def check_dataset(entry: Staged, downloads: str, frame_limit: Optional[int],
             measured, reference, n = _align(volumes, series)
             rel = _mean_relative(measured, reference)
             findings.append(Finding(
-                label, "V2 object volume", header,
+                label, "V2 mask fidelity: volume", header,
                 float(np.nanmean(measured)), float(np.nanmean(reference)), rel,
                 _verdict(rel, tolerance),
-                f"{what}: mask voxels x published voxel size, {n} frames"))
+                f"{what}: the same mask, counted twice -- fidelity, not accuracy, {n} frames"))
 
         # V3 -- speed against the challenge's tracking annotation.
         header, speeds = column(rows, "Speed")
@@ -563,16 +577,19 @@ def write_report(findings: Sequence[Finding], out_dir: str) -> str:
 
 
 _CHECK_NOTES = {
-    "V1 object count": (
-        "How many separate objects BARCODE finds, against how many the publisher "
-        "labelled. Exact by construction: the mask defines the objects, so any "
-        "difference is the pipeline splitting or merging them -- which is what "
-        "resampling an anisotropic mask onto an isotropic grid could plausibly do."),
-    "V2 object volume": (
-        "Object volume in um^3, against the mask's own voxel count times the published "
-        "voxel size. This is the strongest available check on the whole geometric "
-        "chain: axis order, voxel spacing, isotropic resampling and cropping all feed "
-        "it, and an error in any of them moves the number."),
+    "V1 mask fidelity: count": (
+        "NOT an accuracy check. The mask replaces thresholding as the binarization, so "
+        "this compares the pipeline's object count against the label count of the very "
+        "mask it was handed. It shows the mask survived resampling and cropping with "
+        "its objects neither split nor merged -- a real regression guard, and nothing "
+        "more. Exact agreement is expected by construction, not evidence of accuracy."),
+    "V2 mask fidelity: volume": (
+        "NOT an accuracy check, for the same reason: 'Total Island Volume' IS the mask's "
+        "voxel count times the voxel volume, and so is the reference. It confirms no "
+        "voxels are lost or invented in transit through axis handling, spacing, "
+        "isotropic resampling and cropping. Volume ACCURACY is measured against closed "
+        "forms in validate_phantoms.py and against Allen's own per-cell measurements in "
+        "validate_allen_features.py."),
     "V3 speed": (
         "Speed in um/s, against the displacement of tracked object centroids over the "
         "published frame interval. NOT an identity: the tracking ground truth measures "

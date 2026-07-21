@@ -84,11 +84,44 @@ def test_unknown_t_units_raise(tmp_path):
         stack.resolve_t_range(1, 4, "frames")
 
 
-def test_seconds_needs_an_exposure_time(tmp_path):
+def test_seconds_needs_a_frame_interval(tmp_path):
     stack = read_volume(write_series(tmp_path / "s.tif"))
     stack.exposure_time_s = 0
-    with pytest.raises(ValueError, match="without an exposure time"):
+    with pytest.raises(ValueError, match="no frame interval is known"):
         stack.resolve_t_range(2.0, 8.0, "seconds")
+
+
+def test_seconds_uses_the_configured_interval_not_the_files_tag(tmp_path):
+    """The regression: a file whose finterval describes the z acquisition, not time.
+
+    On the Jurkat series the timepoints are 60 s apart and ImageJ's finterval reads 1.
+    Converting through the tag turned "the first 600 seconds" into 600 timepoints, which
+    clamped to the whole series -- while frame_interval_s sat in the config saying 60.
+    """
+    stack = read_volume(write_series(tmp_path / "s.tif", n_t=5, exposure=1.0))
+
+    assert stack.resolve_t_range(0, 120.0, "seconds", 60.0) == (0, 2)
+    assert stack.resolve_t_range(0, 120.0, "seconds") == (0, 120), \
+        "with no configured interval it still falls back to the file's tag"
+
+    config = BarcodeConfig().volumetric
+    config.t_start, config.t_end, config.t_range_units = 0, 120.0, "seconds"
+    config.frame_interval_s = 60.0
+    assert apply_t_range(stack, config).n_timepoints == 2
+
+
+def test_no_timing_anywhere_is_not_reported_as_coming_from_the_file(tmp_path, capsys):
+    """The reader's 1.0 fallback must stay distinguishable from a real 1 s tag."""
+    from analysis.volumetric.run import resolve_frame_interval
+
+    stack = read_volume(write_series(tmp_path / "s.tif", n_t=3))
+    stack.timing_from_file = False
+    stack.exposure_time_s = 1.0
+
+    config = BarcodeConfig().volumetric
+    config.frame_interval_s = 0
+    assert resolve_frame_interval(stack, config) == 1.0
+    assert "defaulted" in capsys.readouterr().out
 
 
 def test_zero_end_means_to_the_end_in_both_units(tmp_path):

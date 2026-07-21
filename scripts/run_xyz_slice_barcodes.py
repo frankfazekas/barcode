@@ -32,6 +32,7 @@ from core import BarcodeConfig
 from core.metrics import selection_mask
 from core.modes import get_mode
 from core.results import ChannelResults
+from scripts._cli import default_output_dir
 from utils.writer import generate_combined_barcode, results_to_csv
 
 
@@ -100,10 +101,9 @@ def main() -> int:
     mode = get_mode("xyz")
     # Default beside the data folder, never inside it -- a single file argument would
     # otherwise drop results into the folder holding the images.
-    source_dir = (os.path.dirname(os.path.normpath(args.path))
-                  if os.path.isfile(args.path) else os.path.normpath(args.path))
-    out_dir = args.out or os.path.join(
-        os.path.dirname(source_dir), "results", "xyz_per_slice")
+    source_dir = (os.path.dirname(os.path.abspath(args.path))
+                  if os.path.isfile(args.path) else os.path.abspath(args.path))
+    out_dir = args.out or default_output_dir(source_dir, "results", "xyz_per_slice")
     os.makedirs(out_dir, exist_ok=True)
 
     headers = ChannelResults.get_headers(just_metrics=True, mode=mode)
@@ -129,9 +129,14 @@ def main() -> int:
 
         areas = [r.binarization.max_island_size for r in per_timepoint[0]]
         finite = [a for a in areas if a == a]
+        # Every slice's binarization can fail -- the 2D branch raises "kth out of bounds"
+        # on a single-island frame, which perslice catches per slice -- leaving nothing to
+        # take a min of. That raised AFTER the CSVs and barcodes were written and aborted
+        # the remaining files in the folder, losing the run over a summary line.
+        span_text = (f"max island area {min(finite):.4f}..{max(finite):.4f}"
+                     if finite else "max island area: no slice produced one")
         print(f"  {os.path.basename(path):16s} {len(per_timepoint[0]):3d} slices "
-              f"({span}, {depth:.1f} um)  "
-              f"max island area {min(finite):.4f}..{max(finite):.4f}  "
+              f"({span}, {depth:.1f} um)  {span_text}  "
               f"{time.time() - started:.1f}s")
 
     print(f"\nwrote {written} barcode(s) + CSV(s) to\n  {out_dir}")

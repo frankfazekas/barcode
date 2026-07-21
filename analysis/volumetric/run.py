@@ -144,6 +144,30 @@ def _mean_of(values) -> float:
     return float(finite.mean()) if finite.size else np.nan
 
 
+_channel_warning_shown = False
+
+
+def warn_if_channels_dropped(config: BarcodeConfig) -> None:
+    """Say so when "Parse All Channels" is set but only one channel will be analysed.
+
+    ``core.pipeline`` routes the volumetric modes before ``determine_channels_to_process``
+    ever runs, and every volumetric entry point analyses
+    ``config.channels.selected_channel`` alone. Ticking the box therefore produced a
+    single row for one channel and no indication that the rest had been dropped. Said
+    once per run rather than per file, so a 1000-file batch does not repeat it.
+    """
+    global _channel_warning_shown
+    if _channel_warning_shown or not getattr(config.channels, "parse_all_channels", False):
+        return
+    _channel_warning_shown = True
+    print(
+        f"Note: 'Parse All Channels' is not supported by the volumetric modes; analysing "
+        f"channel {config.channels.selected_channel} only. Run the other channels "
+        f"separately by changing Choose Channel.",
+        flush=True,
+    )
+
+
 def select_frame_indices(n_frames: int, frame_step: int) -> List[int]:
     """Timepoints to analyse.
 
@@ -154,7 +178,12 @@ def select_frame_indices(n_frames: int, frame_step: int) -> List[int]:
     """
     if n_frames <= 1:
         return [0]
-    step = int(frame_step)
+    # A step of 0 or less is meaningless, and the loop below cannot correct it: the
+    # `step >= n_frames` guard is False for 0, so it fell through to `range(0, n, 0)`,
+    # which raises "range() arg 3 must not be zero". A negative step produced an empty
+    # list and then IndexError on `indices[-1]`. frame_step is user-editable, so clamp to
+    # "every frame" -- the interpretation the value is closest to.
+    step = max(int(frame_step), 1)
     while step >= n_frames:
         step = max(step // 5, 1)
         if step == 1:
@@ -189,12 +218,105 @@ def summarise_meshes(meshes: List[NucleusMesh]) -> MeshResults:
         sphericity=mean_of([g.sphericity for g in geometries]),
         equivalent_radius=mean_of([g.equivalent_sphere_radius_um for g in geometries]),
         height=mean_of([g.height_um for g in geometries]),
+        aspect_ratio=mean_of([g.aspect_ratio for g in geometries]),
         volume_ratio=mean_of([g.volume_ratio for g in geometries]),
         solidity=mean_of([g.solidity for g in geometries]),
         mean_curvature=mean_of([c.mean_curvature for c in curvatures]),
         invagination_ratio=mean_of([c.invagination_ratio for c in curvatures]),
         concave_ratio=mean_of([c.concave_ratio for c in curvatures]),
     )
+
+
+def _dim_flag(volumes: np.ndarray, frame_indices: List[int]) -> int:
+    """Flag digit 1 -- too little signal for binarization to mean anything.
+
+    A channel is dim when ``2/e * mean <= min``: the darkest voxel is already a sizeable
+    fraction of the average, so there is barely a foreground to separate. ``utils`` holds
+    two identical copies of that formula (``check_channel_dim`` and
+    ``reader.check_first_frame_dim``, the one ``core.pipeline`` uses); this calls the
+    former, so the definitions can still drift apart until they are unified. Kept as a
+    call rather than a fourth copy.
+
+    Judged on the volume as **acquired**, before ``_prepare_geometry``. That is
+    deliberate: isotropic resampling interpolates, which raises the minimum, and cropping
+    to a mask discards dark background -- both push ``min/mean`` upward, i.e. toward
+    "dim". Measuring the acquired data keeps the 2D and 3D flags answering the same
+    question about the same pixels. The t range is still respected, since ``stack`` has
+    already been restricted.
+
+    Flags but does not skip, unlike the 2D path: a volumetric run is one file rather than
+    one channel of many, so aborting would discard the whole analysis over a warning the
+    flag already carries.
+    """
+    from utils import check_channel_dim
+
+    if volumes.size == 0 or not frame_indices:
+        return 0
+    index = min(frame_indices[0], volumes.shape[0] - 1)
+    return 1 if bool(check_channel_dim(volumes[index])) else 0
+
+
+#: Values ``mesh_aggregation`` accepts, mapped to whether the pipeline implements them.
+_MESH_AGGREGATION_IMPLEMENTED = {"largest": True, "mean": False, "total": False}
+
+
+def _check_mesh_aggregation(mode: str) -> None:
+    """Reject a mesh_aggregation the pipeline cannot honour.
+
+    ``mean`` and ``total`` are described in the config as meshing every object and
+    averaging the intensive metrics while summing the extensive ones. The per-object
+    mesher that would supply them (``analysis/volumetric/mesh_field.py``) exists and is
+    tested, but nothing calls it, so both settings previously produced ``largest``
+    silently -- with no GUI control to expose the discrepancy, and no column that would
+    reveal it. Failing here converts a wrong number into a stopped run.
+    """
+    key = str(mode).strip().lower()
+    if _MESH_AGGREGATION_IMPLEMENTED.get(key):
+        return
+    if key in _MESH_AGGREGATION_IMPLEMENTED:
+        raise ValueError(
+            f"mesh_aggregation={mode!r} is not implemented: the mesh family would "
+            f"silently describe only the largest connected component. Set "
+            f"mesh_aggregation='largest' to accept that explicitly. Per-object meshing "
+            f"exists in analysis/volumetric/mesh_field.py but has no pipeline call site."
+        )
+    raise ValueError(
+        f"Unknown mesh_aggregation {mode!r}. Valid values: "
+        f"{', '.join(sorted(_MESH_AGGREGATION_IMPLEMENTED))}."
+    )
+
+
+def _export_meshes(filepath: str, meshes: List[NucleusMesh]) -> None:
+    """Write one OBJ per analysed timepoint, beside the data it came from.
+
+    The GUI's *Export Mesh as .OBJ* switch is a bool with nowhere to put the files, so
+    the destination is derived rather than configured: a folder next to the input, named
+    after it, mirroring how the 2D pipeline puts ``<file> BARCODE Output/`` beside the
+    file it analysed. Deliberately not a fixed path and never the working directory --
+    outputs belong with the dataset that produced them.
+
+    Reported rather than raised, matching how the rest of this branch treats an optional
+    output: a read-only drive should not lose a run whose metrics already succeeded.
+    """
+    from analysis.volumetric.mesh import write_obj
+
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    out_dir = os.path.join(
+        os.path.dirname(os.path.abspath(filepath)), f"{stem} BARCODE Meshes")
+    try:
+        written = [
+            write_obj(os.path.join(out_dir, f"{stem}_t{mesh.frame_index}.obj"),
+                      mesh.vertices_um, mesh.faces)
+            for mesh in meshes
+        ]
+    except Exception as exc:  # noqa: BLE001 - see below
+        # Deliberately broad. A read-only drive raises OSError, but a malformed face
+        # array raises ValueError or IndexError, and none of them should cost a run whose
+        # metrics already succeeded -- the OBJ is an optional side artefact, not a result.
+        print(f"  mesh export failed ({type(exc).__name__}): {exc}", flush=True)
+        return
+    if written:
+        print(f"  wrote {len(written)} mesh(es) to {out_dir}", flush=True)
 
 
 def summarise_components(detail) -> ComponentResults:
@@ -230,11 +352,17 @@ def resolve_frame_interval(stack: VolumeStack, config: VolumetricConfig) -> floa
     if config.frame_interval_s > 0:
         return float(config.frame_interval_s)
 
+    # `timing_from_file` distinguishes a real tag from the reader's 1.0 fallback. Testing
+    # the value alone could not: the fallback IS 1.0, so a file carrying no timing at all
+    # was announced as "1 s from the file" — precisely the claim this message exists to
+    # prevent, and Speed was then wrong by exactly the factor it was meant to flag.
     from_file = float(stack.exposure_time_s or 0.0)
+    have_file_value = bool(getattr(stack, "timing_from_file", False)) and from_file > 0
+    source = "from the file's ImageJ finterval tag" if have_file_value else "(defaulted; the file states no timing)"
     print(
-        f"  flow: no frame interval configured; using {from_file or 1.0:g} s from the "
-        f"file{'' if from_file else ' (defaulted)'}. If that is not the true spacing "
-        f"between timepoints, set Frame Interval — Speed scales inversely with it.",
+        f"  flow: no frame interval configured; using {from_file or 1.0:g} s {source}. "
+        f"If that is not the true spacing between timepoints, set Frame Interval — "
+        f"Speed scales inversely with it.",
         flush=True,
     )
     return from_file or 1.0
@@ -273,10 +401,42 @@ def _load_masks(
         spacing = mask_spacing
 
     stacked = np.stack(masks)
-    if stack.z_range and stacked.shape[1] == (stack.n_slices_acquired or 0):
-        # The mask is on the acquired grid; take the same slices the image kept.
-        stacked = stacked[:, stack.z_range[0]:stack.z_range[1]]
+    if stack.z_range:
+        m0, m1 = _mask_z_slice_for_range(
+            stacked.shape[1], acquired_z, stack.z_range[0], stack.z_range[1]
+        )
+        stacked = stacked[:, m0:m1]
     return stacked, mask_paths, spacing
+
+
+def _mask_z_slice_for_range(
+    mask_slices: int, acquired_slices: int, z0: int, z1: int
+) -> Tuple[int, int]:
+    """Which mask slices span the same physical depth as acquired slices ``[z0, z1)``.
+
+    The mask is routinely on a *finer* z grid than the acquisition (250 planes at
+    0.065 um for a 54-slice stack at 0.3 um), so it cannot be sliced with acquired
+    indices. Testing ``mask_slices == acquired_slices`` and skipping the crop when they
+    differ -- which is what this used to do -- left the mask spanning the whole
+    acquisition while the image had already been cut down. ``prepare_volume`` then
+    resamples by physical coordinates from origin 0, so the sub-range was planted at
+    z = 0 and the two no longer described the same slab: on a 54/250 pair keeping 20
+    slices put the image at isotropic z 0..89 and its own mask at 100..150, with no
+    overlap at all and every mask-gated metric measuring background.
+
+    Both grids are node-aligned over the same extent (the convention
+    ``resample._reference_shape_for_spacing`` and ``match_mask_to_image_grid`` already
+    use), so acquired slice ``i`` sits at mask slice ``round(i * (mz-1)/(nz-1))``.
+    """
+    if mask_slices == acquired_slices:
+        return int(z0), int(z1)
+    if acquired_slices < 2 or mask_slices < 2:
+        return 0, int(mask_slices)
+
+    scale = (mask_slices - 1) / (acquired_slices - 1)
+    start = int(round(z0 * scale))
+    stop = int(round((z1 - 1) * scale)) + 1
+    return max(0, start), min(int(mask_slices), max(stop, start + 1))
 
 
 def _prepare_geometry(
@@ -298,9 +458,32 @@ def _prepare_geometry(
 
     loaded = _load_masks(stack, config)
     if loaded is None:
-        return stack.data, None, (z_um, xy_um, xy_um), {"isotropic": "not_requested"}, None
+        # Isotropic resampling is defined against the mask's grid, so with no segmentation
+        # there is nothing to resample onto and the data is analysed as acquired. Say which
+        # of the two it was: recording "not_requested" while make_isotropic was True (the
+        # default) made the provenance assert the user had not asked, and 3D connectivity
+        # and shape metrics on a 4.6x anisotropic grid are exactly what that setting exists
+        # to prevent.
+        reason = "no_segmentation" if config.make_isotropic else "not_requested"
+        if config.make_isotropic:
+            print(
+                "  make_isotropic is on but no segmentation resolved, so there is no "
+                "isotropic grid to resample onto; analysing the acquired anisotropic "
+                "voxels. 3D shape and connectivity metrics assume equal spacing.",
+                flush=True,
+            )
+        return stack.data, None, (z_um, xy_um, xy_um), {"isotropic": reason}, None
 
     masks, mask_paths, mask_spacing = loaded
+    if len(mask_paths) == 1 and n_timepoints > 1:
+        # One mask, many timepoints: correct for a static object, wrong for a moving one,
+        # and the two are indistinguishable in the output. Only a grouped per-file series
+        # carries one mask per timepoint; a single TZYX hyperstack resolves exactly one.
+        print(
+            f"  one segmentation resolved for {n_timepoints} timepoints; it is applied to "
+            f"all of them. If the object moves or deforms, export one mask per timepoint.",
+            flush=True,
+        )
 
     if not config.make_isotropic:
         # Bring the masks down onto the image's own grid by nearest-neighbour index
@@ -325,20 +508,31 @@ def _prepare_geometry(
     from analysis.volumetric.resample import prepare_volume
 
     union_mask = masks.any(axis=0).astype(np.uint8)
-
-    volumes, info = [], {}
-    for t in range(n_timepoints):
-        images_iso, union_iso, spacing_iso, info = prepare_volume(
-            images={"image": stack.data[t]},
-            image_spacings={"image": (xy_um, xy_um, z_um)},
-            mask=union_mask,
-            mask_spacing=(mask_spacing, mask_spacing, mask_spacing),
-            crop_padding=config.crop_padding_vox,
-            crop_to_mask=getattr(config, "crop_to_mask", False),
+    if not union_mask.any():
+        # This used to be caught downstream by `crop_bbox is None`, which `_crop_to_mask_bbox`
+        # returned for an all-zero mask. With cropping off by default that branch always
+        # builds a full-field box, so the guard could never fire and an entirely empty
+        # segmentation flowed through to the metrics, surfacing as an unexplained NaN
+        # island count rather than as the configuration error it is.
+        raise ValueError(
+            "The segmentation is empty at every analysed timepoint. Check the "
+            "segmentation template and the z/t ranges."
         )
-        volumes.append(images_iso["image"])
 
-    volumes = np.stack(volumes)
+    # Every timepoint in ONE call. prepare_volume already takes a dict of channels and
+    # puts them all on the mask's grid, so calling it per timepoint resampled the same
+    # union mask identically T times (15x on this dataset, a 250^3 nearest-neighbour pass
+    # each) and threw away all but the last. The results are unchanged.
+    keys = [f"t{t}" for t in range(n_timepoints)]
+    images_iso, union_iso, spacing_iso, info = prepare_volume(
+        images={key: stack.data[t] for t, key in enumerate(keys)},
+        image_spacings={key: (xy_um, xy_um, z_um) for key in keys},
+        mask=union_mask,
+        mask_spacing=(mask_spacing, mask_spacing, mask_spacing),
+        crop_padding=config.crop_padding_vox,
+        crop_to_mask=getattr(config, "crop_to_mask", False),
+    )
+    volumes = np.stack([images_iso[key] for key in keys])
     spacing_zyx = (spacing_iso[2], spacing_iso[1], spacing_iso[0])
 
     # Put the per-frame masks on that same cropped grid. When the masks were already
@@ -363,12 +557,23 @@ def _prepare_geometry(
         target = (spacing_iso[0], spacing_iso[1], spacing_iso[2])
         source = (mask_spacing, mask_spacing, mask_spacing)
         reference_shape = union_iso.shape
+        # Where that reference grid starts, in physical coordinates. Zero unless the
+        # volume was cropped, in which case the crop's corner -- the resampler works in
+        # physical space, so without an origin the masks would be sampled from the volume
+        # origin onto a box that begins somewhere else, and the shape check below cannot
+        # detect a pure offset.
+        origin = (
+            bbox["x"][0] * target[0],
+            bbox["y"][0] * target[1],
+            bbox["z"][0] * target[2],
+        )
         # int32, not uint8: an instance segmentation routinely has more than 255
         # objects -- a confluent Cellpose field has thousands -- and uint8 would wrap
         # them silently, merging unrelated cells into one label.
         masks_iso = np.stack([
             _resample_array_to_reference(
-                m.astype(np.int32), source, reference_shape, target, sitk.sitkNearestNeighbor
+                m.astype(np.int32), source, reference_shape, target,
+                sitk.sitkNearestNeighbor, origin,
             )
             for m in masks
         ])
@@ -432,6 +637,8 @@ def run_volumetric_analysis(
     )
     results = ChannelResults(filepath=filepath, channel=channel)
     results.z_range_flag = 1 if (stack.z_range or stack.t_range) else 0
+    # Acquired voxels, not the resampled/cropped ones -- see _dim_flag.
+    results.dim_channel_flag = _dim_flag(stack.data, frame_indices)
 
     if config.modules.image_binarization:
         results.binarization, detail.binarization = analyze_binarization_3d(
@@ -447,6 +654,13 @@ def run_volumetric_analysis(
         )
 
     if vcfg.mesh_enabled:
+        # A setting that silently does nothing is worse than one that is absent: the
+        # mesh family would describe the largest component while the config says it
+        # describes every object, and no output distinguishes the two. Raised rather
+        # than reported because it changes what the numbers MEAN, unlike a missing
+        # segmentation, which merely leaves them empty.
+        _check_mesh_aggregation(getattr(vcfg, "mesh_aggregation", "largest"))
+
         # Meshing describes the segmented object, so it needs a segmentation: a mesh
         # of an intensity threshold would not be the nucleus. Reported, not raised,
         # so one misconfigured file does not abort a batch.
@@ -461,6 +675,8 @@ def run_volumetric_analysis(
                     masks, spacing_zyx, frame_indices, vcfg
                 )
                 results.mesh = summarise_meshes(detail.meshes)
+                if vcfg.mesh_export_obj:
+                    _export_meshes(filepath, detail.meshes)
             except MeshingError as exc:
                 print(f"Meshing failed: {exc}", flush=True)
 
@@ -531,6 +747,8 @@ def run_volumetric_timelapse(
     """
     from analysis.volumetric.timelapse import group_timelapse, read_series
 
+    warn_if_channels_dropped(config)
+
     vcfg = config.volumetric
     groups, unmatched = group_timelapse(filepaths, vcfg.timelapse_regex)
 
@@ -555,6 +773,7 @@ def run_volumetric_timelapse(
                 channel=config.channels.selected_channel,
                 z_step_um=vcfg.z_step_um or None,
                 xy_step_um=vcfg.xy_step_um or None,
+                axes_override=getattr(vcfg, "axes_override", "") or None,
             )
             results, detail = run_volumetric_analysis(
                 group.paths[0], config, config.channels.selected_channel, stack=stack
@@ -593,6 +812,8 @@ def run_volumetric_pipeline(
         print(f"File {count} of {total}")
         print(filepath)
         count += 1
+
+    warn_if_channels_dropped(config)
 
     try:
         results, detail = run_volumetric_analysis(

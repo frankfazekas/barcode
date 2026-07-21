@@ -193,7 +193,18 @@ def main() -> int:
 
     print()
     print("-- BARCODE metrics --")
-    for metric, value in results.get_dict_data(just_metrics=True).items():
+    # Pass the mode and the family switches, or this prints the 2D metric set: 25 columns
+    # instead of 41, every volume labelled "Maximum Island Area" in um^2, no mesh or
+    # component columns at all (their registry entries are gated on mode.supports_mesh /
+    # is_volumetric, both False when mode is None), and seven NaN flow columns even
+    # without --flow. That made --mesh run the mesher, print its describe() block, and
+    # then list none of its metrics -- in the one script whose whole job is to print
+    # every metric.
+    from scripts._cli import family_switches
+
+    metrics = results.get_dict_data(
+        just_metrics=True, mode=config.volumetric.mode, **family_switches(config))
+    for metric, value in metrics.items():
         name = metric.value if isinstance(metric, Metrics) else str(metric)
         if isinstance(value, float) and np.isnan(value):
             print(f"   {name:38s} nan")

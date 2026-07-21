@@ -68,16 +68,47 @@ def _resample_array_to_reference(
     reference_shape_zyx,
     reference_spacing_xyz_um,
     interpolator,
+    reference_origin_xyz_um=None,
 ):
+    """Resample ``array`` onto a reference grid, by physical coordinates.
+
+    ``reference_origin_xyz_um`` names where that grid starts. It defaults to the volume
+    origin, which is right whenever the reference spans the whole field -- but not when
+    the reference is a *crop*. ``run._prepare_geometry`` resamples the per-frame masks
+    onto ``union_iso.shape``; with ``crop_to_mask`` on that shape is the cropped box, so
+    without an origin the masks were sampled from (0,0,0) and came out offset from the
+    image by the whole crop. The shape check downstream cannot see a pure offset.
+    """
     source = _to_sitk(array, source_spacing_xyz_um)
     reference = _to_sitk(
-        np.zeros(reference_shape_zyx, dtype=np.float32), reference_spacing_xyz_um
+        np.zeros(reference_shape_zyx, dtype=np.float32), reference_spacing_xyz_um,
+        reference_origin_xyz_um,
     )
     transform = sitk.Transform(3, sitk.sitkIdentity)
-    resampled = sitk.Resample(
-        source, reference, transform, interpolator, 0.0, source.GetPixelID()
-    )
-    return sitk.GetArrayFromImage(resampled)
+
+    # Clamp to the edge value outside the source extent rather than filling with the
+    # default 0. The two grids disagree about their last sample by design: a mask staged
+    # by `scripts/_staging.mask_z_to_isotropic` has round(n * z/xy) planes, spanning
+    # n*z um, while an image of n planes at spacing z is only interpolatable over
+    # (n-1)*z um (the convention `_reference_shape_for_spacing` below uses). The mask grid
+    # therefore overhangs the image by about one acquired slice, and zero-fill wrote that
+    # overhang into the data as real black voxels -- 2 of 249 planes on 54x0.3/0.065
+    # Jurkat volumes, 8% of the depth on a 5-slice stack -- while the mask still declared
+    # foreground there. Those planes fed the mean-relative threshold, the intensity
+    # histogram and every "fraction of analysed volume" denominator.
+    #
+    # Nearest-neighbour extrapolation repeats the last acquired plane instead, which is
+    # the honest reading of a sub-slice overhang and is also what fixes masks already
+    # staged on disk -- changing the staging formula could not. Interior voxels are
+    # untouched: extrapolation only applies outside the source extent.
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetReferenceImage(reference)
+    resampler.SetTransform(transform)
+    resampler.SetInterpolator(interpolator)
+    resampler.SetDefaultPixelValue(0.0)
+    resampler.SetOutputPixelType(source.GetPixelID())
+    resampler.SetUseNearestNeighborExtrapolator(True)
+    return sitk.GetArrayFromImage(resampler.Execute(source))
 
 
 def _canonicalize_geometry(image, image_spacing_xyz_um, mask, mask_spacing_xyz_um):

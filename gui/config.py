@@ -720,6 +720,7 @@ class VolumetricConfigGUI:
     packing_contact_dilation_vox: tk.IntVar = field(init=False)
     packing_min_contact_voxels: tk.IntVar = field(init=False)
     packing_exclude_border_objects: tk.BooleanVar = field(init=False)
+    packing_border_mode: tk.StringVar = field(init=False)
     enable_intensity_magnitude: tk.BooleanVar = field(init=False)
     enable_curvature_range: tk.BooleanVar = field(init=False)
     enable_slice_profile: tk.BooleanVar = field(init=False)
@@ -788,6 +789,7 @@ class VolumetricConfigGUI:
         self.packing_contact_dilation_vox = tk.IntVar(value=self._core_config.packing_contact_dilation_vox)
         self.packing_min_contact_voxels = tk.IntVar(value=self._core_config.packing_min_contact_voxels)
         self.packing_exclude_border_objects = tk.BooleanVar(value=self._core_config.packing_exclude_border_objects)
+        self.packing_border_mode = tk.StringVar(value=self._core_config.packing_border_mode)
         self.enable_intensity_magnitude = tk.BooleanVar(value=self._core_config.enable_intensity_magnitude)
         self.enable_curvature_range = tk.BooleanVar(value=self._core_config.enable_curvature_range)
         self.enable_slice_profile = tk.BooleanVar(value=self._core_config.enable_slice_profile)
@@ -859,6 +861,7 @@ class VolumetricConfigGUI:
             packing_contact_dilation_vox=self.packing_contact_dilation_vox.get(),
             packing_min_contact_voxels=self.packing_min_contact_voxels.get(),
             packing_exclude_border_objects=self.packing_exclude_border_objects.get(),
+            packing_border_mode=self.packing_border_mode.get(),
             enable_intensity_magnitude=self.enable_intensity_magnitude.get(),
             enable_curvature_range=self.enable_curvature_range.get(),
             enable_slice_profile=self.enable_slice_profile.get(),
@@ -930,6 +933,7 @@ class VolumetricConfigGUI:
         self.packing_contact_dilation_vox.set(new_config.packing_contact_dilation_vox)
         self.packing_min_contact_voxels.set(new_config.packing_min_contact_voxels)
         self.packing_exclude_border_objects.set(new_config.packing_exclude_border_objects)
+        self.packing_border_mode.set(new_config.packing_border_mode)
         self.enable_intensity_magnitude.set(new_config.enable_intensity_magnitude)
         self.enable_curvature_range.set(new_config.enable_curvature_range)
         self.enable_slice_profile.set(new_config.enable_slice_profile)

@@ -212,6 +212,11 @@ class Units(UnitsNum):
     AREA: str = "μm^2"
     VOLUME: str = "μm^3"
     CURVATURE: str = "1/μm"
+    # Divergence and curl are spatial derivatives of a velocity, so (μm/s)/μm = 1/s. Only
+    # the volumetric branch earns this label: the 2D branch differentiates a *cumulative
+    # unit-vector* field, which is 1/μm and a different quantity entirely, so its columns
+    # keep the blank unit they have always had rather than being relabelled wrongly.
+    RATE: str = "1/s"
     INTENSITY: str = "a.u."
     INTENSITY_PER_AREA: str = "a.u./μm^2"
     INTENSITY_PER_VOLUME: str = "a.u./μm^3"
@@ -268,11 +273,14 @@ def get_data_limits(
         elif unit == Units.PERCENT_CHANGE:
             limits.append(dynamic_limits(data[:, i], 1))
         elif unit in [Units.SPEED, Units.LENGTH, Units.AREA, Units.VOLUME,
-                      Units.CURVATURE, Units.INTENSITY, Units.INTENSITY_PER_AREA,
-                      Units.INTENSITY_PER_VOLUME, Units.SLICE_INDEX]:
-            if metric == Metrics.DELTA_SPEED or unit == Units.CURVATURE:
+                      Units.CURVATURE, Units.RATE, Units.INTENSITY,
+                      Units.INTENSITY_PER_AREA, Units.INTENSITY_PER_VOLUME,
+                      Units.SLICE_INDEX]:
+            if metric == Metrics.DELTA_SPEED or unit in (Units.CURVATURE, Units.RATE):
                 # Curvature is signed: a concave surface gives a negative mean, so a
-                # [0, max] scale would clip half its range.
+                # [0, max] scale would clip half its range. Divergence is signed for the
+                # same reason -- compaction is negative -- and scaling it about 0 keeps
+                # the barcode identical to when these columns carried a blank unit.
                 limits.append(dynamic_limits(data[:, i], 0))
             else:
                 limits.append([0, np.nanmax(data[:, i])])

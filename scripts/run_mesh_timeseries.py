@@ -132,7 +132,11 @@ def main() -> int:
     p.add_argument("--seg-regex", default=None, help="default: (?P<stem>.+)")
     p.add_argument("--seg-template", default=None)
     p.add_argument("--mask-spacing", type=float, default=None,
-                   help="um per isotropic mask voxel (required; masks carry no metadata)")
+                   help="um per mask voxel in xy (required; masks carry no metadata)")
+    p.add_argument("--mask-z-spacing", type=float, default=None,
+                   help="um per mask voxel in z, if the mask is on the ACQUIRED grid "
+                        "rather than isotropic. Defaults to --mask-spacing (isotropic). "
+                        "The mask is upsampled in z to the xy grid before meshing")
     p.add_argument("--mesh-maxrad", type=float, default=5.0)
     p.add_argument("--mesh-area-frac", type=float, default=0.2)
     p.add_argument("--mesh-smooth-iters", type=int, default=10)
@@ -148,7 +152,22 @@ def main() -> int:
         p.error("--mask-spacing is required: segmentation masks carry no voxel size.")
 
     config = build_config(args)
-    spacing = (args.mask_spacing,) * 3
+
+    # Meshing needs an isotropic grid, and mesh_nucleus guards for it -- but it can only
+    # inspect the tuple it is handed, and this script used to hand it (s, s, s), which
+    # passes by construction however the mask was actually sampled. With no way to state
+    # a z spacing at all, a mask on the acquired grid (z 0.3 / xy 0.065) run with the
+    # documented --mask-spacing 0.065 was meshed 4.6x too short in z: volume, surface
+    # area, sphericity, height and every curvature number wrong, with no warning.
+    # The mask is brought to the xy grid here instead, by the same nearest-neighbour
+    # upsample used when staging (labels must not be interpolated).
+    xy_spacing = float(args.mask_spacing)
+    z_spacing = float(args.mask_z_spacing or xy_spacing)
+    spacing = (xy_spacing,) * 3
+    needs_z_upsample = abs(z_spacing - xy_spacing) > 1e-9
+    if needs_z_upsample:
+        print(f"mask z {z_spacing} um vs xy {xy_spacing} um "
+              f"({z_spacing / xy_spacing:.2f}x anisotropic); upsampling z before meshing")
 
     paths = sorted(glob.glob(os.path.join(args.folder, args.pattern)))
     groups, unmatched = group_timelapse(paths, args.timelapse_regex)
@@ -178,6 +197,11 @@ def main() -> int:
             try:
                 mask_path = resolve_segmentation_path(path, config.volumetric)
                 mask = coerce_to_zyx(tifffile.imread(mask_path), label) > 0
+                if needs_z_upsample:
+                    from scripts._staging import mask_z_to_isotropic
+
+                    mask = mask_z_to_isotropic(
+                        mask.astype(np.uint8), z_spacing, xy_spacing) > 0
 
                 t0 = time.time()
                 mesh = mesh_nucleus(mask, spacing,

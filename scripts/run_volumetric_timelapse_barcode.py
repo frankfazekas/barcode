@@ -33,6 +33,7 @@ from analysis.volumetric.run import (
     _prepare_geometry, resolve_frame_interval, summarise_components, summarise_meshes)
 from analysis.volumetric.timelapse import group_timelapse, read_series
 from core import BarcodeConfig, ChannelResults
+from scripts._cli import default_output_dir
 from utils.writer import generate_combined_barcode, results_to_csv
 
 
@@ -130,7 +131,8 @@ def main() -> int:
     for group in groups:
         started = time.time()
         print(f"\n{group.describe()}")
-        stack = read_series(group, channel=config.channels.selected_channel)
+        stack = read_series(group, channel=config.channels.selected_channel,
+                            axes_override=getattr(vcfg, "axes_override", "") or None)
         volumes, masks, spacing, info, mask_paths = _prepare_geometry(stack, vcfg)
         print(f"  grid {volumes.shape[1:]} @ {tuple(round(s, 4) for s in spacing)} um"
               f"{'  (common crop box)' if info.get('common_crop') else ''}")
@@ -211,8 +213,8 @@ def main() -> int:
             # Default beside the input folder, not inside it: mixing generated
             # output in with the images is how a data folder turns into a pile
             # of stale CSVs nobody can date.
-            out_dir = os.path.join(
-                os.path.dirname(os.path.normpath(args.folder)),
+            out_dir = default_output_dir(
+                args.folder,
                 "results", f"timepoints_{'with_masks' if masked else 'no_masks'}")
             os.makedirs(out_dir, exist_ok=True)
             base = os.path.join(out_dir, f"{group.series} Timepoints ({suffix})")

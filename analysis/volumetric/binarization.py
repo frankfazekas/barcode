@@ -49,7 +49,19 @@ def group_avg_3d(volume: np.ndarray, factors: Tuple[int, int, int]) -> np.ndarra
 def binarize_volume(
     volume: np.ndarray, offset_threshold: float, min_size: int = 1
 ) -> np.ndarray:
-    """Threshold at ``mean * (1 + offset)``, then clean, using 3D connectivity."""
+    """Threshold at ``mean * (1 + offset)``, then clean, using 3D connectivity.
+
+    A volume with no contrast has no structure to find, and is reported as empty rather
+    than as one object filling the field. The threshold is relative to the volume's own
+    mean, so on a constant volume it lands exactly on that constant: an all-zero volume
+    gives threshold 0 and ``volume >= 0`` is true everywhere, so a dropped or blank
+    acquisition -- routine at the top and bottom of a stack -- came back 100% foreground
+    with connectivity 1, and (via ``find_largest_void_3d``) a maximal void as well. In the
+    CSV that is indistinguishable from a genuinely percolating sample.
+    """
+    volume = np.asarray(volume)
+    if volume.size == 0 or float(np.ptp(volume)) == 0.0:
+        return np.zeros(volume.shape, dtype=bool)
     threshold = float(np.mean(volume)) * (1 + offset_threshold)
     binary = volume >= threshold
     binary = remove_small_objects(binary, min_size + 1, connectivity=3)
@@ -80,7 +92,11 @@ def find_largest_void_3d(binary: np.ndarray) -> float:
     inverted = invert_volume(binary)
     labelled, count = label(inverted, connectivity=3, return_num=True)
     if count == 0:
-        return float(binary.size)
+        # No background components means the mask is entirely foreground, so the largest
+        # void is 0 -- the minimum. Returning binary.size reported the maximum instead,
+        # inverting the metric on exactly the edge case, and fed max_void_percent_change
+        # too.
+        return 0.0
     areas = regionprops_table(labelled, properties=["area"])["area"]
     return float(np.max(areas))
 
@@ -331,7 +347,11 @@ def analyze_binarization_3d(
             else np.nan
         )
         if radii.size:
-            detail.r_max_um = float(radii[-1])
+            # The outermost radial bin is the likeliest to be empty, and an empty bin
+            # carries NaN, so `radii[-1]` could report the cut-off radius as NaN. Take
+            # the largest radius that actually has data.
+            finite_radii = radii[np.isfinite(radii)]
+            detail.r_max_um = float(finite_radii[-1]) if finite_radii.size else np.nan
 
         detail.island_voxels.append(props["largest"])
         second_largest.append(props["second_largest"])
@@ -383,8 +403,16 @@ def _assemble_results(
         island_change = np.nan
         void_change = np.nan
     else:
-        island_change = _nanmean(island[-n_eval:]) / island_initial
-        void_change = _nanmean(void[-n_eval:]) / void_initial
+        # A zero or non-finite baseline gives inf (plus a RuntimeWarning) written into the
+        # CSV as though it were a measurement. "Grew from nothing" has no ratio; NaN is the
+        # honest answer, and it is what every other undefined value in this row already is.
+        def ratio(final: float, initial: float) -> float:
+            if not np.isfinite(initial) or initial == 0:
+                return np.nan
+            return final / initial
+
+        island_change = ratio(_nanmean(island[-n_eval:]), island_initial)
+        void_change = ratio(_nanmean(void[-n_eval:]), void_initial)
 
     def fraction(value: float) -> float:
         return value / voxels if voxels else np.nan
@@ -423,9 +451,21 @@ def _assemble_results(
 
 
 def _average_largest(values: List[float], percent: float = 0.1) -> float:
-    """Mean of the top ``percent`` of values — matches ``utils.average_largest``."""
-    ordered = sorted(values, reverse=True)
-    top = int(np.ceil(len(ordered) * percent))
+    """Mean of the top ``percent`` of values — matches ``utils.average_largest``.
+
+    Non-finite values are dropped *before* the sort, not left for ``_nanmean`` to skip
+    afterwards. ``sorted`` orders with ``<``, and every comparison against NaN is False,
+    so a NaN is never moved -- it simply stays where it started. NaN is routine in this
+    list (a frame with zero islands records NaN for its largest), so with ten frames and
+    the default 10% the single selected element was whichever value happened to sit at
+    index 0. That made the result order-dependent: [nan, 5, 3] gave NaN while [5, nan, 3]
+    gave 5.0, from the same measurements.
+    """
+    finite = [v for v in np.asarray(values, dtype=np.float64).ravel() if np.isfinite(v)]
+    if not finite:
+        return np.nan
+    ordered = sorted(finite, reverse=True)
+    top = max(int(np.ceil(len(ordered) * percent)), 1)
     return _nanmean(ordered[:top])
 
 

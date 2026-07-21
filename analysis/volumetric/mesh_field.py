@@ -158,18 +158,38 @@ def iter_objects(
             yield label_id, None, None, "border"
             continue
 
-        # One-voxel margin, clipped to the volume, so the object never abuts the crop.
-        padded, offset = [], []
+        # One-voxel margin of background on every side, so the object never abuts the
+        # crop and the surface closes.
+        #
+        # The margin used to be clipped to the volume (`max(sl.start - 1, 0)`), which
+        # gave objects touching a face no margin there and so an OPEN surface. With
+        # exclude_border="xy" -- the recommended setting, because in a shallow slab every
+        # object touches z -- that was the normal case, not an exception. An open surface
+        # breaks `mesh_volume`: the signed-tetrahedron sum is translation-invariant only
+        # when the surface closes, and vertices here are in FIELD coordinates, so an
+        # object 100 um from the origin with a ~100 um^2 hole picked up an offset term of
+        # 10^3-10^4 um^3 against a real cell volume of ~10^3. `mesh_geometry` takes the
+        # absolute value, so sphericity and solidity inherited it silently, and
+        # `curvature` decides winding from the sign -- flipping some objects in a field
+        # and not others, inverting their curvature.
+        #
+        # Zero-padding where the clip would have bitten restores the margin. `offset` is
+        # then the field coordinate of the padded sub-array's first voxel, which is -1 on
+        # a clipped face: correct, and the arithmetic downstream is unchanged.
+        window, offset, pad_width = [], [], []
         for axis, sl in enumerate(bbox):
-            start = max(sl.start - 1, 0)
-            stop = min(sl.stop + 1, array.shape[axis])
-            padded.append(slice(start, stop))
+            start, stop = sl.start - 1, sl.stop + 1
+            low, high = max(start, 0), min(stop, array.shape[axis])
+            window.append(slice(low, high))
+            pad_width.append((low - start, stop - high))
             offset.append(start)
 
-        sub = array[tuple(padded)] == label_id
+        sub = array[tuple(window)] == label_id
         if int(sub.sum()) < max(min_voxels, 1):
             yield label_id, None, None, "small"
             continue
+        if any(before or after for before, after in pad_width):
+            sub = np.pad(sub, pad_width, mode="constant", constant_values=False)
 
         yield label_id, sub, np.asarray(offset, dtype=np.float64), ""
 
@@ -202,6 +222,13 @@ def mesh_field(
     ``FieldMeshes.failed`` and the rest continue.
     """
     spacing = np.asarray(spacing_zyx_um, dtype=np.float64)
+    # Arity first, as mesh.mesh_nucleus does. Without it a scalar or 2-tuple sails through
+    # the isotropy test (min == max) and fails later on `spacing[0]` with an IndexError
+    # instead of the MeshingError the caller handles.
+    if spacing.size != 3:
+        raise MeshingError(
+            f"spacing_zyx_um must have three elements (z, y, x); got {spacing.size}."
+        )
     if float(spacing.max() - spacing.min()) > 1e-9:
         raise MeshingError(
             f"Meshing needs an isotropic grid but spacing (z, y, x) is {tuple(spacing)} "
@@ -214,8 +241,11 @@ def mesh_field(
         from analysis.volumetric.curvature import analyze_curvature
 
     array = np.asarray(labels)
+    # How many labels there ARE, not the largest id. Cellpose ids are routinely
+    # non-contiguous after any filtering step, so `array.max()` made describe() report
+    # "180 of 4200 labels" when 200 labels existed -- which reads as a mass failure.
     result = FieldMeshes(frame_index=frame_index,
-                         n_labels=int(array.max()) if array.size else 0)
+                         n_labels=int(np.count_nonzero(np.unique(array))))
 
     for label_id, sub, offset, skip in iter_objects(array, min_voxels, exclude_border):
         if skip == "border":

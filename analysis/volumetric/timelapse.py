@@ -51,9 +51,14 @@ def group_timelapse(
 ) -> Tuple[List[SeriesGroup], List[str]]:
     """Group ``paths`` into ordered series.
 
-    Returns ``(groups, unmatched)``. Groups are sorted by series name and their frames
-    ordered numerically, so ``Cell1_2`` precedes ``Cell1_10`` (plain lexicographic
-    sorting, which ``utils.setup.find_files`` uses, would not).
+    Returns ``(groups, unmatched)``. Groups are sorted by directory then series name and
+    their frames ordered numerically, so ``Cell1_2`` precedes ``Cell1_10`` (plain
+    lexicographic sorting, which ``utils.setup.find_files`` uses, would not).
+
+    A series is identified by its directory *and* the matched name. Files in different
+    folders are never one series, however alike their names: ``find_files`` walks
+    recursively, and the same numbering convention in two condition folders is the normal
+    case rather than an exotic one.
     """
     pattern = re.compile(regex)
     buckets: Dict[str, List[Tuple[int, str]]] = {}
@@ -70,17 +75,26 @@ def group_timelapse(
         except (TypeError, ValueError):
             unmatched.append(path)
             continue
-        buckets.setdefault(match.group("series"), []).append((frame, path))
+        # Keyed by directory as well as by the matched series name. `find_files` walks
+        # recursively, so a run pointed at a parent folder sees every subfolder's files;
+        # keying on the basename alone merged them. Two conditions each holding
+        # Cell1_1..15.tif collapsed into one bucket and raised "duplicate frame numbers"
+        # -- outside the per-series try in run.py, so it aborted the whole batch -- and if
+        # their frame numbers happened not to overlap (1-15 and 16-30) they merged
+        # silently into a single 30-timepoint "series" spanning two experiments.
+        key = (os.path.dirname(os.path.abspath(path)), match.group("series"))
+        buckets.setdefault(key, []).append((frame, path))
 
     groups = []
-    for series in sorted(buckets):
-        entries = sorted(buckets[series])
+    for key in sorted(buckets):
+        directory, series = key
+        entries = sorted(buckets[key])
         frames = [f for f, _ in entries]
         if len(set(frames)) != len(frames):
             duplicates = sorted({f for f in frames if frames.count(f) > 1})
             raise ValueError(
-                f"Series {series!r} has duplicate frame numbers {duplicates}; "
-                f"the grouping regex is matching more files than intended."
+                f"Series {series!r} in {directory} has duplicate frame numbers "
+                f"{duplicates}; the grouping regex is matching more files than intended."
             )
         groups.append(SeriesGroup(series=series, paths=[p for _, p in entries], frames=frames))
 
@@ -92,18 +106,26 @@ def read_series(
     channel: int = 0,
     z_step_um: Optional[float] = None,
     xy_step_um: Optional[float] = None,
+    axes_override: Optional[str] = None,
 ) -> VolumeStack:
     """Read every file in ``group`` and stack them along T.
 
     All timepoints must share a shape and voxel spacing; a mismatch means the files do
     not belong to one series, so it raises rather than silently padding or cropping.
+
+    ``axes_override`` is passed through to every file. It used to be missing here alone,
+    so a grouped series whose header names the wrong axes -- acquisition software writing
+    a time series into ImageJ's "channels" field is the common case -- could not be
+    rescued in the one mode built for per-timepoint files, though every other entry point
+    honoured the setting.
     """
     if not group.paths:
         raise ValueError(f"Series {group.series!r} has no files.")
 
     volumes, reference = [], None
     for path in group.paths:
-        stack = read_volume(path, channel=channel, z_step_um=z_step_um, xy_step_um=xy_step_um)
+        stack = read_volume(path, channel=channel, z_step_um=z_step_um,
+                            xy_step_um=xy_step_um, axes_override=axes_override)
         if stack.n_timepoints != 1:
             raise ValueError(
                 f"{os.path.basename(path)} already contains {stack.n_timepoints} "
@@ -134,7 +156,16 @@ def read_series(
         z_step_um=reference.z_step_um,
         xy_step_um=reference.xy_step_um,
         exposure_time_s=reference.exposure_time_s,
-        axes=reference.axes,
+        # The series is (T, Z, Y, X) however each file was stored, so say so. Inheriting
+        # the per-file "ZYX" made describe() print `axes=ZYX (T,Z,Y,X)=(15,54,312,303)`
+        # and recorded a single-volume axis order as the provenance of a constructed
+        # series. `declared_axes` keeps what the files themselves claimed.
+        axes="TZYX",
+        declared_axes=reference.axes,
+        # Inherited from file 0, where it describes that file's z acquisition rather than
+        # the spacing between timepoints. `timing_from_file` stays False so nothing
+        # downstream mistakes it for a real interval — set Frame Interval for that.
+        timing_from_file=False,
         # The series is identified by its first file, so per-file outputs and the CSV
         # row point at something that exists on disk.
         source_path=group.paths[0],

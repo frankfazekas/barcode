@@ -37,7 +37,7 @@ from analysis.volumetric.provenance import build_range_results
 from analysis.volumetric.reader import (
     VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_mask_on_image_grid
-from core import BarcodeConfig, ChannelResults
+from core import BarcodeConfig, ChannelResults, IntensityResults
 from core.modes import get_mode
 from utils.setup import create_channel_output_dir, create_output_directories
 
@@ -54,6 +54,69 @@ class SlicewiseRunDetail:
     z_range: tuple = None
     mask_path: Optional[str] = None
     timepoints: List[int] = field(default_factory=list)
+
+
+def _masked_intensity_over_z(volume, masks, id_config) -> IntensityResults:
+    """Depth-profile intensity statistics from in-mask pixels only.
+
+    This exists because the obvious shortcut does not work. Blanking out-of-mask voxels
+    with NaN and handing the volume to ``analyze_intensity_distribution`` looks right --
+    the histogram helper flattens, so no masked array is needed -- but
+    ``np.histogram(frame, bins=N)`` derives its range from ``min()``/``max()`` and raises
+    ``"autodetected range of [nan, nan] is not finite"``. The caller's ``except`` swallowed
+    that, so every intensity column silently came back NaN while the run reported success.
+
+    Selecting the in-mask pixels gives a ragged per-slice array, which the 2D function
+    cannot take, so its reductions are mirrored here against the same helpers it uses --
+    ``utils.average_largest`` over the per-slice values and the first/last
+    ``percentage_frames_evaluated`` for the trend. ``analysis/intensity_distribution.py``
+    itself is untouched. The per-slice statistics come from ``perslice`` rather than being
+    written again, which is also where the correct in-mask selection already lived.
+    """
+    from analysis.volumetric.perslice import _intensity_for_slice
+    from analysis.volumetric.run import select_frame_indices
+    from utils import average_largest
+
+    # Only slices the segmentation actually covers, for the same reason the binarization
+    # path drops them: a slice with no in-mask pixels contributes no statistic, and with
+    # the default frame_step of 10 sampling a 12-slice stack at 0, 10, 11 an object
+    # confined to z 3..9 would be missed entirely and every column returned NaN.
+    occupied = np.flatnonzero(masks.any(axis=(1, 2)))
+    if occupied.size == 0:
+        return IntensityResults()
+
+    # ``select_frame_indices``, not ``utils.find_analysis_frames``: the latter divides its
+    # step by 5 until it fits, which yields a float step and a TypeError from ``range``
+    # once the count is small — and an object spanning a handful of slices is the norm.
+    indices = select_frame_indices(int(occupied.size), id_config.frame_step)
+    n_eval = int(np.ceil(id_config.percentage_frames_evaluated * len(indices)))
+
+    per_slice, flags = [], []
+    for i in indices:
+        z = int(occupied[i])
+        row = _intensity_for_slice(
+            volume[z].astype(np.float64), id_config, masks[z])
+        per_slice.append(row)
+        flags.append(bool(row.saturation_flag))
+
+    kurt = [r.max_kurtosis for r in per_slice]
+    median_skew = [r.max_median_skew for r in per_slice]
+    mode_skew = [r.max_mode_skew for r in per_slice]
+
+    def trend(values):
+        if len(values) < 2 or n_eval < 1:
+            return np.nan
+        return np.nanmean(values[-n_eval:]) - np.nanmean(values[:n_eval])
+
+    return IntensityResults(
+        max_kurtosis=average_largest(kurt),
+        max_median_skew=average_largest(median_skew),
+        max_mode_skew=average_largest(mode_skew),
+        kurtosis_diff=trend(kurt),
+        median_skew_diff=trend(median_skew),
+        mode_skew_diff=trend(mode_skew),
+        saturation_flag=int(all(flags)) if flags else 0,
+    )
 
 
 def run_slicewise_analysis(
@@ -103,6 +166,16 @@ def run_slicewise_analysis(
         # labels for the volumetric families, so relying on it to hand back a boolean
         # would make this silently label-dependent.
         masks = mask_volume.astype(bool)
+        if stack.n_timepoints > 1:
+            # One file resolves one mask, so the same segmentation is applied to every
+            # timepoint. That is correct for a static object and wrong for a moving one,
+            # and the two look identical in the output — hence saying so.
+            print(
+                f"  xyz: one segmentation resolved for {stack.n_timepoints} timepoints; "
+                f"it is applied to all of them. If the object moves, export one mask per "
+                f"timepoint and analyse the files as a series instead.",
+                flush=True,
+            )
 
     detail = SlicewiseRunDetail(
         stack=stack,
@@ -148,12 +221,23 @@ def run_slicewise_analysis(
             try:
                 # A mask replaces intensity thresholding, so hand the 2D branch the mask
                 # volume itself: it binarizes at mean*(1+offset), and a 0/1 volume with
-                # offset 0 reproduces the mask exactly.
+                # offset 0 reproduces the mask exactly -- for every slice that HAS
+                # foreground. An all-zero slice has mean 0, hence threshold 0, and
+                # `np.where(frame < 0, 0, 1)` marks the entire field as one island. Empty
+                # slices are the norm above and below a nuclear mask, so that turned each
+                # of them into a full-field island: max_island_size 1.0, connectivity 1,
+                # and the nanmean over slices pulled well off the true profile. They are
+                # dropped instead -- a slice with no segmented object has no structure to
+                # measure, which is not the same as being entirely filled by one.
                 source = volume
                 bin_config = config.image_binarization_parameters
                 if masks is not None:
                     from dataclasses import replace as _replace_cfg
-                    source = masks.astype(np.float64)
+                    occupied = masks.any(axis=(1, 2))
+                    if not occupied.any():
+                        raise ValueError(
+                            "the segmentation is empty on every analysed slice")
+                    source = masks[occupied].astype(np.float64)
                     bin_config = _replace_cfg(bin_config, threshold_offset=0.0)
                 _, row.binarization = analyze_binarization(
                     source, output_dir, bin_config, reader_config, config.writer,
@@ -163,15 +247,14 @@ def run_slicewise_analysis(
 
         if config.modules.intensity_distribution:
             try:
-                intensity_source = volume
                 if masks is not None and vcfg.intensity_use_mask:
-                    # Restrict to in-mask voxels by blanking the rest; the histogram
-                    # helper flattens, so a masked array is not needed.
-                    intensity_source = np.where(masks, volume, np.nan)
-                _, row.intensity = analyze_intensity_distribution(
-                    intensity_source, output_dir,
-                    config.intensity_distribution_parameters, config.writer,
-                )
+                    row.intensity = _masked_intensity_over_z(
+                        volume, masks, config.intensity_distribution_parameters)
+                else:
+                    _, row.intensity = analyze_intensity_distribution(
+                        volume, output_dir,
+                        config.intensity_distribution_parameters, config.writer,
+                    )
             except Exception as exc:
                 print(f"  t={t}: intensity failed ({type(exc).__name__}: {exc})", flush=True)
 
@@ -206,6 +289,9 @@ def run_slicewise_pipeline(
         print(f"File {count} of {total}")
         print(filepath)
         count += 1
+
+    from analysis.volumetric.run import warn_if_channels_dropped
+    warn_if_channels_dropped(config)
 
     try:
         results, detail = run_slicewise_analysis(

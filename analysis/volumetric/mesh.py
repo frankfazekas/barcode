@@ -166,11 +166,17 @@ def _isolate_temp_dir() -> str:
     seed (``os.getenv("ISO2MESH_SESSION", 0x623F9A9E)``), so setting it would silently
     change the seed and therefore every mesh.
     """
+    # Only reuse a directory THIS process created. Honouring an inherited ISO2MESH_TEMP --
+    # exported in the shell, or carried into a child process -- put two runs in one scratch
+    # directory, which is exactly the silent cross-process corruption described above
+    # (949 um^3 against 3,897,051 um^3, no error raised). The pid in the prefix is what
+    # makes "ours" checkable.
+    prefix = f"barcode-iso2mesh-{os.getpid()}-"
     existing = os.environ.get("ISO2MESH_TEMP")
-    if existing and os.path.isdir(existing):
+    if existing and os.path.isdir(existing) and os.path.basename(existing).startswith(prefix):
         return existing
 
-    path = tempfile.mkdtemp(prefix=f"barcode-iso2mesh-{os.getpid()}-")
+    path = tempfile.mkdtemp(prefix=prefix)
     os.environ["ISO2MESH_TEMP"] = path
     atexit.register(shutil.rmtree, path, True)
     return path
@@ -769,9 +775,17 @@ def write_obj(path: str, vertices_um: np.ndarray, faces: np.ndarray) -> str:
     """Write a Wavefront OBJ, reordering vertices from (z, y, x) to (x, y, z).
 
     OBJ face indices are 1-based, which is what the faces already are.
+
+    Reversing the coordinate order swaps two axes, which reverses handedness: a mesh wound
+    outward in the package's (z, y, x) frame is wound *inward* once its vertices are
+    written as (x, y, z). The face triples are therefore reversed to match, so the OBJ is
+    outward-wound in the right-handed frame every renderer and mesh tool assumes. Without
+    it every file this wrote was inside-out -- visible as backface culling and lighting
+    turning surfaces inside out, and confirmed by ``export_mesh_movie`` reading these
+    files back and having ``curvature`` detect a negative volume and flip every one.
     """
     vertices = np.asarray(vertices_um, dtype=np.float64)[:, ::-1]
-    faces = np.asarray(faces)[:, :3]
+    faces = np.asarray(faces)[:, :3][:, ::-1]
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
         handle.write("# BARCODE volumetric nucleus mesh\n")

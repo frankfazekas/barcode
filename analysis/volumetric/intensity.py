@@ -33,9 +33,22 @@ class VolumetricIntensityDetail:
 
 
 def _average_largest(values: List[float], percent: float = 0.1) -> float:
-    ordered = sorted(values, reverse=True)
-    top = int(np.ceil(len(ordered) * percent))
-    return float(np.nanmean(ordered[:top]))
+    """Mean of the top ``percent`` of values.
+
+    Non-finite values are dropped before the sort. ``sorted`` compares with ``<`` and
+    every comparison against NaN is False, so a NaN is never moved out of the position it
+    started in; with ten timepoints and the default 10% the one selected element was
+    whichever value sat at index 0. A single NaN kurtosis -- which ``utils.kurtosis``
+    returns whenever a frame's histogram has zero spread -- therefore made the reported
+    maximum NaN even though nine finite values were available, and reordering the same
+    measurements changed the answer.
+    """
+    finite = [v for v in np.asarray(values, dtype=np.float64).ravel() if np.isfinite(v)]
+    if not finite:
+        return np.nan
+    ordered = sorted(finite, reverse=True)
+    top = max(int(np.ceil(len(ordered) * percent)), 1)
+    return float(np.mean(ordered[:top]))
 
 
 def analyze_intensity_3d(
@@ -62,7 +75,14 @@ def analyze_intensity_3d(
         detail.kurtosis.append(kurtosis(values, counts))
         detail.median_skew.append(median_skewness(values, counts))
         detail.mode_skew.append(mode_skewness(values, counts))
-        detail.saturated.append(bool(frame_mode(data, bins, noise) == values[-1]))
+        # `histogram` drops bins below the noise threshold, so `values` is empty when no
+        # bin clears it -- routine for a sparse instance mask, where the in-mask voxels
+        # are spread thinly over `bin_size` bins. Indexing [-1] then raised IndexError
+        # and, unlike the binarization branch, nothing here catches it, so one such frame
+        # killed the whole run.
+        detail.saturated.append(
+            bool(values.size and frame_mode(data, bins, noise) == values[-1])
+        )
 
     n_frames = len(frame_indices)
     single_timepoint = n_frames < 2
@@ -81,7 +101,11 @@ def analyze_intensity_3d(
         kurtosis_diff=change(detail.kurtosis),
         median_skew_diff=change(detail.median_skew),
         mode_skew_diff=change(detail.mode_skew),
-        saturation_flag=int(all(detail.saturated)),
+        # `all([])` is True, so a run with no analysed frames flagged itself saturated.
+        # The `all` itself is kept deliberately: it is the 2D branch's convention
+        # (`analysis/intensity_distribution.py:66`), and this column is compared against
+        # reference barcodes. Only the empty case changes.
+        saturation_flag=int(all(detail.saturated)) if detail.saturated else 0,
     )
     return results, detail
 

@@ -423,12 +423,24 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         row_idx,
         cv.make_isotropic,
         "Resample to Isotropic Voxels",
-        "Put the image and mask on one isotropic grid, then crop to the mask's bounding "
-        "box. Recommended: 3D connectivity and shape metrics assume equal spacing on "
-        "every axis. Note that cropping makes the 'fraction of volume' metrics relative "
-        "to the cropped region rather than the original field. In a time series the crop "
-        "is the union of all timepoints' boxes, so every timepoint shares one "
-        "denominator. Requires a mask.",
+        "Put the image and mask on one isotropic grid. Recommended: 3D connectivity and "
+        "shape metrics assume equal spacing on every axis, and this data is ~4.6x "
+        "anisotropic. The analysed field stays the whole acquired field of view, so "
+        "every 'fraction of volume' metric keeps one denominator across files and "
+        "timepoints. Requires a mask; without one there is no isotropic grid to resample "
+        "onto and the acquired voxels are analysed as they are.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.crop_to_mask,
+        "Crop to the Mask's Bounding Box",
+        "Off, and it should normally stay off. Cropping gives each file its own "
+        "denominator for every 'fraction of volume' metric, so an object shrinking and "
+        "the crop box tightening around it become indistinguishable. Use the Z Range to "
+        "analyse less than the full field. Kept for reproducing older cropped runs.",
     )
     row_idx += 2
 
@@ -438,7 +450,8 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame, from_=0, to=50, increment=1, textvariable=cv.crop_padding_vox, width=7
     ).grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
-        frame, "Voxels of margin kept around the mask bounding box when cropping.",
+        frame, "Voxels of margin kept around the mask bounding box. Only has an effect "
+        "when 'Crop to the Mask's Bounding Box' is on.",
         row_idx, padding_label,
     )
     row_idx += 1
@@ -607,8 +620,9 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         cv.flow_use_mask,
         "Flow Metrics Inside Mask Only",
         "Restrict the flow metrics to voxels inside the segmentation. On by default "
-        "because a cropped nucleus is mostly background, whose noise velocities would "
-        "otherwise dominate the average speed. The flow is still solved on the whole "
+        "because the analysed field is the whole acquired volume and the object occupies "
+        "a small part of it, so background noise velocities would otherwise dominate the "
+        "average speed. The flow is still solved on the whole "
         "volume, so gradients at the mask boundary use real neighbours. Has no effect "
         "when no segmentation is in use.",
     )

@@ -24,6 +24,7 @@ import tifffile
 from analysis.volumetric.run import run_volumetric_analysis
 from core import BarcodeConfig
 from core.modes import MODES
+from scripts._cli import default_output_dir
 from utils.writer import results_to_csv
 
 
@@ -98,8 +99,15 @@ def main() -> int:
     p.add_argument("--seg-regex", default=None, help="default: (?P<stem>.+)")
     p.add_argument("--seg-template", default=None)
     p.add_argument("--csv", default=None, help="output CSV path")
-    p.add_argument("--mode", default="xyzt", choices=list(MODES),
-                   help="; ".join(f"{k}: {m.label}" for k, m in MODES.items()))
+    # Volumetric modes only. This script calls run_volumetric_analysis directly, and that
+    # function never consults the mode -- dispatch lives in core.pipeline, which is
+    # bypassed here. So a 2D mode would not select a 2D analysis; it would run the full 3D
+    # analysis and merely rename the output, writing um^3 volumes under "Maximum Island
+    # Area" with area units. Use core.pipeline (the GUI, or scripts/run_barcode.py) for
+    # xyt and xyz.
+    volumetric_modes = [k for k, m in MODES.items() if m.is_volumetric]
+    p.add_argument("--mode", default="xyzt", choices=volumetric_modes,
+                   help="; ".join(f"{k}: {MODES[k].label}" for k in volumetric_modes))
     p.add_argument("--component-stats", action="store_true",
                    help="add per-object count, size SD, skewness and median")
     p.add_argument("--packing", action="store_true",
@@ -163,8 +171,7 @@ def main() -> int:
     if args.csv:
         csv_path = args.csv
     else:
-        out_dir = os.path.join(
-            os.path.dirname(os.path.normpath(args.folder)), "results", "per_frame")
+        out_dir = default_output_dir(args.folder, "results", "per_frame")
         os.makedirs(out_dir, exist_ok=True)
         csv_path = os.path.join(out_dir, "Volumetric Summary.csv")
     results_to_csv(all_results, csv_path, just_metrics=False, physical_units=False,

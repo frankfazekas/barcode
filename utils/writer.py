@@ -40,14 +40,36 @@ def results_to_csv(
             type(result) == expected_type
         ), f"All results must be the same type. Result {i} is {type(result).__name__}, expected {expected_type.__name__}"
 
-    # All results must have the same headers
+    # The requested representation must actually have been computed.
+    #
+    # This used to demand that the fractional value be NaN exactly when physical units
+    # were requested -- true of the 2D branch, which fills either the fractional or the
+    # quantity fields and leaves the other NaN. The volumetric branch fills BOTH, since a
+    # fraction of the analysed volume and a size in um^3 are both meaningful there, so the
+    # old form rejected every 3D run with more than one row and made the um^3 columns
+    # unwritable. Those are the only crop-independent size numbers a volumetric run has.
+    #
+    # The real invariant is weaker: whichever representation is being written must carry
+    # data whenever the other one does. That still catches the mismatch the check existed
+    # for -- asking for physical units from a run that only computed fractions -- while
+    # accepting a branch that populates both, and without firing on a legitimately empty
+    # result where every size is NaN.
     quantified = physical_units
 
-    for i, result in enumerate(results[1:], 1):
-        assert (
-            (np.isnan(result.binarization.get_data()[2]) and (not 
-                      np.isnan(result.binarization.get_physical_data()[2]))) == quantified
-        ), f"All results must have the same headers. Result {i} headers do not match."
+    for i, result in enumerate(results):
+        fractional_nan = np.isnan(result.binarization.get_data()[2])
+        physical_nan = np.isnan(result.binarization.get_physical_data()[2])
+        requested_nan, other_nan = (
+            (physical_nan, fractional_nan) if quantified
+            else (fractional_nan, physical_nan)
+        )
+        assert not (requested_nan and not other_nan), (
+            f"Result {i} has no "
+            f"{'physical (um^2 / um^3)' if quantified else 'fractional'} size data, but "
+            f"the other representation is populated, so the requested columns would be "
+            f"empty. Check enable_physical_units against the branch that produced these "
+            f"results."
+        )
 
     # Ensure the directory exists
     assert os.path.exists(

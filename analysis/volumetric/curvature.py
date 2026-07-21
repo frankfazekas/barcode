@@ -69,6 +69,9 @@ _BOTTOM_TOP_BIN_UM = 0.1
 
 # Concavity classes, as ``classify_concavity.m`` numbers them.
 CONCAVE, HYPERBOLOID, CONVEX = 0, 1, 2
+# A face whose curvature could not be computed (NaN), as distinct from one measured to be
+# convex. Excluded from the invagination ratios entirely rather than counted as convex.
+UNCLASSIFIED = -1
 
 
 def _normr(rows: np.ndarray) -> np.ndarray:
@@ -355,7 +358,15 @@ def identify_bottom_top_faces(centroids_z: np.ndarray) -> Tuple[np.ndarray, floa
     if not np.isfinite(z_min) or z_max <= z_min:
         return np.zeros(z.shape, dtype=bool), 0.0
 
+    # At least three bins. With one or two, "lowest bin or highest bin" covers the whole
+    # surface: an object flatter than the bin width (or barely two bins tall) had every
+    # face excluded, so fraction_faces_bottom_top came back 1.0 and every curvature metric
+    # NaN -- reported as missing data rather than as "too flat to classify". Three bins
+    # keeps a middle to measure; anything flatter than that has no meaningful top and
+    # bottom to distinguish and is left unexcluded.
     n_bins = int(np.ceil((z_max - z_min) / _BOTTOM_TOP_BIN_UM))
+    if n_bins < 3:
+        return np.zeros(z.shape, dtype=bool), 0.0
     edges = np.linspace(z_min, z_max, n_bins + 1)
     # MATLAB's histcounts closes the final bin on the right; clipping reproduces that
     # without a special case, since z never falls outside [z_min, z_max].
@@ -366,10 +377,23 @@ def identify_bottom_top_faces(centroids_z: np.ndarray) -> Tuple[np.ndarray, floa
 
 
 def classify_concavity(k_min: np.ndarray, k_max: np.ndarray) -> np.ndarray:
-    """0 concave / 1 hyperboloid (saddle) / 2 convex -- ``classify_concavity.m``."""
-    classes = np.full(np.shape(k_min), CONVEX, dtype=np.int8)
+    """0 concave / 1 hyperboloid (saddle) / 2 convex / -1 unclassifiable.
+
+    ``classify_concavity.m``, plus the NaN case it has no equivalent of. A vertex whose
+    incident triangles all have zero Heron area -- the degenerate slivers ``meshresample``
+    does produce -- gets NaN principal curvatures, and ``vertex_to_face`` spreads that to
+    every adjacent face. Every NaN comparison is False, so those faces fell through both
+    tests and were labelled CONVEX: a definite classification of a face nothing is known
+    about. ``invagination_ratios`` then kept them in its denominator while they could
+    never reach a numerator, biasing both ratios low by an amount set by mesh quality.
+    """
+    k_min = np.asarray(k_min, dtype=np.float64)
+    k_max = np.asarray(k_max, dtype=np.float64)
+
+    classes = np.full(k_min.shape, CONVEX, dtype=np.int8)
     classes[k_min <= 0] = HYPERBOLOID
     classes[k_max <= 0] = CONCAVE
+    classes[~np.isfinite(k_min) | ~np.isfinite(k_max)] = UNCLASSIFIED
     return classes
 
 
@@ -401,7 +425,9 @@ def invagination_ratios(
     Both are area fractions of the non-bottom/top surface: the first counts concave
     *and* saddle faces, the second concave only.
     """
-    keep = ~np.asarray(excluded, dtype=bool)
+    # Unclassifiable faces leave the denominator as well as the numerator: a ratio over a
+    # surface that includes area nothing is known about is not a ratio of anything.
+    keep = ~np.asarray(excluded, dtype=bool) & (np.asarray(classes) != UNCLASSIFIED)
     denominator = float(areas[keep].sum())
     if denominator == 0:
         return np.nan, np.nan

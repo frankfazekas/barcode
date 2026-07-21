@@ -6,6 +6,7 @@ reachable in the GUI is reachable from the command line under the same name.
 from __future__ import annotations
 
 import argparse
+import os
 from typing import List
 
 from core import BarcodeConfig
@@ -103,8 +104,11 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
         "--mask-intensity", action="store_true",
         help="add per-object in-mask intensity statistics: MFI, SD, CV, skewness, "
              "entropy, normalized entropy and the fraction above twice the median. "
-             "Each object is rescaled to [0,1] first so objects are comparable, which "
-             "is why MFI (raw) is the only one in detector units. Needs a segmentation",
+             "Only ENTROPY uses a per-object [0,1] rescaling, which it needs so every "
+             "object is binned over the same range; the rest are computed on raw voxels, "
+             "because CV and skewness are already scale-invariant and the bright fraction "
+             "degenerates on rescaled values for punctate objects. MFI and SD are "
+             "therefore in detector units, the rest dimensionless. Needs a segmentation",
     )
     group.add_argument(
         "--packing", action="store_true",
@@ -141,6 +145,32 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))
     return config
+
+
+def default_output_dir(input_path: str, *parts: str) -> str:
+    """A results directory beside ``input_path``, always on the data drive.
+
+    ``os.path.dirname(os.path.normpath(folder))`` -- what these scripts used to do -- is
+    the empty string for a relative argument like ``data`` or a bare filename, so
+    ``os.path.join("", "results", ...)`` resolved against the current working directory.
+    Run from the repo, that wrote CSVs, barcodes and figures onto the C: drive, which this
+    project forbids: C: holds code, the data drives hold data. Resolving to an absolute
+    path first puts the output beside the input it came from, wherever that lives.
+
+    A C: destination is still reachable if the *input* is on C:, so that is called out
+    rather than silently accepted.
+    """
+    base = os.path.dirname(os.path.abspath(input_path))
+    out_dir = os.path.join(base, *parts)
+    drive = os.path.splitdrive(os.path.abspath(out_dir))[0].upper()
+    if drive == "C:":
+        print(
+            f"Warning: outputs would be written to {out_dir}, on the C: drive. Analysis "
+            f"outputs belong next to their data; pass an explicit output path on the "
+            f"data drive.",
+            flush=True,
+        )
+    return out_dir
 
 
 def write_physical_csv(results, path: str, mode, families: dict) -> None:

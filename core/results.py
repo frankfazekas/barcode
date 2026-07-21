@@ -219,15 +219,24 @@ class FlowResults(ResultsBase):
         ]
 
     @classmethod
-    def get_units(cls) -> List[Units]:
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        """Units for this branch.
+
+        Divergence and curl are the only mode-dependent entries. In 3D they are spatial
+        derivatives of a velocity field and carry 1/s; the 2D branch differentiates a
+        cumulative *unit-vector* field instead, giving 1/um for a different quantity, so
+        it keeps the blank label it has always had. ``mode=None`` is the legacy 2D layout
+        and must stay byte-identical.
+        """
+        rate = Units.RATE if (mode is not None and mode.is_volumetric) else Units.NONE
         return [
             Units.SPEED,
             Units.SPEED,
             Units.DIRECTION,
             Units.DIRECTION,
             Units.LENGTH,
-            Units.NONE,
-            Units.NONE,
+            rate,
+            rate,
         ]
 
     def get_data(self) -> List[float]:
@@ -868,7 +877,7 @@ class ChannelResults(ResultsBase):
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_units(mode)
             + IntensityResults.get_units(mode)
-            + (FlowResults.get_units() if with_flow else [])
+            + (FlowResults.get_units(mode) if with_flow else [])
             + _family_parts(mode, enabled, lambda f: f.results_cls.get_units(mode))
         )
 
@@ -880,7 +889,7 @@ class ChannelResults(ResultsBase):
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_physical_units(mode)
             + IntensityResults.get_units(mode)
-            + (FlowResults.get_units() if with_flow else [])
+            + (FlowResults.get_units(mode) if with_flow else [])
             + _family_parts(mode, enabled, lambda f: f.results_cls.get_units(mode))
         )
 

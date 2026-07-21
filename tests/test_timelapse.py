@@ -10,6 +10,8 @@ Run: python -m pytest tests/test_timelapse.py -v
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 import tifffile
@@ -82,10 +84,39 @@ def test_unmatched_files_are_reported_not_dropped_silently():
 
 
 def test_duplicate_frame_numbers_raise():
-    """Two files claiming the same timepoint means the regex is too greedy."""
-    paths = ["/a/Cell1_1.tif", "/b/Cell1_1.tif", "/a/Cell1_2.tif"]
+    """Two files in ONE folder claiming the same timepoint: the regex is too greedy."""
+    paths = ["/a/Cell1_1.tif", "/a/Cell1_1_dup.tif", "/a/Cell1_2.tif"]
     with pytest.raises(ValueError, match="duplicate frame"):
-        group_timelapse(paths, DEFAULT_TIMELAPSE_REGEX)
+        group_timelapse(paths, r"^(?P<series>Cell\d+)_(?P<frame>\d+)")
+
+
+def test_same_name_in_two_folders_is_two_series():
+    """find_files walks recursively, so identical numbering in sibling folders is normal.
+
+    Keying on the basename alone merged them: with overlapping frame numbers that raised
+    "duplicate frame numbers" from outside run.py's per-series try, aborting the whole
+    batch; with disjoint ones (1-15 and 16-30) two experiments silently became a single
+    30-timepoint series.
+    """
+    paths = ["/condA/Cell1_1.tif", "/condA/Cell1_2.tif",
+             "/condB/Cell1_1.tif", "/condB/Cell1_2.tif"]
+    groups, unmatched = group_timelapse(paths, DEFAULT_TIMELAPSE_REGEX)
+
+    assert not unmatched
+    assert len(groups) == 2, "one series per folder"
+    assert all(len(g) == 2 for g in groups)
+    assert {os.path.dirname(g.paths[0]) for g in groups} == {"/condA", "/condB"}
+
+
+def test_disjoint_frame_numbers_across_folders_do_not_merge():
+    """The silent half of the same defect: no duplicate, so nothing used to complain."""
+    paths = [f"/condA/Cell1_{i}.tif" for i in (1, 2)] + \
+            [f"/condB/Cell1_{i}.tif" for i in (16, 17)]
+    groups, _ = group_timelapse(paths, DEFAULT_TIMELAPSE_REGEX)
+
+    assert len(groups) == 2
+    assert sorted(len(g) for g in groups) == [2, 2], \
+        "two experiments must not become one 4-timepoint series"
 
 
 # ------------------------------------------------------------------ reading

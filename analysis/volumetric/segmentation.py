@@ -140,11 +140,20 @@ def load_segmentation(
     # object; collapsing it to a boolean throws that away, and objects are then
     # re-derived by connectivity -- which merges every touching instance. "auto" keeps
     # labels whenever the mask actually distinguishes more than one object.
+    # `object_partition` is the current setting and wins outright. The deprecated
+    # `segmentation_label_mode` is consulted only when the current one says "auto",
+    # because OR-ing the two let the old flag override an explicit
+    # object_partition="connectivity" -- which then tripped the invert_binarization raise
+    # below with a message about a choice the user had not made.
     partition = getattr(config, "object_partition", "auto")
+    legacy_labels = getattr(config, "segmentation_label_mode", "binary") == "labels"
     distinct = int(np.count_nonzero(np.unique(mask)))
-    keep_labels = (partition == "labels"
-                   or (partition == "auto" and distinct > 1)
-                   or getattr(config, "segmentation_label_mode", "binary") == "labels")
+    if partition == "labels":
+        keep_labels = True
+    elif partition == "connectivity":
+        keep_labels = False
+    else:
+        keep_labels = distinct > 1 or legacy_labels
 
     if keep_labels:
         mask = mask.astype(np.int32, copy=False)

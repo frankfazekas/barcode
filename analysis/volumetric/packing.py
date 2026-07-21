@@ -73,6 +73,14 @@ def contact_graph(
     if dilation_vox and dilation_vox > 0:
         from skimage.segmentation import expand_labels
 
+        # NOTE: `distance` is in VOXELS, and the shared-face counts below weight a
+        # z-normal face (area dy*dx) the same as an xy-normal one (dz*dx). Both are only
+        # meaningful on an isotropic grid: at the Jurkat anisotropy of 4.6x one voxel of
+        # dilation bridges 0.3 um in z and 0.065 um in xy, and the same physical contact
+        # passes or fails `min_contact_voxels` depending on its orientation alone. The
+        # caller is warned in `packing_topology` rather than silently rescaled here,
+        # because there is no single voxel distance that means one physical distance on
+        # an anisotropic grid.
         labels = expand_labels(labels, distance=dilation_vox)
 
     pairs = []
@@ -94,11 +102,29 @@ def contact_graph(
     return unique_pairs[keep], counts[keep]
 
 
-def border_labels(labels: np.ndarray) -> set:
-    """Labels appearing on any of the six faces of the array."""
+def border_labels(labels: np.ndarray, mode: str = "xy") -> set:
+    """Labels appearing on the faces of the array.
+
+    ``mode="xy"`` (the default) ignores the two z faces, matching
+    ``mesh_field.touches_border``. A packing is a space-filling monolayer or epithelium,
+    which is exactly the geometry whose segmentation spans the full acquired depth: with
+    all six faces every object was a border object, so ``packing_topology`` returned NaN
+    for every metric with the reason "every object touches the array border" -- which
+    reads like a data problem rather than the axis-handling one it was. An object cut by
+    the frame edge in xy is genuinely incomplete and still worth dropping.
+
+    ``mode="all"`` restores the six-face behaviour for a volume where z is a real
+    boundary; ``mode="none"`` excludes nothing.
+    """
+    if mode not in ("xy", "all", "none"):
+        raise ValueError(f"border mode must be 'xy', 'all' or 'none', got {mode!r}")
     labels = np.asarray(labels)
+    if mode == "none":
+        return set()
+
+    axes = (1, 2) if mode == "xy" else tuple(range(labels.ndim))
     found = set()
-    for axis in range(labels.ndim):
+    for axis in axes:
         moved = np.moveaxis(labels, axis, 0)
         found.update(np.unique(moved[0]).tolist())
         found.update(np.unique(moved[-1]).tolist())
@@ -135,6 +161,7 @@ def packing_topology(labels: np.ndarray, config) -> Tuple["PackingResults", Volu
     dilation = getattr(config, "packing_contact_dilation_vox", 1)
     minimum = getattr(config, "packing_min_contact_voxels", 5)
     exclude_border = getattr(config, "packing_exclude_border_objects", True)
+    border_mode = getattr(config, "packing_border_mode", "xy")
 
     degrees = contact_numbers(labels, dilation, minimum)
     detail = VolumetricPackingDetail(
@@ -148,12 +175,15 @@ def packing_topology(labels: np.ndarray, config) -> Tuple["PackingResults", Volu
         detail.reason = f"{len(degrees)} object(s): a packing needs at least two"
         return PackingResults(), detail
 
-    on_border = border_labels(labels) if exclude_border else set()
+    on_border = border_labels(labels, border_mode) if exclude_border else set()
     detail.border_ids = sorted(on_border)
     detail.interior_ids = sorted(set(degrees) - on_border)
 
     if not detail.interior_ids:
-        detail.reason = "every object touches the array border"
+        detail.reason = (
+            f"every object reaches the {border_mode} edge of the field, so none is a "
+            f"complete cell; set packing_border_mode='none' to report them anyway"
+        )
         return PackingResults(), detail
 
     # Degrees come from the full graph; only the reported set is restricted, so interior
