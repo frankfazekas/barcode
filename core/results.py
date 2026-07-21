@@ -122,16 +122,16 @@ class BinarizationResults(ResultsBase):
     @classmethod
     def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
         return [
-            Units.PERCENT_FRAMES,
-            Units.PERCENT_FOV,
-            Units.PERCENT_FOV,
-            Units.PERCENT_CHANGE,
-            Units.PERCENT_CHANGE,
-            Units.PERCENT_FOV,
-            Units.PERCENT_FOV,
+            Units.FRACTION_FRAMES,
+            Units.FRACTION_FOV,
+            Units.FRACTION_FOV,
+            Units.RATIO_TO_INITIAL,
+            Units.RATIO_TO_INITIAL,
+            Units.FRACTION_FOV,
+            Units.FRACTION_FOV,
             Units.NONE,
-            Units.PERCENT_FOV,
-            Units.PERCENT_FOV,
+            Units.FRACTION_FOV,
+            Units.FRACTION_FOV,
             Units.LENGTH,
             Units.LENGTH,
         ]
@@ -140,11 +140,11 @@ class BinarizationResults(ResultsBase):
     def get_physical_units(cls, mode: AnalysisMode = None) -> List[Units]:
         size = Units.VOLUME if (mode is not None and mode.is_volumetric) else Units.AREA
         return [
-            Units.PERCENT_FRAMES,
+            Units.FRACTION_FRAMES,
             size,
             size,
-            Units.PERCENT_CHANGE,
-            Units.PERCENT_CHANGE,
+            Units.RATIO_TO_INITIAL,
+            Units.RATIO_TO_INITIAL,
             size,
             size,
             Units.NONE,
@@ -499,7 +499,7 @@ class SliceProfileResults(ResultsBase):
 
     @classmethod
     def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
-        return [Units.SLICE_INDEX, Units.LENGTH, Units.PERCENT_FOV]
+        return [Units.SLICE_INDEX, Units.LENGTH, Units.FRACTION_FOV]
 
     def get_data(self) -> List[float]:
         return [self.broadest_index, self.broadest_depth, self.broadest_area]

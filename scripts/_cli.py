@@ -178,6 +178,11 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.enable_packing_topology = getattr(args, "packing", False)
     v.write_fingerprint = getattr(args, "fingerprint", False)
     v.object_mesh = getattr(args, "object_mesh", False)
+    if v.object_mesh:
+        # Curvature is cheap next to the meshing itself, and Mean Curvature <H> is one of
+        # the per-object columns -- leaving it empty after paying for the meshes is worse
+        # than the few percent it costs.
+        v.mesh_curvature = True
     v.object_mesh_limit = getattr(args, "object_mesh_limit", 0)
     v.frame_interval_s = getattr(args, "frame_interval", 0) or v.frame_interval_s
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)

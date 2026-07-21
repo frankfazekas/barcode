@@ -211,11 +211,22 @@ class Units(UnitsNum):
     """Enum for units corresponding to each metric."""
 
     NONE: str = ""
-    PERCENT_FOV: str = "% of FOV"
-    PERCENT_CHANGE: str = "Fractional Change"
+    # These three hold values in 0-1, NOT percentages, and the labels used to say "%".
+    # A void filling 94% of the field was drawn on the barcode as "0.94 % of FOV" -- two
+    # orders of magnitude out. The metrics themselves are reference-validated and are NOT
+    # rescaled to match the old wording; the wording is corrected to match the data.
+    # Named FRACTION_*, not PERCENT_*, so the next person writing a label reads the unit
+    # off the name and gets it right.
+    FRACTION_FOV: str = "fraction of FOV"
+    # final / initial, so 1.0 means NO CHANGE. "Fractional Change" conventionally means
+    # (final - initial) / initial, where 0 means no change -- so the old label was wrong
+    # about the magnitude AND the zero point. See analysis/binarization.py: the value is
+    # `mean(final window) / initial`. The difference-style Change metrics (Speed,
+    # Kurtosis, Skewness) are computed as `final - initial` and keep their own units.
+    RATIO_TO_INITIAL: str = "ratio to initial"
     SPEED: str = "μm/s"
     DIRECTION: str = "rads"
-    PERCENT_FRAMES: str = "% of Frames"
+    FRACTION_FRAMES: str = "fraction of frames"
     LENGTH: str = "μm"
     AREA: str = "μm^2"
     VOLUME: str = "μm^3"
@@ -286,14 +297,14 @@ def get_data_limits(
 
     # Assign limits based on metrics and units
     for i, (metric, unit) in enumerate(zip(metrics, units)):
-        if unit == Units.PERCENT_FRAMES or unit == Units.PERCENT_FOV:
+        if unit == Units.FRACTION_FRAMES or unit == Units.FRACTION_FOV:
             limits.append(binarized_static_limits)
         elif unit == Units.DIRECTION:
             if metric == Metrics.MEAN_SIGMA_THETA:
                 limits.append(direction_spread_static_limit)
             else:
                 limits.append(direction_static_limits)
-        elif unit == Units.PERCENT_CHANGE:
+        elif unit == Units.RATIO_TO_INITIAL:
             limits.append(dynamic_limits(data[:, i], 1))
         elif unit in [Units.SPEED, Units.LENGTH, Units.AREA, Units.VOLUME,
                       Units.CURVATURE, Units.RATE, Units.INTENSITY,
