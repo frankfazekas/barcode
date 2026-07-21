@@ -60,7 +60,11 @@ def build_config(args) -> BarcodeConfig:
     v.timelapse_enabled = args.timelapse
     v.mesh_enabled = args.mesh
     if hasattr(v, "mesh_curvature"):
-        v.mesh_curvature = args.mesh and not args.no_curvature
+        # --object-mesh counts as meshing. This line runs after apply_common and used to
+        # overwrite what it had set, so an --object-mesh run paid for hundreds of meshes
+        # and then reported Mean Curvature and Concavity as empty columns.
+        meshing = args.mesh or getattr(args, "object_mesh", False)
+        v.mesh_curvature = meshing and not args.no_curvature
     if args.seg_root or args.seg_template:
         v.segmentation_enabled = True
         v.segmentation_root = args.seg_root or ""
