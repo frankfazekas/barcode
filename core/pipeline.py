@@ -60,11 +60,6 @@ def save_analysis_results(
     # the mode; this only trims the picture.
     from core.metrics import selection_mask
 
-    barcode_metrics = selection_mask(
-        ChannelResults.get_headers(just_metrics=True, mode=mode),
-        config.writer.hidden_barcode_metrics,
-    )
-
     # Save CSV
     if all_results:
         try:
@@ -84,6 +79,24 @@ def save_analysis_results(
     # Generate barcode if enabled
     if config.writer.generate_barcode and all_results:
         try:
+            # The mask must span the SAME columns the renderer will build, which means
+            # the optional families the results actually carry. Built from the mode
+            # alone it was 37 long against 53 metrics, and itertools.compress stops at
+            # the shorter sequence -- so the barcode silently lost every optional
+            # family while the CSV kept them. Same detection as the renderer/writer.
+            from core.results import OPTIONAL_FAMILIES
+
+            family_switches = {
+                f.switch: any(getattr(r, f.attribute, None) is not None
+                              and getattr(r, f.attribute).is_populated()
+                              for r in all_results)
+                for f in OPTIONAL_FAMILIES
+            }
+            barcode_metrics = selection_mask(
+                ChannelResults.get_headers(just_metrics=True, mode=mode,
+                                           **family_switches),
+                config.writer.hidden_barcode_metrics,
+            )
             # Multiple files: use all channels
             if not is_single_file and config.channels.parse_all_channels:
                 generate_combined_barcode(all_results, barcode_path, separate_channels=False,
@@ -239,6 +252,17 @@ def run_analysis(root_dir: str, config: BarcodeConfig, input_config: InputConfig
 
     # Discover files to process
     files_to_process = find_files(root_dir)
+
+    # In the volumetric modes one file is one TIMEPOINT, so this list is the barcode's
+    # vertical axis. find_files sorts lexicographically, which orders a numbered series
+    # 1, 10, 11, ... 2, 3 -- a scrambled time course that still renders as a plausible
+    # picture. Sort numerically for those modes only: xyt keeps find_files' exact order
+    # so the published 2D reference CSVs stay byte-identical.
+    if config.volumetric.mode.key != "xyt":
+        from analysis.volumetric.ordering import sort_numerically
+
+        files_to_process = sort_numerically(files_to_process)
+
     is_single_file = os.path.isfile(root_dir)
 
     if not is_single_file:

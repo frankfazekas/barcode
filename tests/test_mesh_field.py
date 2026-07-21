@@ -117,15 +117,46 @@ def test_mesh_field_returns_one_mesh_per_object():
 
 
 @needs_iso2mesh
-def test_meshed_volumes_track_the_voxel_volumes():
+def test_identical_objects_mesh_to_the_same_volume():
+    """The three blobs are congruent, so a partitioning bug would show as a big gap.
+
+    Not exact equality: cgalsurf is not bit-reproducible even on identical input (see
+    mesh.py's module docstring), and on these deliberately tiny ~96-face meshes that
+    jitter reaches a few tenths of a percent. A partitioning error -- leaking a
+    neighbour's voxels in, or clipping the object -- would be tens of percent.
+    """
     labels = _touching_blobs()
     field = mesh_field(labels, (0.2, 0.2, 0.2), min_voxels=64, curvature=False)
 
-    voxel_volume = 0.2 ** 3
-    for mesh in field.meshes:
-        truth = (labels == mesh.label).sum() * voxel_volume
-        assert mesh.geometry.volume_um3 == pytest.approx(truth, rel=0.15)
-        assert not mesh.geometry.has_holes
+    volumes = [m.geometry.volume_um3 for m in field.meshes]
+    assert volumes == pytest.approx([volumes[0]] * len(volumes), rel=0.02)
+    assert all(not m.geometry.has_holes for m in field.meshes)
+
+
+@needs_iso2mesh
+def test_maxrad_must_scale_to_a_thin_objects_depth():
+    """The nucleus default (maxrad=5) loses half the volume of a shallow object.
+
+    Pinned because it decides whether the Drosophila numbers mean anything: those cells
+    sit in a 14-slice slab, and at maxrad=5 the triangles span a third of that depth. See
+    the table in mesh_field's module docstring.
+    """
+    depth, half_z = 20, 7.0
+    zz, yy, xx = np.indices((depth, 70, 70))
+    labels = np.zeros((depth, 70, 70), dtype=np.uint16)
+    labels[(((zz - 9.5) / half_z) ** 2 + ((yy - 34.5) / 16.0) ** 2
+            + ((xx - 34.5) / 16.0) ** 2) <= 1.0] = 1
+    truth = (labels == 1).sum() * 0.2 ** 3
+
+    coarse = mesh_field(labels, (0.2,) * 3, maxrad=5.0, min_voxels=64, curvature=False)
+    fine = mesh_field(labels, (0.2,) * 3, maxrad=1.5, min_voxels=64, curvature=False)
+
+    coarse_ratio = coarse.meshes[0].geometry.volume_um3 / truth
+    fine_ratio = fine.meshes[0].geometry.volume_um3 / truth
+
+    assert coarse_ratio < 0.60          # the default is not usable here
+    assert fine_ratio > 0.75            # scaling maxrad to the depth recovers most of it
+    assert fine.meshes[0].geometry.n_faces > 5 * coarse.meshes[0].geometry.n_faces
 
 
 @needs_iso2mesh

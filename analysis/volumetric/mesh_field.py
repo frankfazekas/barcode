@@ -21,6 +21,30 @@ Touching instances are the normal case, so the input must be an **integer label 
 not a binary one: connectivity labelling would merge a confluent sheet into a single
 object. ``segmentation_label_mode="labels"`` in the volumetric config preserves those
 integers when the mask is loaded.
+
+Choosing ``maxrad`` for thin objects
+------------------------------------
+``maxrad`` is the CGAL surface radbound in voxels, and the default of 5 is tuned for
+isolated nuclei ~200 voxels across. It is **badly wrong for a thin object**, because the
+triangles then span a large fraction of the object's depth. Measured on a cell-shaped
+ellipsoid 14 voxels deep and 32 wide -- the Drosophila slab geometry -- against the true
+voxel volume:
+
+======  =====  =============
+maxrad  faces  mesh / voxels
+======  =====  =============
+5.0        96         0.51
+3.0       334         0.73
+2.0       706         0.78
+1.5      1256         0.80
+1.0      3090         0.81
+======  =====  =============
+
+So the default loses half the volume, and the curve flattens by ~1.5. Scale ``maxrad`` to
+the object's *thinnest* dimension (roughly depth/8), not to its width. The residual ~20%
+is inherent: the surface passes through voxel centres and HC smoothing pulls it in, which
+costs proportionally more on a shallow object. ``MeshGeometry.volume_ratio`` reports this
+per object, so it is visible rather than assumed.
 """
 from __future__ import annotations
 

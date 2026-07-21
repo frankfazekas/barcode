@@ -188,9 +188,22 @@ def generate_combined_barcode(
         for f in OPTIONAL_FAMILIES
     }
 
+    n_metrics = len(ChannelResults.get_metrics(
+        just_metrics=True, mode=mode, **family_switches))
+
     if metrics_to_visualize is None:
-        metrics_to_visualize = [True] * len(ChannelResults.get_metrics(
-            just_metrics=True, mode=mode, **family_switches))
+        metrics_to_visualize = [True] * n_metrics
+    elif len(metrics_to_visualize) != n_metrics:
+        # itertools.compress stops at the shorter sequence, so a mask built against a
+        # different column set truncates the picture in silence -- the barcode loses
+        # columns the CSV kept, and nothing anywhere reports it. Refuse instead.
+        raise ValueError(
+            f"metrics_to_visualize has {len(metrics_to_visualize)} entries but mode "
+            f"{getattr(mode, 'key', mode)!r} with families "
+            f"{sorted(k for k, v in family_switches.items() if v)} produces {n_metrics} "
+            f"metrics. Build the mask from the same get_headers/get_metrics call the "
+            f"renderer uses, passing the same family switches."
+        )
 
     def format_header_with_units(header: str, unit: Units) -> str:
         """Format header with unit annotation."""

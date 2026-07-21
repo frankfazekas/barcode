@@ -62,6 +62,7 @@ def build_config(args) -> BarcodeConfig:
     if args.seg_root or args.seg_template:
         v.segmentation_enabled = True
         v.segmentation_root = args.seg_root or ""
+        v.mask_spacing_um = args.mask_spacing
         if args.seg_regex:
             v.segmentation_regex = args.seg_regex
         if args.seg_template:
@@ -87,6 +88,11 @@ def main() -> int:
     p.add_argument("--seg-root", default=None)
     p.add_argument("--seg-regex", default=None)
     p.add_argument("--seg-template", default=None)
+    p.add_argument("--mask-spacing", type=float, default=0.0, metavar="UM",
+                   help="microns between mask slices; 0 means the mask is isotropic at "
+                        "the xy step, which is right for masks exported onto an "
+                        "isotropic grid but wrong for a mask saved on the acquired "
+                        "grid -- set it to the z step for those")
     p.add_argument("--timelapse-regex", default=None)
     p.add_argument("--mesh", action="store_true",
                    help="add the mesh + curvature columns (needs a segmentation)")
@@ -211,9 +217,21 @@ def main() -> int:
             os.makedirs(out_dir, exist_ok=True)
             base = os.path.join(out_dir, f"{group.series} Timepoints ({suffix})")
         from core.metrics import selection_mask
+        from core.results import OPTIONAL_FAMILIES
+
+        # Detect the families from the rows themselves, exactly as the writer and the
+        # barcode renderer do. Naming the switches by hand here got it wrong: unstated
+        # families fall back to what the MODE supports, and xyzt supports mesh, so a run
+        # without --mesh built a mask carrying mesh columns the rows never had. The
+        # renderer refuses a mask of the wrong length, so the mismatch surfaced only
+        # after every timepoint had been analysed.
+        families = {
+            f.switch: any(getattr(r, f.attribute, None) is not None
+                          and getattr(r, f.attribute).is_populated() for r in results)
+            for f in OPTIONAL_FAMILIES
+        }
         headers = ChannelResults.get_headers(
-            just_metrics=True, mode=vcfg.mode,
-            include_components=vcfg.enable_component_stats)
+            just_metrics=True, mode=vcfg.mode, **families)
         shown = selection_mask(headers, args.hide_metric)
 
         results_to_csv(results, base + ".csv", just_metrics=False, physical_units=False,

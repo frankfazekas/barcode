@@ -691,34 +691,65 @@ class OptionalFamily:
     families those flags were about to be rewritten by two work streams at once, and a
     registry means adding a seventh touches one tuple rather than eight signatures.
 
-    ``supported`` answers "can this mode produce it at all"; the per-call switch answers
-    "did this run actually produce it", which is how the writer avoids emitting a
-    family's columns full of NaN.
+    Three separate questions, which were previously conflated into one predicate:
+
+    * ``allowed``   -- *can* this mode produce the family at all? A mode that cannot
+      must not advertise the columns, however the switch is set. This is what keeps
+      ``--list-metrics`` honest: it used to report per-object columns for xyz while the
+      runner printed "volumetric-only; not added for xyz" and computed nothing.
+    * ``supported`` -- is it on by DEFAULT for this mode (mesh is, for xyzt).
+    * the per-call switch -- did this run actually produce it, which is how the writer
+      avoids emitting a family's columns full of NaN.
+
+    ``allowed=None`` means every mode, which is the right default for families that are
+    pure post-processing of values the branches already computed.
     """
 
     switch: str          # keyword argument name, e.g. "include_mesh"
     attribute: str       # ChannelResults attribute holding the values
     results_cls: type
-    supported: object    # callable(mode) -> bool
+    supported: object    # callable(mode) -> bool: on by default for this mode
+    allowed: object = None   # callable(mode) -> bool, or None for "any mode"
+
+    def is_allowed(self, mode) -> bool:
+        """Whether ``mode`` can produce this family at all.
+
+        An unknown mode (``None``, the legacy 2D layout) is permitted everything: there
+        is no mode object to ask, and refusing would change the pre-mode behaviour.
+        """
+        if self.allowed is None or mode is None:
+            return True
+        return bool(self.allowed(mode))
+
+
+# Only ``analysis/volumetric/run.py`` (the xyzt path) computes these; the slice-wise xyz
+# path analyses planes with the 2D branches and produces none of them. `_volumetric`
+# therefore mirrors what the runner actually does, so the schema cannot promise columns
+# that no code fills.
+def _volumetric(mode) -> bool:
+    return bool(mode is not None and mode.spatial_dims == 3)
 
 
 OPTIONAL_FAMILIES = (
     OptionalFamily("include_mesh", "mesh", MeshResults,
-                   lambda mode: bool(mode is not None and mode.supports_mesh)),
+                   lambda mode: bool(mode is not None and mode.supports_mesh),
+                   allowed=lambda mode: bool(mode is not None and mode.supports_mesh)),
     OptionalFamily("include_components", "components", ComponentResults,
-                   lambda mode: False),
+                   lambda mode: False, allowed=_volumetric),
+    # Extensive intensity and the range provenance columns are post-processing of values
+    # every branch already has, so they are not restricted to a mode.
     OptionalFamily("include_intensity_magnitude", "intensity_magnitude",
                    IntensityMagnitudeResults, lambda mode: False),
     OptionalFamily("include_ranges", "ranges", RangeResults,
                    lambda mode: False),
     OptionalFamily("include_packing", "packing", PackingResults,
-                   lambda mode: False),
+                   lambda mode: False, allowed=_volumetric),
     OptionalFamily("include_curvature_range", "curvature_range", CurvatureRangeResults,
-                   lambda mode: False),
+                   lambda mode: False, allowed=_volumetric),
     OptionalFamily("include_slice_profile", "slice_profile", SliceProfileResults,
-                   lambda mode: False),
+                   lambda mode: False, allowed=_volumetric),
     OptionalFamily("include_mask_intensity", "mask_intensity", MaskIntensityResults,
-                   lambda mode: False),
+                   lambda mode: False, allowed=_volumetric),
 )
 
 
@@ -745,7 +776,12 @@ def _resolve(mode, **switches):
     enabled = {}
     for family in OPTIONAL_FAMILIES:
         value = switches.get(family.switch)
-        enabled[family.switch] = (family.supported(mode) if value is None else bool(value))
+        wanted = family.supported(mode) if value is None else bool(value)
+        # A mode that cannot produce the family must not advertise its columns, however
+        # the switch was set. Silently off rather than raising: the CLI already prints a
+        # note for the modes it declines, and one over-broad flag in a batch should not
+        # abort the run.
+        enabled[family.switch] = wanted and family.is_allowed(mode)
     return mode, with_flow, enabled
 
 
