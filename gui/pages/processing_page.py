@@ -38,7 +38,7 @@ def create_tabs(parent, config, input_config, preview_config):
     notebook.add(binarization_frame, text="Binarization Settings")
     notebook.add(flow_frame, text="Optical Flow Settings")
     notebook.add(intensity_frame, text="Intensity Distribution Settings")
-    notebook.add(volumetric_frame, text="Volumetric (3D) Settings")
+    notebook.add(volumetric_frame, text="Volumetric Settings")
 
     return notebook
 

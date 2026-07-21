@@ -68,7 +68,7 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
     volumetric_on = tk.BooleanVar(value=cvol.analysis_mode.get() != "xyt")
 
     tk.Checkbutton(frame, variable=volumetric_on).grid(row=row_idx, column=0, sticky="w", padx=5)
-    volumetric_caption = tk.Label(frame, text="Volumetric (3D) Analysis", font=("TkDefaultFont", 13))
+    volumetric_caption = tk.Label(frame, text="Volumetric Analysis", font=("TkDefaultFont", 13))
     volumetric_caption.grid(row=row_idx, column=0, sticky="w", padx=(25, 5))
     # Everything this control needs to say lives in the popup, not on the page. The
     # wording states only what the switch itself decides -- which axis is which -- and

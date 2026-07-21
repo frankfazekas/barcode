@@ -9,11 +9,11 @@ from gui.config import BarcodeConfigGUI, InputConfigGUI
 
 
 def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: InputConfigGUI):
-    """Create the volumetric (3D) settings tab.
+    """Create the Volumetric settings tab.
 
-    A separate tab rather than additions to the existing branch tabs, so the 2D
-    preview code paths are untouched. Every control here is inert unless "Enable
-    Volumetric (3D) Analysis" is ticked.
+    A separate tab rather than additions to the existing branch tabs, so the 2D preview
+    code paths are untouched. Every control here is inert unless "Volumetric Analysis"
+    is ticked on the Execution Settings tab.
     """
     frame = ttk.Frame(parent)
 
@@ -86,11 +86,62 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         else:
             mode_state.config(
                 text="Volumetric analysis is OFF — nothing on this tab is used. Tick "
-                     "“Volumetric (3D) Analysis” on the Execution Settings tab to turn it on.",
+                     "“Volumetric Analysis” on the Execution Settings tab to turn it on.",
                 fg="#b45309")
 
     cv.analysis_mode.trace_add("write", _show_mode)
     _show_mode()
+    row_idx += 1
+
+    # Where each piece of "how to read this file" is set. The single most common
+    # confusion is the channel: there is no channel control on this tab, because it lives
+    # on Execution Settings and is shared with the 2D path -- and "Parse All Channels" is
+    # silently a no-op in the volumetric modes (analysis/volumetric/run.py analyses the
+    # one selected channel and warns). Said here, next to the geometry settings that DO
+    # live on this tab, so the division is visible without reading the log after a run.
+    tk.Label(frame, text="Reading the file", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    channel_note = tk.Label(frame, wraplength=640, justify="left", fg="gray25")
+    channel_note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 2))
+
+    def _describe_channel(*_args):
+        # Reads the SAME variables the Execution tab drives, so it always mirrors what is
+        # set there rather than keeping a second copy.
+        if config.channels.parse_all_channels.get():
+            channel_note.config(
+                text="Channel: “Parse All Channels” is set on Execution Settings, but the "
+                     "volumetric modes analyse ONE channel per run — the run will use "
+                     "“Choose Channel” and warn. Untick Parse All Channels, and run the "
+                     "other channels separately by changing Choose Channel.",
+                fg="#b45309")
+            return
+        try:
+            ch = config.channels.selected_channel.get()
+        except tk.TclError:
+            return
+        where = f"channel {ch}" + (" (counting back from the last)" if ch < 0 else "")
+        channel_note.config(
+            text=f"Channel: set on the Execution Settings tab (“Choose Channel”) — "
+                 f"currently {where}. There is no channel control here; one channel is "
+                 f"analysed per run.",
+            fg="gray25")
+
+    config.channels.selected_channel.trace_add("write", _describe_channel)
+    config.channels.parse_all_channels.trace_add("write", _describe_channel)
+    _describe_channel()
+    row_idx += 1
+
+    tk.Label(
+        frame,
+        text="Everything else about reading the stack is set below on this tab: the "
+             "voxel size, the axis order (including which axis is the channel), and the "
+             "z / time ranges. Left at their defaults, voxel size and axis order are "
+             "read from the file’s own metadata.",
+        wraplength=640, justify="left", fg="gray25",
+    ).grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 4))
     row_idx += 1
 
     tk.Label(frame, text="Voxel Size", font=header).grid(
@@ -341,9 +392,10 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame,
         row_idx,
         cv.segmentation_enabled,
-        "Use Segmentation Masks",
-        "Use a pre-computed mask as the binarization instead of intensity thresholding. "
-        "The mask is located per image via the pattern and template below.",
+        "Use Existing Segmentation Masks",
+        "Use a pre-computed mask (e.g. from Cellpose) as the binarization instead of "
+        "intensity thresholding. BARCODE does not create the mask; it locates an existing "
+        "one per image via the pattern and template below.",
     )
     row_idx += 2
 
@@ -898,14 +950,41 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame,
         row_idx,
         cv.mesh_enabled,
-        "Mesh the Segmented Surface",
-        "Build a triangulated surface of the segmented object and measure it: volume, "
-        "surface area, sphericity, equivalent sphere radius and height. Adds nine "
-        "columns to the CSV and barcode. Requires a segmentation mask and an isotropic "
-        "grid, so it needs Use Segmentation Masks and Resample to Isotropic Voxels. "
-        "Costs roughly 8 s per analysed timepoint.",
+        "Build Surface Mesh",
+        "OFF by default; meshing runs only when this is ticked. It builds a triangulated "
+        "surface and measures it: volume, surface area, sphericity, equivalent sphere "
+        "radius and height (nine columns). With Use Existing Segmentation Masks on it "
+        "meshes that mask; without one it meshes the intensity-thresholded volume, and "
+        "the log says which was used. Needs an isotropic grid, so keep Resample to "
+        "Isotropic Voxels on. Costs roughly 8 s per analysed timepoint.",
     )
     row_idx += 2
+
+    # Meshing is the one branch users most often expect to happen "because it's 3D", so
+    # state plainly whether it will run and what it will mesh -- source depends on whether
+    # a segmentation is configured, decided in analysis/volumetric/run.py.
+    mesh_status = tk.Label(frame, wraplength=640, justify="left", font=("TkDefaultFont", 11))
+    mesh_status.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(25, 5), pady=(0, 4))
+
+    def _describe_meshing(*_args):
+        if not cv.mesh_enabled.get():
+            mesh_status.config(
+                text="Meshing is OFF — no mesh columns are produced. Tick “Build Surface "
+                     "Mesh” above to turn it on.",
+                fg="gray45")
+        elif cv.segmentation_enabled.get():
+            mesh_status.config(
+                text="Meshing is ON — it will mesh the segmentation mask.", fg="#15803d")
+        else:
+            mesh_status.config(
+                text="Meshing is ON — with no segmentation it will mesh the "
+                     "intensity-thresholded volume (set by Threshold Offset).",
+                fg="#15803d")
+
+    cv.mesh_enabled.trace_add("write", _describe_meshing)
+    cv.segmentation_enabled.trace_add("write", _describe_meshing)
+    _describe_meshing()
+    row_idx += 1
 
     create_option_section(
         frame,

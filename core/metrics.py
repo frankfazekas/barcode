@@ -112,8 +112,16 @@ class Metrics(Enum):
     # object's neighbour count, "Mean Contact Number" is the field's average, and a
     # column headed the same in both would make the two silently interchangeable.
     OBJECT_VOLUME = "Object Volume"
-    OBJECT_DIAMETER = "Equivalent Diameter"
     OBJECT_CONTACT_NUMBER = "Contact Number"
+    # Principal-axis elongation of one object: the major/minor axis-length ratio of the
+    # inertia ellipsoid, from the same clamped eigenvalue formula as the field-level Mean
+    # Island Anisotropy. Needs no mesh -- it reads the label region directly -- so it is a
+    # default 3D object metric, unlike the mesh-derived Aspect Ratio.
+    OBJECT_ANISOTROPY = "Anisotropy"
+    # Retired: Equivalent Diameter was a monotonic function of Object Volume (a sphere's
+    # diameter for that volume) and carried no information the volume did not. The enum
+    # member is kept so an old Objects.csv still loads by header name; nothing emits it.
+    OBJECT_DIAMETER = "Equivalent Diameter"
 
     # Identity of the object a row describes, when a supplied instance mask partitions
     # the field into several. Blank on aggregate rows. Present in the contract from the

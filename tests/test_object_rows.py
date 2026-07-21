@@ -65,11 +65,31 @@ def test_volumes_match_the_voxel_count():
         assert row.volume == pytest.approx(counts[row.object_id] * VOXEL)
 
 
-def test_diameter_is_the_equivalent_sphere():
+def test_anisotropy_is_a_default_object_column():
+    """Every object row carries a principal-axis anisotropy, with no mesh required."""
     labels, _ = labelled(2)
-    for row in extract_objects(labels, SPACING):
-        expected = 2 * (3 * row.volume / (4 * np.pi)) ** (1 / 3)
-        assert row.diameter == pytest.approx(expected)
+    rows = extract_objects(labels, SPACING)
+    assert rows, "expected object rows"
+    for row in rows:
+        assert np.isfinite(row.anisotropy)
+        assert row.anisotropy >= 1.0 - 1e-9      # major/minor ratio
+
+
+def test_anisotropy_flags_an_elongated_object():
+    """A long thin column reads more anisotropic than a near-cube."""
+    shape = (30, 30, 30)
+    labels = np.zeros(shape, np.int32)
+    labels[4:8, 4:8, 4:8] = 1                    # ~cube
+    labels[2:28, 14:18, 14:18] = 2               # long column in z
+    rows = {r.object_id: r.anisotropy for r in extract_objects(labels, (0.2, 0.2, 0.2))}
+    assert rows[2] > rows[1]
+    assert rows[2] > 2.0
+
+
+def test_equivalent_diameter_is_no_longer_emitted():
+    """Diameter was dropped as redundant with volume; it must not reappear as a column."""
+    assert "Equivalent Diameter" not in ObjectResults.get_headers()
+    assert "Anisotropy" in ObjectResults.get_headers()
 
 
 def test_an_empty_label_volume_yields_no_rows():
@@ -181,7 +201,7 @@ def test_a_very_tall_barcode_still_renders(tmp_path):
     matplotlib.use("Agg")
     from visualization.barcode import generate_combined_barcode
 
-    rows = [ObjectResults(object_id=i, volume=float(i), diameter=float(i) ** 0.5,
+    rows = [ObjectResults(object_id=i, volume=float(i), anisotropy=1.0 + i / 1500,
                           contact_number=6.0, mfi=float(i)) for i in range(1, 1500)]
     generate_combined_barcode(rows, str(tmp_path / "tall"), separate_channels=False,
                               results_cls=ObjectResults)

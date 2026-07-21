@@ -40,7 +40,7 @@ class ObjectResults:
     channel: int = 0
 
     volume: float = np.nan            # um^3
-    diameter: float = np.nan          # um, equivalent-sphere
+    anisotropy: float = np.nan        # principal-axis major/minor ratio, >= 1
     contact_number: float = np.nan
 
     mfi: float = np.nan
@@ -67,7 +67,7 @@ class ObjectResults:
     def get_metrics(cls, mode=None, **_) -> List[Metrics]:
         return [
             Metrics.OBJECT_VOLUME,
-            Metrics.OBJECT_DIAMETER,
+            Metrics.OBJECT_ANISOTROPY,
             Metrics.OBJECT_CONTACT_NUMBER,
             Metrics.MASK_INTENSITY_MFI,
             Metrics.MASK_INTENSITY_SD,
@@ -87,7 +87,7 @@ class ObjectResults:
     @classmethod
     def get_units(cls, mode=None, **_) -> List[Units]:
         return [
-            Units.VOLUME, Units.LENGTH, Units.NONE,
+            Units.VOLUME, Units.NONE, Units.NONE,
             Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
             Units.NONE, Units.NONE, Units.NONE,
             Units.AREA, Units.NONE, Units.NONE, Units.NONE, Units.NONE,
@@ -103,7 +103,7 @@ class ObjectResults:
 
     def get_data(self, **_) -> List[float]:
         return [
-            self.volume, self.diameter, self.contact_number,
+            self.volume, self.anisotropy, self.contact_number,
             self.mfi, self.intensity_sd, self.intensity_cv, self.intensity_skew,
             self.entropy, self.entropy_normalized, self.bright_fraction,
             self.surface_area, self.sphericity, self.solidity, self.concavity,
@@ -114,7 +114,7 @@ class ObjectResults:
         return np.array(self.get_data(), dtype=float)
 
     def to_physical_array(self, **kwargs) -> np.ndarray:
-        """Already physical: volumes are um^3 and diameters um, not fractions."""
+        """Already physical: volumes are um^3, not fractions of the field."""
         return self.to_array(**kwargs)
 
     # Object rows are physical to begin with -- a volume in um^3, not a fraction of the
@@ -157,6 +157,33 @@ def _paired(detail_list: Optional[Sequence], attribute: str) -> Dict[int, float]
     return {int(i): float(v) for i, v in zip(ids, values)}
 
 
+def _object_anisotropy(labels: np.ndarray, spacing_zyx_um) -> Dict[int, float]:
+    """``{object_id: anisotropy}`` — the inertia-ellipsoid major/minor ratio per object.
+
+    Reuses the field branch's ``_anisotropy_from_eigvals`` so the per-object number and the
+    field-level Mean Island Anisotropy cannot drift apart, and passes ``spacing`` so the
+    ratio describes the object rather than the sampling grid (the same fix documented for
+    the field metric). Needs no mesh, which is why this is a default 3D object metric.
+    """
+    from skimage.measure import regionprops_table
+
+    from analysis.volumetric.binarization import _anisotropy_from_eigvals
+
+    integer = labels if np.issubdtype(labels.dtype, np.integer) else labels.astype(np.int32)
+    if integer.max() < 1:
+        return {}
+    props = regionprops_table(
+        integer,
+        properties=["label", "inertia_tensor_eigvals"],
+        spacing=tuple(float(s) for s in spacing_zyx_um),
+    )
+    eigvals = np.stack(
+        [props[f"inertia_tensor_eigvals-{i}"] for i in range(3)], axis=1
+    )
+    ratios = _anisotropy_from_eigvals(eigvals)
+    return {int(lab): float(r) for lab, r in zip(props["label"], ratios)}
+
+
 def extract_objects(
     labels: np.ndarray,
     spacing_zyx_um,
@@ -179,6 +206,7 @@ def extract_objects(
         return []
 
     voxel_um3 = float(np.prod(np.asarray(spacing_zyx_um, dtype=float)))
+    anisotropy = _object_anisotropy(labels, spacing_zyx_um)
     contacts = _paired(getattr(detail, "packing", None), "contact_numbers")
     intensity = {
         name: _paired(getattr(detail, "mask_intensity", None), name)
@@ -197,9 +225,7 @@ def extract_objects(
             fov=fov,
             object_id=object_id,
             volume=volume,
-            # Equivalent-sphere diameter: a size in microns, comparable between objects
-            # of different shape, and far easier to read than a cubic micron.
-            diameter=2.0 * (3.0 * volume / (4.0 * np.pi)) ** (1.0 / 3.0),
+            anisotropy=anisotropy.get(object_id, np.nan),
             contact_number=contacts.get(object_id, np.nan),
             mfi=intensity["mfi"].get(object_id, np.nan),
             intensity_sd=intensity["sd"].get(object_id, np.nan),
