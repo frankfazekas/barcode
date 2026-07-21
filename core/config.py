@@ -203,6 +203,14 @@ class VolumetricConfig(BaseConfig):
     exactly as it did before this config existed. See ``analysis/volumetric/``.
     """
 
+    # What ONE ROW of the barcode is -- see core/row_axis.py. The barcode normalises per
+    # column across rows, so this decides what is being compared, and it depends on the
+    # data: a field of 840 cells asks a per-object question, a single nucleus over time
+    # asks a temporal one. "auto" resolves from the data and prints what it chose; it
+    # can only reach "object" when an instance segmentation resolved, so a run without
+    # one behaves exactly as before.
+    row_axis: str = "auto"
+
     # Which of the three analyses to run -- see core/modes.py.
     #   xyt  : planar images over time (the original BARCODE behaviour)
     #   xyz  : for each timepoint, 2D metrics over z; flow disabled

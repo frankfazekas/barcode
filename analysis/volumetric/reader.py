@@ -71,6 +71,11 @@ class VolumeStack:
     # Without it the two are indistinguishable downstream, which is how a file carrying no
     # timing at all could be reported as "1 s from the file".
     timing_from_file: bool = False
+    # WHERE in the file it came from, for the message `resolve_frame_interval` prints.
+    # The two sources deserve different amounts of trust and should not be described in
+    # the same words: an ImageJ `finterval` is routinely the z dwell or a leftover 1,
+    # whereas an ND2's time loop states the period the acquisition was programmed with.
+    timing_source: str = ""
     # What the file itself claimed, when that differs from `axes` because the user
     # supplied an override. Kept so provenance records the reinterpretation.
     declared_axes: str = None
@@ -453,7 +458,28 @@ def _read_nd2(path: str):
                 f"'Split positions')."
             )
 
-        array = np.asarray(handle.asarray())
+        # Lazily, so only the channel actually being analysed is ever materialised.
+        # `handle.asarray()` reads EVERY channel first and the shared code below then
+        # throws all but one away -- on a 2-channel 11x42x2048x2048 series that is 7.2 GB
+        # resident to produce a 3.6 GB result, and these files only get larger. The
+        # reordering and channel pick downstream go through numpy's dispatch, which dask
+        # implements, so the array is not read until `np.ascontiguousarray` at the end.
+        # Falls back to an eager read if dask is unavailable; it is not a hard dependency.
+        try:
+            import warnings
+
+            import dask.array  # noqa: F401  (presence check)
+
+            with warnings.catch_warnings():
+                # dask pickles the handle to tokenize the array, and the throwaway copy
+                # trips nd2's "file not closed before garbage collection" warning. It
+                # describes dask's internals, not anything the user did, and printing it
+                # against their own file reads as a problem with the data.
+                warnings.filterwarnings(
+                    "ignore", message=".*not closed before garbage collection.*")
+                array = handle.to_dask()
+        except Exception:
+            array = np.asarray(handle.asarray())
         voxel = handle.voxel_size()
         xy_um = float(voxel.x) if getattr(voxel, "x", 0) else None
         z_um = float(voxel.z) if getattr(voxel, "z", 0) else None
@@ -514,7 +540,9 @@ def read_volume(
     if os.path.splitext(path)[1].lower() == ND2_SUFFIX:
         array, axes, z_declared, tag_xy, file_interval, metadata_source = _read_nd2(path)
         unit_name = "micron"          # nd2 reports voxel size in microns by definition
+        timing_source = "the ND2's time loop"
     else:
+        timing_source = "the file's ImageJ finterval tag"
         with tifffile.TiffFile(path) as tf:
             series = tf.series[0]
             axes = series.axes
@@ -621,6 +649,7 @@ def read_volume(
         xy_step_um=float(xy_um),
         exposure_time_s=float(exposure if exposure is not None else 1.0),
         timing_from_file=timing_from_file,
+        timing_source=timing_source if timing_from_file else "",
         axes=effective_axes,
         declared_axes=declared,
         source_path=path,

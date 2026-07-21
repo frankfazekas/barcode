@@ -183,6 +183,7 @@ def generate_combined_barcode(
     physical_units: bool = False,
     metrics_to_visualize: List[bool] = None,
     mode=None,
+    results_cls=None,
 ) -> None:
     """
     Generate barcode visualization from structured ChannelResults.
@@ -192,9 +193,18 @@ def generate_combined_barcode(
         figpath: Base path for output figures (without extension)
         sort_metric: Optional metric name to sort results by
         separate_channels: If True, create separate figures per channel
+        results_cls: the class whose schema the rows follow. Defaults to
+            ``ChannelResults``. Rows can also be ``ObjectResults`` -- one object per row
+            rather than one field -- which carries a different, smaller column set.
+            Parameterised rather than duplicating this function: the CSV and the barcode
+            have disagreed about which columns exist three times already, and a second
+            copy of the colour-limit and mask logic is how that keeps happening.
     """
     if not results:
         return
+
+    if results_cls is None:
+        results_cls = ChannelResults
 
     # Mesh columns are opt-in so the 2D barcode is unchanged; render them only when the
     # results actually carry mesh data. Mirrors the same detection in utils.writer.
@@ -208,7 +218,7 @@ def generate_combined_barcode(
         for f in OPTIONAL_FAMILIES
     }
 
-    n_metrics = len(ChannelResults.get_metrics(
+    n_metrics = len(results_cls.get_metrics(
         just_metrics=True, mode=mode, **family_switches))
 
     # An EMPTY mask means "nothing was selected", which is the dataclass default for
@@ -256,8 +266,8 @@ def generate_combined_barcode(
         metrics = list(compress(ChannelResults.get_physical_metrics(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
         units = list(compress(results[0].get_physical_units(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
     else:
-        headers = list(compress(ChannelResults.get_headers(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
-        metrics = list(compress(ChannelResults.get_metrics(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
+        headers = list(compress(results_cls.get_headers(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
+        metrics = list(compress(results_cls.get_metrics(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
         units = list(compress(results[0].get_units(just_metrics=True, mode=mode, **family_switches), metrics_to_visualize))
     num_metrics = len(metrics)
 
@@ -291,7 +301,18 @@ def generate_combined_barcode(
 
         # Set up figure dimensions
         height = 9 * int(len(filtered_data) / 40) if len(filtered_data) > 40 else 9
-        fig = plt.figure(figsize=(num_metrics, height), dpi=300)
+        # Matplotlib refuses any axis over 2^16 pixels, and this grows the figure by 9
+        # inches per 40 rows at 300 dpi -- so ANY run of roughly 960 rows or more died
+        # with "Image size ... too large", whatever the rows were. Clamp the inches and
+        # let the rows compress instead; imshow already stretches them to fill the axes,
+        # so a tall barcode stays readable while an unwritten one helps nobody.
+        _dpi = 300
+        max_inches = 65000 / _dpi
+        if height > max_inches:
+            print(f"  barcode: {len(filtered_data)} rows exceeds the figure limit; "
+                  f"compressing rows to fit", flush=True)
+            height = max_inches
+        fig = plt.figure(figsize=(num_metrics, height), dpi=_dpi)
 
         if height == 9:
             height_ratio = [5, 2]

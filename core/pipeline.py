@@ -117,6 +117,13 @@ def save_analysis_results(
             with open(ff_loc, "a", encoding="utf-8") as log_file:
                 log_file.write(f"Unable to generate barcode, Exception: {str(e)}\n")
 
+    # Per-object outputs, pooled across every file in the run. Pooled rather than one
+    # figure per field on purpose: a barcode normalises per column across ITS rows, so
+    # per-field figures would each use their own colour scale and could not be compared
+    # with one another. One scale over every object makes field-to-field differences
+    # read as bands, which is the comparison worth having.
+    _write_object_outputs(all_results, base_path, base_name, config, ff_loc)
+
     config.reader.um_pixel_ratio *= input_config.length
     config.reader.exposure_time *= input_config.time
 
@@ -126,6 +133,52 @@ def save_analysis_results(
     # Clean up empty fail file
     if os.path.exists(ff_loc) and os.stat(ff_loc).st_size == 0:
         os.remove(ff_loc)
+
+
+def _write_object_outputs(all_results, base_path, base_name, config, ff_loc) -> None:
+    """Pooled per-object CSV + barcode, when the resolved row axis is 'object'.
+
+    Silent no-op when no file produced object rows, which is every run without an
+    instance segmentation -- so nothing about the existing outputs changes.
+    """
+    rows = [row for result in all_results for row in getattr(result, "object_rows", [])]
+    if not rows:
+        return
+
+    from core.row_axis import OBJECT, describe_scope, resolve_row_axis
+
+    fovs = sorted({row.fov for row in rows})
+    axis = resolve_row_axis(
+        getattr(config.volumetric, "row_axis", "auto"), config.volumetric.mode,
+        has_labels=True, n_objects=len(rows),
+        n_timepoints=max(len(all_results), 1),
+    )
+    if axis.key != OBJECT:
+        # Objects were extracted but the user asked to compare something else. Keep the
+        # CSV -- it costs nothing and is the only per-object record -- but do not draw a
+        # barcode whose rows are not what was asked for.
+        pass
+
+    scope = describe_scope(axis, len(rows), len(fovs))
+    try:
+        from analysis.volumetric.objects import ObjectResults, objects_to_csv
+        from utils.writer import generate_combined_barcode
+
+        objects_to_csv(rows, os.path.join(base_path, f"{base_name} Objects.csv"))
+        print(f"  {len(rows)} object row(s) from {len(fovs)} field(s) -> "
+              f"{base_name} Objects.csv", flush=True)
+
+        if axis.key == OBJECT and config.writer.generate_barcode and len(rows) > 1:
+            generate_combined_barcode(
+                rows, os.path.join(base_path, f"{base_name} Objects Barcode"),
+                separate_channels=False, mode=config.volumetric.mode,
+                results_cls=ObjectResults,
+            )
+            print(f"  object barcode: {scope}", flush=True)
+    except Exception as exc:
+        with open(ff_loc, "a", encoding="utf-8") as log_file:
+            log_file.write(f"Unable to write object outputs, Exception: {exc}\n")
+        print(f"  object outputs skipped: {exc}", flush=True)
 
 
 def process_single_file(

@@ -112,7 +112,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    xy_label = tk.Label(frame, text="XY Step [microns] (0 = read from file)")
+    xy_label = tk.Label(frame, text="XY Pixel Size [microns] (0 = read from file)")
     xy_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=0.0, to=10.0, increment=0.001, textvariable=cv.xy_step_um, width=9
@@ -240,146 +240,6 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         row_idx, t_end_label,
     )
     row_idx += 1
-
-    tk.Label(frame, text="Optional Metrics", font=header).grid(
-        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
-    )
-    row_idx += 1
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_component_stats,
-        "Per-Object Size Statistics",
-        "Add object count, size SD, size skewness and median size. These describe the "
-        "spread of the object-size distribution, which the mean and total cannot: one "
-        "dominant object plus debris gives the same mean as several even ones. "
-        "Volumetric modes only. Off by default so the barcode stays readable.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_packing_topology,
-        "Packing Topology",
-        "Add mean contact number, contact number SD and hexagonal fraction: how objects "
-        "are arranged relative to each other, which no other metric describes. In a "
-        "space-filling monolayer sizes and separations are near-uniform and it is the "
-        "neighbour-number distribution that changes. Needs an instance segmentation "
-        "with integer labels -- in a confluent field, deriving objects by connectivity "
-        "merges the whole tissue into one.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_slice_profile,
-        "Broadest Slice & Clipping Flag",
-        "Add the index, depth and area of the widest z slice -- the only metrics that "
-        "say WHERE in depth something is, rather than reducing the stack to one number. "
-        "For a stack through a curved surface or a rounded object it locates the "
-        "equator, and it moves when the object flattens or tilts. Also raises flag "
-        "digit 6 when foreground reaches an edge of the analysed field, meaning the "
-        "object continues outside it and every size and shape metric describes a "
-        "truncated object. Digit 6 is separate from digit 5 on purpose: 5 means YOU "
-        "restricted the range, 6 means the DATA is cut off.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_curvature_range,
-        "Minimum & Maximum Curvature",
-        "Add the extremes of the curvature field. Mean Curvature <H> averages the two "
-        "principal curvatures together, so a saddle -- sharply curved both ways -- "
-        "averages towards zero and reads as flat. These keep the most concave and most "
-        "convex parts of the surface apart. Needs the mesh family, so it also needs a "
-        "segmentation.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_mask_intensity,
-        "In-Mask Intensity Statistics",
-        "Add per-object MFI, SD, CV, skewness, entropy, normalized entropy and the "
-        "fraction of voxels above twice the median. These describe how signal is "
-        "distributed INSIDE each object -- the clustering readout -- whereas the "
-        "intensity branch describes whatever voxels it is given, usually including "
-        "background. A uniformly-filled object and one with bright foci have the same "
-        "mean and very different CV and entropy. Needs a segmentation; with an instance "
-        "mask each object is measured separately and the results averaged unweighted, "
-        "so one large object does not outvote the rest.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.enable_intensity_magnitude,
-        "Total & Mean Intensity",
-        "Add total intensity, mean intensity, intensity SD and intensity per unit volume. "
-        "These say HOW MUCH signal there is, where the intensity branch describes the "
-        "SHAPE of the distribution and is blind to a uniform brightening. Sensitive to "
-        "exposure and gain, so only compare acquisitions taken with identical settings.",
-    )
-    row_idx += 2
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.record_range_columns,
-        "Record Analysed Range",
-        "Add the z and t extents this row's numbers were computed over. Flag digit 5 "
-        "already says THAT a range was restricted; these say WHICH, so a CSV separated "
-        "from its Settings.yaml still describes itself. Indices are into the acquired "
-        "data, before any isotropic resampling.",
-    )
-    row_idx += 2
-
-    contact_label = tk.Label(frame, text="Minimum Contact [voxels]")
-    contact_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=1, to=1000, increment=1,
-        textvariable=cv.packing_min_contact_voxels, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Shared face area, in voxels, below which a touch is treated as a segmentation "
-        "nick rather than a real interface between two objects.",
-        row_idx, contact_label,
-    )
-    row_idx += 1
-
-    dilation_label = tk.Label(frame, text="Contact Gap Bridging [voxels]")
-    dilation_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=0, to=20, increment=1,
-        textvariable=cv.packing_contact_dilation_vox, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Grow labels by this many voxels before looking for contacts, so objects "
-        "separated by a thin background gap -- a segmented membrane between cells -- "
-        "still count as neighbours. 0 requires them to touch exactly.",
-        row_idx, dilation_label,
-    )
-    row_idx += 1
-
-    create_option_section(
-        frame,
-        row_idx,
-        cv.packing_exclude_border_objects,
-        "Exclude Border Objects From Packing",
-        "Objects touching the edge of the field have an artificially low contact number. "
-        "They stay in the graph so their interior neighbours keep full degree; only the "
-        "reported statistics exclude them.",
-    )
-    row_idx += 2
 
     tk.Label(frame, text="Time-Lapse", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
@@ -538,7 +398,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    mask_spacing_label = tk.Label(frame, text="Mask Voxel Size [microns] (0 = XY step)")
+    mask_spacing_label = tk.Label(frame, text="Mask Voxel Size [microns] (0 = XY pixel size)")
     mask_spacing_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=0.0, to=10.0, increment=0.001, textvariable=cv.mask_spacing_um, width=9
@@ -546,9 +406,16 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     create_popup(
         frame,
         "Masks usually carry no spacing metadata. They are often saved on an isotropic "
-        "grid finer than the image's Z spacing, so this defaults to the XY step.",
+        "grid finer than the image's Z spacing, so this defaults to the XY pixel size.",
         row_idx, mask_spacing_label,
     )
+    row_idx += 1
+
+    # Sits here, under the setting that controls it, rather than beside any one of the
+    # options it explains -- they are spread across three sections further down.
+    mask_note = tk.Label(frame, wraplength=620, justify="left", fg="#b45309",
+                         font=("TkDefaultFont", 11))
+    mask_note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(2, 5))
     row_idx += 1
 
     tk.Label(frame, text="Geometry", font=header).grid(
@@ -570,7 +437,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
-    create_option_section(
+    _w_crop = create_option_section(
         frame,
         row_idx,
         cv.crop_to_mask,
@@ -658,6 +525,241 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "Swap foreground and background before computing structural metrics.",
     )
     row_idx += 2
+
+
+    min_island_label = tk.Label(frame, text="Minimum Island Size [voxels]")
+    min_island_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=1000, increment=1,
+        textvariable=cv.minimum_island_size, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Objects and holes smaller than this are removed after thresholding. Ignored "
+        "when a segmentation mask supplies the binarization.",
+        row_idx, min_island_label,
+    )
+    row_idx += 1
+
+    neighbour_label = tk.Label(frame, text="Neighbour Island Fraction")
+    neighbour_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.01, to=1.0, increment=0.01,
+        textvariable=cv.neighbor_island_fraction, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Fraction of the other objects averaged over when computing Mean Island "
+        "Separation. With a clean single-object mask there is nothing to separate from "
+        "and that metric is reported as NaN regardless.",
+        row_idx, neighbour_label,
+    )
+    row_idx += 1
+
+    # Was "Percentage of Frames Evaluated" showing 0.05, which is a fraction, not a
+    # percentage -- and the name suggested it decided how much of the series gets
+    # analysed. It does not: Frame Step above does that. This picks how many frames at
+    # each END of the analysed series are averaged to form the Change metrics, so it is
+    # a window size, and the name now says so.
+    pct_frames_label = tk.Label(frame, text="Change Window (fraction at each end)")
+    pct_frames_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.05, to=0.5, increment=0.05,
+        textvariable=cv.percentage_frames_evaluated, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Every Change metric compares the average of the LAST few analysed frames with "
+        "the average of the FIRST few. This sets how many that is, as a fraction of the "
+        "analysed frames: ceil(fraction x frames), never fewer than 1.\n\n"
+        "It does not decide how much of the series is analysed -- Frame Step does that. "
+        "This only sets the two windows being compared.\n\n"
+        "On short series it saturates: any value up to 1/N gives a 1-frame window, so "
+        "for a 15-timepoint run everything below about 0.07 behaves identically.\n\n"
+        "A single-timepoint run reports every Change metric as NaN regardless.",
+        row_idx, pct_frames_label,
+    )
+    row_idx += 1
+
+    # The fraction is unintuitive on its own -- 0.05 of what, and how many frames is
+    # that? Spell out the arithmetic for a few series lengths, live.
+    pct_example = tk.Label(frame, fg="gray40", font=("TkDefaultFont", 11),
+                           wraplength=620, justify="left")
+    pct_example.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(30, 5),
+                     pady=(0, 4))
+
+    def _describe_change_window(*_args):
+        import math
+
+        try:
+            fraction = float(cv.percentage_frames_evaluated.get())
+        except (tk.TclError, ValueError):
+            return
+        parts = [f"{n} → {max(math.ceil(fraction * n), 1)}" for n in (10, 15, 50, 200)]
+        pct_example.config(
+            text="Frames at each end (analysed frames → window): " + ",  ".join(parts))
+
+    cv.percentage_frames_evaluated.trace_add("write", _describe_change_window)
+    _describe_change_window()
+    row_idx += 1
+
+    noise_label = tk.Label(frame, text="Intensity Noise Threshold")
+    noise_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=1.0, increment=0.0001, format="%.4f",
+        textvariable=cv.noise_threshold, width=9
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Histogram bins holding less than this fraction of voxels are discarded before "
+        "the intensity statistics are computed.",
+        row_idx, noise_label,
+    )
+    row_idx += 1
+
+    tk.Label(frame, text="Optional Metrics", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_component_stats,
+        "Per-Object Size Statistics",
+        "Add object count, size SD, size skewness and median size. These describe the "
+        "spread of the object-size distribution, which the mean and total cannot: one "
+        "dominant object plus debris gives the same mean as several even ones. "
+        "Volumetric modes only. Off by default so the barcode stays readable.",
+    )
+    row_idx += 2
+
+    _w_packing = create_option_section(
+        frame,
+        row_idx,
+        cv.enable_packing_topology,
+        "Packing Topology",
+        "Add mean contact number, contact number SD and hexagonal fraction: how objects "
+        "are arranged relative to each other, which no other metric describes. In a "
+        "space-filling monolayer sizes and separations are near-uniform and it is the "
+        "neighbour-number distribution that changes. Needs an instance segmentation "
+        "with integer labels -- in a confluent field, deriving objects by connectivity "
+        "merges the whole tissue into one.",
+    )
+    row_idx += 2
+
+    contact_label = tk.Label(frame, text="Minimum Contact [voxels]")
+    contact_label.grid(row=row_idx, column=0, sticky="w", padx=(30, 5), pady=5)
+    _sb_contact = ttk.Spinbox(
+        frame, from_=1, to=1000, increment=1,
+        textvariable=cv.packing_min_contact_voxels, width=7
+    )
+    _sb_contact.grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Shared face area, in voxels, below which a touch is treated as a segmentation "
+        "nick rather than a real interface between two objects.",
+        row_idx, contact_label, indent=25,
+    )
+    row_idx += 1
+
+    dilation_label = tk.Label(frame, text="Contact Gap Bridging [voxels]")
+    dilation_label.grid(row=row_idx, column=0, sticky="w", padx=(30, 5), pady=5)
+    _sb_dilation = ttk.Spinbox(
+        frame, from_=0, to=20, increment=1,
+        textvariable=cv.packing_contact_dilation_vox, width=7
+    )
+    _sb_dilation.grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Grow labels by this many voxels before looking for contacts, so objects "
+        "separated by a thin background gap -- a segmented membrane between cells -- "
+        "still count as neighbours. 0 requires them to touch exactly.",
+        row_idx, dilation_label, indent=25,
+    )
+    row_idx += 1
+
+    _w_border = create_option_section(
+        frame,
+        row_idx,
+        cv.packing_exclude_border_objects,
+        "Exclude Border Objects From Packing",
+        "Objects touching the edge of the field have an artificially low contact number. "
+        "They stay in the graph so their interior neighbours keep full degree; only the "
+        "reported statistics exclude them.",
+        indent=25,
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_slice_profile,
+        "Broadest Slice & Clipping Flag",
+        "Add the index, depth and area of the widest z slice -- the only metrics that "
+        "say WHERE in depth something is, rather than reducing the stack to one number. "
+        "For a stack through a curved surface or a rounded object it locates the "
+        "equator, and it moves when the object flattens or tilts. Also raises flag "
+        "digit 6 when foreground reaches an edge of the analysed field, meaning the "
+        "object continues outside it and every size and shape metric describes a "
+        "truncated object. Digit 6 is separate from digit 5 on purpose: 5 means YOU "
+        "restricted the range, 6 means the DATA is cut off.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_curvature_range,
+        "Minimum & Maximum Curvature",
+        "Add the extremes of the curvature field. Mean Curvature <H> averages the two "
+        "principal curvatures together, so a saddle -- sharply curved both ways -- "
+        "averages towards zero and reads as flat. These keep the most concave and most "
+        "convex parts of the surface apart. Needs the mesh family, so it also needs a "
+        "segmentation.",
+    )
+    row_idx += 2
+
+    _w_maskint = create_option_section(
+        frame,
+        row_idx,
+        cv.enable_mask_intensity,
+        "In-Mask Intensity Statistics",
+        "Add per-object MFI, SD, CV, skewness, entropy, normalized entropy and the "
+        "fraction of voxels above twice the median. These describe how signal is "
+        "distributed INSIDE each object -- the clustering readout -- whereas the "
+        "intensity branch describes whatever voxels it is given, usually including "
+        "background. A uniformly-filled object and one with bright foci have the same "
+        "mean and very different CV and entropy. Needs a segmentation; with an instance "
+        "mask each object is measured separately and the results averaged unweighted, "
+        "so one large object does not outvote the rest.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_intensity_magnitude,
+        "Total & Mean Intensity",
+        "Add total intensity, mean intensity, intensity SD and intensity per unit volume. "
+        "These say HOW MUCH signal there is, where the intensity branch describes the "
+        "SHAPE of the distribution and is blind to a uniform brightening. Sensitive to "
+        "exposure and gain, so only compare acquisitions taken with identical settings.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.record_range_columns,
+        "Record Analysed Range",
+        "Add the z and t extents this row's numbers were computed over. Flag digit 5 "
+        "already says THAT a range was restricted; these say WHICH, so a CSV separated "
+        "from its Settings.yaml still describes itself. Indices are into the acquired "
+        "data, before any isotropic resampling.",
+    )
+    row_idx += 2
+
 
     tk.Label(frame, text="3D Optical Flow", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
@@ -965,98 +1067,83 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    create_option_section(
-        frame,
-        row_idx,
-        cv.mesh_matlab_compat,
-        "MATLAB-Compatible Meshing",
-        "Reproduce the original MATLAB pipeline's meshing conventions exactly, for "
-        "comparing against results produced by it.",
-    )
-    row_idx += 2
+    # Two controls deliberately absent from this section:
+    #
+    # mesh_matlab_compat reproduces the MATLAB original's quad-fan misreading of v2s'
+    # face array when computing the decimation ratio. core/config.py calls it "a bug, not
+    # a design choice"; it exists only to reproduce pre-port numbers, which is a scripted
+    # comparison, not something to offer beside the real settings.
+    #
+    # mesh_iso2mesh_bin points at a staged copy of the CGAL executables. Left blank --
+    # the default -- pyiso2mesh looks in ~/iso2mesh-tools/, downloads them if missing,
+    # then falls back to PATH, so the binaries install themselves on first use and there
+    # is nothing for a user to find. Setting it is an install-time concern (an offline
+    # or air-gapped machine staging from an existing iso2mesh tree), which belongs in
+    # setup rather than in the per-run settings.
+    #
+    # Both fields remain in VolumetricConfig and are still settable from a Settings.yaml
+    # or a script; only the GUI controls are gone.
 
-    iso_bin_label = tk.Label(frame, text="iso2mesh Binaries Folder:")
-    iso_bin_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=2)
-    tk.Entry(frame, textvariable=cv.mesh_iso2mesh_bin, width=35).grid(
-        row=row_idx, column=1, padx=5, pady=2
+    # Several options do nothing at all without a segmentation. Each one's runner reports
+    # it and carries on -- "Packing topology needs a segmentation; skipping." and the
+    # like -- so before this the only way to discover that four ticked boxes had produced
+    # nothing was to read the log after the batch finished. The tooltips said so, but
+    # only on hover, and nothing stopped you. Now they are unavailable until a mask is
+    # configured, with one line saying why.
+    #
+    # Curvature Range is included because it needs the mesh, and the mesh needs a mask.
+    # Only what genuinely cannot run without a segmentation.
+    #
+    # Meshing, curvature and isotropic resampling used to be in this list and are not any
+    # more: meshing now falls back to the binarized volume, curvature rides on that mesh,
+    # and the isotropic grid is computed from the acquired spacing rather than taken from
+    # the mask. Greying them would now be the misleading thing.
+    MASK_DEPENDENT = (
+        # Needs an INSTANCE label volume -- distinct objects to build a contact graph
+        # between. A threshold gives one binary blob, not labelled objects.
+        (_w_packing, "Packing Topology"),
+        # Describes the inside of each segmented object; there is nothing to describe.
+        (_w_maskint, "In-Mask Intensity Statistics"),
+        # Crops to the mask's bounding box, which requires a mask to have a box.
+        (_w_crop, "Crop to the Mask's Bounding Box"),
     )
 
-    def browse_iso_bin():
-        chosen = filedialog.askdirectory(title="Select the iso2mesh Binaries Folder")
-        if chosen:
-            cv.mesh_iso2mesh_bin.set(chosen)
+    def _apply_mask_dependency(*_args):
+        have_mask = bool(cv.segmentation_enabled.get())
+        for (checkbox, title_label), _name in MASK_DEPENDENT:
+            checkbox.config(state="normal" if have_mask else "disabled")
+            title_label.config(fg="black" if have_mask else "gray60")
 
-    tk.Button(frame, text="Browse Folder…", command=browse_iso_bin).grid(
-        row=row_idx, column=2, sticky="w", padx=5
-    )
-    create_popup(
-        frame,
-        "Leave blank to use the binaries shipped with the installed iso2mesh package. "
-        "Set this only if meshing reports that it cannot find them.",
-        row_idx, iso_bin_label,
-    )
-    row_idx += 1
+        # The three packing parameters follow Packing Topology itself, not the mask:
+        # they are meaningless when the metric they configure is off, whatever the
+        # segmentation says. (Packing Topology in turn needs the mask, so this is
+        # stricter than the rule above, not a competing one.)
+        packing_live = have_mask and bool(cv.enable_packing_topology.get())
+        state = "normal" if packing_live else "disabled"
+        colour = "black" if packing_live else "gray60"
+        for widget in (contact_label, dilation_label):
+            widget.config(fg=colour)
+        for widget in (_sb_contact, _sb_dilation):
+            widget.config(state=state)
+        _w_border[0].config(state=state)
+        _w_border[1].config(fg=colour)
 
-    tk.Label(frame, text="Advanced", font=header).grid(
-        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
-    )
-    row_idx += 1
+        if have_mask:
+            mask_note.config(text="")
+        else:
+            # Says what still works, not only what does not. Meshing without a mask is
+            # the common case now, and a bare list of disabled things read as though the
+            # whole 3D branch needed a segmentation.
+            mask_note.config(
+                text="Greyed out above because they need a segmentation: "
+                     + ", ".join(name for _w, name in MASK_DEPENDENT)
+                     + ".  Everything else still runs: the volume is binarized by "
+                       "Threshold Offset, resampled to isotropic voxels, and meshed from "
+                       "that surface. Supply a segmentation for a boundary you control "
+                       "rather than one that follows the intensity threshold.")
 
-    min_island_label = tk.Label(frame, text="Minimum Island Size [voxels]")
-    min_island_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=0, to=1000, increment=1,
-        textvariable=cv.minimum_island_size, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Objects and holes smaller than this are removed after thresholding. Ignored "
-        "when a segmentation mask supplies the binarization.",
-        row_idx, min_island_label,
-    )
-    row_idx += 1
-
-    neighbour_label = tk.Label(frame, text="Neighbour Island Fraction")
-    neighbour_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=0.01, to=1.0, increment=0.01,
-        textvariable=cv.neighbor_island_fraction, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Fraction of the other objects averaged over when computing Mean Island "
-        "Separation. With a clean single-object mask there is nothing to separate from "
-        "and that metric is reported as NaN regardless.",
-        row_idx, neighbour_label,
-    )
-    row_idx += 1
-
-    pct_frames_label = tk.Label(frame, text="Percentage of Frames Evaluated")
-    pct_frames_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=0.01, to=1.0, increment=0.01,
-        textvariable=cv.percentage_frames_evaluated, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Fraction of timepoints at each end of the series averaged to form the change "
-        "metrics. A single-timepoint run reports every change metric as NaN.",
-        row_idx, pct_frames_label,
-    )
-    row_idx += 1
-
-    noise_label = tk.Label(frame, text="Intensity Noise Threshold")
-    noise_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
-        frame, from_=0.0, to=1.0, increment=0.0001, format="%.4f",
-        textvariable=cv.noise_threshold, width=9
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
-    create_popup(
-        frame,
-        "Histogram bins holding less than this fraction of voxels are discarded before "
-        "the intensity statistics are computed.",
-        row_idx, noise_label,
-    )
-    row_idx += 1
+    cv.segmentation_enabled.trace_add("write", _apply_mask_dependency)
+    cv.enable_packing_topology.trace_add("write", _apply_mask_dependency)
+    _apply_mask_dependency()
 
     return frame

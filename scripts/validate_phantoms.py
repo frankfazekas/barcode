@@ -309,6 +309,27 @@ def sweep_anisotropy(radius: float, spacing: float, maxrad: float) -> List[Measu
             for a in (1, 2, 4, 8, 12)]
 
 
+def sweep_curvature(spacing: float) -> List[Measurement]:
+    """Curvature and saddle detection across a RANGE of shapes, not one of each.
+
+    A single torus gives a single number, which cannot show whether the agreement is
+    systematic or a coincidence. Varying the tube ratio moves the exact saddle fraction
+    over 0.28-0.45 and the exact mean curvature over a factor of three, so a method that
+    merely happened to land near one value cannot track all of them.
+
+    maxrad is set relative to the tube radius, since that -- not the major radius -- is
+    the thin dimension that governs whether the surface can be represented at all.
+    """
+    out: List[Measurement] = []
+    for major, minor in ((16, 8), (16, 6), (20, 6), (24, 6), (24, 4), (30, 4)):
+        out.append(measure(torus(major, minor, spacing), maxrad=max(0.5, minor / 6.0),
+                           curvature=True))
+    for radius in (8, 12, 16, 24, 32):
+        out.append(measure(sphere(radius, spacing), maxrad=max(0.5, radius / 12.0),
+                           curvature=True))
+    return out
+
+
 def sweep_shapes(radius: float, spacing: float, maxrad: float) -> List[Measurement]:
     return [
         measure(sphere(radius, spacing), maxrad),
@@ -322,7 +343,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Accuracy of the mesh metrics against closed-form shapes.")
     parser.add_argument("--sweep", default="all",
-                        choices=["all", "resolution", "maxrad", "anisotropy", "shapes"])
+                        choices=["all", "resolution", "maxrad", "anisotropy",
+                                 "shapes", "curvature"])
     parser.add_argument("--radius", type=float, default=16.0,
                         help="sphere radius in voxels for the fixed-radius sweeps")
     parser.add_argument("--spacing", type=float, default=0.1, metavar="UM")
@@ -348,6 +370,10 @@ def main() -> int:
         sweeps.append((
             f"ANISOTROPY  sphere r={args.radius:g}vox, acquired coarsely in z",
             lambda: sweep_anisotropy(args.radius, args.spacing, args.maxrad)))
+    if args.sweep in ("all", "curvature"):
+        sweeps.append((
+            "CURVATURE  tori and spheres, maxrad scaled to the thin dimension",
+            lambda: sweep_curvature(args.spacing)))
     if args.sweep in ("all", "shapes"):
         sweeps.append((
             "SHAPES  does it hold away from a sphere?",

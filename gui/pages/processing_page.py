@@ -45,8 +45,15 @@ def create_tabs(parent, config, input_config, preview_config):
 def create_processing_worker(
     config: BarcodeConfig,
     input_config: InputConfig,
+    on_finished=None,
 ):
-    """Create the worker function for processing in background thread"""
+    """Create the worker function for processing in background thread.
+
+    ``on_finished(outcome)`` is called on the way out with "done", "failed" or
+    "cancelled" (the validation early-returns), whatever happened. It is what puts the
+    Process Data button back and settles the log window's banner, so it has to run on
+    every path -- hence the try/finally around the whole body.
+    """
 
     if input_config.configuration_file:
         try:
@@ -56,6 +63,7 @@ def create_processing_worker(
             return
 
     def worker():
+        outcome = "cancelled"
         try:
             mode = input_config.mode
             from core.pipeline import run_analysis
@@ -85,6 +93,7 @@ def create_processing_worker(
             run_analysis(dir_name, config, input_config)
 
         except Exception as e:
+            outcome = "failed"
             print(f"Error during processing: {e}")
             print(traceback.format_exc())
             messagebox.showerror("Error during processing", str(e))
@@ -96,9 +105,14 @@ def create_processing_worker(
             # still reported that it "finished successfully". `else` skips both, because
             # it runs only when the try block completes without raising *and* without
             # returning early.
+            outcome = "done"
             messagebox.showinfo(
                 "Processing Complete", "Analysis has finished successfully."
             )
+
+        finally:
+            if on_finished is not None:
+                on_finished(outcome)
 
     return worker
 
@@ -112,7 +126,7 @@ def create_process_page(parent, switch_page):
     gui_aggregation_config = AggregationConfigGUI()
 
     def on_run():
-        setup_log_window(parent)
+        log_win = setup_log_window(parent)
 
         # (Removed a leftover `gui_input_config.mode.set("dir")` debug line here. The
         # worker picks the path with `dir_path if dir_path else file_path` and never
@@ -124,7 +138,27 @@ def create_process_page(parent, switch_page):
         config = gui_config.config
         input_config = gui_input_config.config
 
-        worker = create_processing_worker(config, input_config)
+        # The button stayed live for the whole run, so a second click started a second
+        # analysis over the same files, writing the same outputs from two threads.
+        run_button.config(state="disabled", text="Processing…  (see Processing Log)")
+
+        def finished(outcome):
+            """Runs on the worker thread -- bounce onto the Tk thread before touching Tk."""
+            def restore():
+                run_button.config(state="normal", text="Process Data")
+                banner = {
+                    "done": ("Finished", "#15803d"),
+                    "failed": ("Failed — see the error above", "#b91c1c"),
+                    "cancelled": ("Stopped before starting", "#b45309"),
+                }[outcome]
+                try:
+                    log_win.set_status(*banner)
+                except tk.TclError:
+                    pass  # the user closed the log window
+
+            parent.after(0, restore)
+
+        worker = create_processing_worker(config, input_config, on_finished=finished)
         threading.Thread(target=worker, daemon=True).start()
 
     back_button = ttk.Button(frame, text="← Back", command=lambda: switch_page("home"))

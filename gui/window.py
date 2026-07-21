@@ -57,9 +57,27 @@ def setup_scrollable_container(root):
 
 
 def setup_log_window(root):
-    """Create the processing log window and redirect stdout/stderr"""
+    """Create the processing log window and redirect stdout/stderr.
+
+    Returns the window with a ``set_status(text, colour)`` attached. Whether a run is
+    still going used to be inferable only from whether the log had stopped scrolling --
+    a long quiet step and a finished run look identical, and a crashed one looked like
+    both. The banner states it outright, and the title carries it too so it is readable
+    from the taskbar without raising the window.
+    """
     log_win = tk.Toplevel(root)
     log_win.title("Processing Log")
+
+    status = tk.Label(log_win, font=("Segoe UI", 12, "bold"), anchor="w", padx=10, pady=6)
+    status.pack(fill="x", side="top")
+
+    def set_status(text, colour="#1d4ed8", title=None):
+        status.config(text=text, fg="white", bg=colour)
+        log_win.title(f"Processing Log — {title or text}")
+        log_win.update_idletasks()
+
+    log_win.set_status = set_status
+    set_status("Running…", "#1d4ed8", title="running")
 
     log_frame = ttk.Frame(log_win)
     log_frame.pack(fill="both", expand=True)

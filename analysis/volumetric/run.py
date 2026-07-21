@@ -70,6 +70,10 @@ class VolumetricRunDetail:
     analysed_mask: Optional[np.ndarray] = field(default=None, repr=False)
     representative_frame: Optional[int] = None
 
+    # One row per segmented object, when an instance mask resolved. A different schema
+    # from ChannelResults, kept apart from it deliberately.
+    object_rows: List = field(default_factory=list, repr=False)
+
 
 def _frame_binary(volumes, masks, frame_idx, vcfg):
     """The binary volume for one timepoint, by the binarization branch's own rule.
@@ -153,6 +157,19 @@ def _mean_of(values) -> float:
 
 _channel_warning_shown = False
 _flow_warning_shown = False
+
+# Ratio of the coarsest to the finest voxel edge above which a grid counts as
+# anisotropic. 1% allows for float noise in a spacing read back from file metadata
+# without admitting a real z/xy difference, which is several-fold in practice.
+_ISOTROPY_TOLERANCE = 1.01
+
+
+def _anisotropy_ratio(spacing_zyx) -> float:
+    """Coarsest voxel edge divided by the finest; 1.0 on a cubic grid."""
+    spacing = np.asarray(spacing_zyx, dtype=np.float64)
+    if spacing.size != 3 or not np.all(np.isfinite(spacing)) or spacing.min() <= 0:
+        return 1.0
+    return float(spacing.max() / spacing.min())
 
 
 def warn_if_flow_unsupported(config: BarcodeConfig) -> None:
@@ -399,7 +416,8 @@ def resolve_frame_interval(stack: VolumeStack, config: VolumetricConfig) -> floa
     # it. On the Jurkat series finterval reads 1, so the number happened to match the
     # claim; on a file whose finterval holds a z dwell of 0.2 s, Speed came out 5x wrong.
     interval = from_file if have_file_value else 1.0
-    source = ("from the file's ImageJ finterval tag" if have_file_value
+    source = (f"from {getattr(stack, 'timing_source', '') or 'the file'}"
+              if have_file_value
               else "(defaulted; the file states no timing this branch trusts)")
     print(
         f"  flow: no frame interval configured; using {interval:g} s {source}. "
@@ -506,15 +524,33 @@ def _prepare_geometry(
         # default) made the provenance assert the user had not asked, and 3D connectivity
         # and shape metrics on a 4.6x anisotropic grid are exactly what that setting exists
         # to prevent.
-        reason = "no_segmentation" if config.make_isotropic else "not_requested"
-        if config.make_isotropic:
-            print(
-                "  make_isotropic is on but no segmentation resolved, so there is no "
-                "isotropic grid to resample onto; analysing the acquired anisotropic "
-                "voxels. 3D shape and connectivity metrics assume equal spacing.",
-                flush=True,
-            )
-        return stack.data, None, (z_um, xy_um, xy_um), {"isotropic": reason}, None
+        if not config.make_isotropic:
+            return stack.data, None, (z_um, xy_um, xy_um), {"isotropic": "not_requested"}, None
+
+        # No segmentation is not a reason to skip resampling. The isotropic grid is
+        # determined by the acquired spacing alone; the mask was only ever a convenient
+        # target. This used to fall through to the acquired anisotropic voxels with a
+        # printed note, which meant the default-on setting silently did nothing for every
+        # run without a mask -- and 3D shape and connectivity metrics were measured on
+        # voxels several times taller than they are wide.
+        if abs(z_um - xy_um) <= 1e-6:
+            return stack.data, None, (z_um, xy_um, xy_um), {"isotropic": "already"}, None
+
+        from analysis.volumetric.resample import resample_images_to_isotropic
+
+        keys = [f"t{t}" for t in range(n_timepoints)]
+        images_iso, spacing_iso, info = resample_images_to_isotropic(
+            images={key: stack.data[t] for t, key in enumerate(keys)},
+            image_spacings={key: (xy_um, xy_um, z_um) for key in keys},
+        )
+        volumes = np.stack([images_iso[key] for key in keys])
+        print(
+            f"  no segmentation; resampled to {spacing_iso[0]:.4g} um isotropic from the "
+            f"acquired spacing (z {z_um:.4g} / xy {xy_um:.4g} um, {z_um / xy_um:.1f}x "
+            f"anisotropic): {stack.data.shape[1]} -> {volumes.shape[1]} slices.",
+            flush=True,
+        )
+        return volumes, None, (spacing_iso[2], spacing_iso[1], spacing_iso[0]), info, None
 
     masks, mask_paths, mask_spacing = loaded
     if len(mask_paths) == 1 and n_timepoints > 1:
@@ -729,18 +765,37 @@ def run_volumetric_analysis(
         # segmentation, which merely leaves them empty.
         _check_mesh_aggregation(getattr(vcfg, "mesh_aggregation", "largest"))
 
-        # Meshing describes the segmented object, so it needs a segmentation: a mesh
-        # of an intensity threshold would not be the nucleus. Reported, not raised,
-        # so one misconfigured file does not abort a batch.
+        # Without a segmentation, mesh the binarized volume instead of skipping. The
+        # binarization branch already computes exactly this surface -- `_frame_binary`
+        # is the same rule the optional families use -- so refusing to mesh it withheld
+        # a result the pipeline was one call away from producing. A threshold is a
+        # cruder boundary than a curated segmentation, so say which one was used: the
+        # mesh metrics mean subtly different things and the row does not otherwise
+        # record it. Reported, not raised, so one file does not abort a batch.
+        mesh_source = masks
         if masks is None:
-            print(
-                "Meshing is enabled but no segmentation resolved; skipping the mesh.",
-                flush=True,
-            )
-        else:
+            mesh_source = np.stack([
+                _frame_binary(volumes, None, idx, vcfg) for idx in range(volumes.shape[0])
+            ])
+            if not mesh_source.any():
+                print(
+                    "Meshing is enabled but the binarized volume is empty at every "
+                    "timepoint; skipping the mesh. Check Threshold Offset.",
+                    flush=True,
+                )
+                mesh_source = None
+            else:
+                print(
+                    "  meshing the BINARIZED volume (no segmentation supplied). The "
+                    "surface follows the intensity threshold, not a curated boundary, "
+                    "so Mesh Volume, Sphericity and curvature describe the thresholded "
+                    "object. Supply a segmentation for a boundary you control.",
+                    flush=True,
+                )
+        if mesh_source is not None:
             try:
                 detail.meshes = mesh_series(
-                    masks, spacing_zyx, frame_indices, vcfg
+                    mesh_source, spacing_zyx, frame_indices, vcfg
                 )
                 results.mesh = summarise_meshes(detail.meshes)
                 # An open surface makes mesh volume, sphericity and the sign of every
@@ -768,6 +823,27 @@ def run_volumetric_analysis(
         # measurement rather than a misconfiguration.
         if masks is None:
             print("Packing topology needs a segmentation; skipping.", flush=True)
+        elif _anisotropy_ratio(spacing_zyx) > _ISOTROPY_TOLERANCE:
+            # Not merely degraded -- undefined. Contact is counted in VOXEL FACES and
+            # bridged by a voxel dilation, so on an anisotropic grid one z-face spans a
+            # different physical area from one xy-face and the same physical interface
+            # passes or fails min_contact_voxels on its orientation alone. Unlike
+            # Anisotropy (fixed by measuring in physical coordinates) there is no
+            # rescaling that repairs this: a single voxel distance cannot mean one
+            # physical distance on a non-cubic grid.
+            #
+            # Left EMPTY rather than reported, so the columns never reach the CSV or the
+            # barcode. A printed caveat beside a plausible number is not enough: the
+            # barcode is a picture, and a grid-dependent value in it is indistinguishable
+            # from a real one.
+            print(
+                f"  packing topology is not defined on a "
+                f"{_anisotropy_ratio(spacing_zyx):.1f}x anisotropic grid (contact is "
+                f"counted in voxel faces, so it depends on the grid rather than the "
+                f"sample); the family is left empty. Enable Resample to Isotropic "
+                f"Voxels to measure it.",
+                flush=True,
+            )
         elif masks.dtype == bool or int(np.count_nonzero(np.unique(masks))) < 2:
             print(
                 "Packing topology needs an integer label volume with more than one "
@@ -813,6 +889,22 @@ def run_volumetric_analysis(
             frame_indices,
             masks,
         )
+
+    # Per-object rows, for a barcode whose rows are objects rather than fields. MUST run
+    # after the branches above: it joins values the packing and in-mask families write
+    # onto `detail`, and placed before them it silently produced rows whose joined
+    # columns were all NaN while the volumes looked perfectly fine.
+    if masks is not None and frame_indices:
+        from analysis.volumetric.objects import extract_objects
+
+        representative = frame_indices[len(frame_indices) // 2]
+        labels = masks[representative]
+        if labels.dtype != bool:
+            detail.object_rows = extract_objects(
+                labels, spacing_zyx, detail,
+                filepath=filepath,
+                fov=os.path.splitext(os.path.basename(filepath))[0],
+            )
 
     return results, detail
 
@@ -920,6 +1012,12 @@ def run_volumetric_pipeline(
         raise
 
     print(f"Volumetric: {detail.shape_zyx} @ {tuple(round(s, 4) for s in detail.spacing_zyx_um)} um")
+
+    # Hand the object rows to the caller on the results object. `save_analysis_results`
+    # pools them across files; nothing in the CSV path reads this attribute.
+    results.object_rows = list(getattr(detail, "object_rows", []) or [])
+    if results.object_rows:
+        print(f"  {len(results.object_rows)} object row(s)", flush=True)
 
     if getattr(config.volumetric, "write_fingerprint", False):
         try:

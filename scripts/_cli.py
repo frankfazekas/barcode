@@ -20,6 +20,14 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
         help="; ".join(f"{k}: {m.label}" for k, m in MODES.items()),
     )
     group.add_argument(
+        "--rows", default="auto",
+        choices=["auto", "file", "timepoint", "slice", "object"],
+        help="what ONE ROW of the barcode is. The barcode normalises per column across "
+             "rows, so this is what decides what is compared. 'auto' picks from the "
+             "data -- many objects -> object, else many timepoints -> timepoint, else "
+             "file -- and prints its choice (default: auto)",
+    )
+    group.add_argument(
         "--z-units", default="acquired", choices=["acquired", "isotropic", "microns"],
         help="how --z-start/--z-end are read. 'acquired' indexes the stack as acquired; "
              "'isotropic' indexes the finer isotropic grid a mask lives on; 'microns' is "
@@ -140,6 +148,7 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     """Copy the shared options onto a config."""
     v = config.volumetric
     v.analysis_mode = getattr(args, "mode", v.analysis_mode)
+    v.row_axis = getattr(args, "rows", "auto")
     v.z_start = getattr(args, "z_start", 0)
     v.z_end = getattr(args, "z_end", 0)
     v.z_range_units = getattr(args, "z_units", "acquired")

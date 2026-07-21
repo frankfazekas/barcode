@@ -107,6 +107,14 @@ class Metrics(Enum):
     CONTACT_NUMBER_SD = "Contact Number SD"
     HEXAGONAL_FRACTION = "Hexagonal Fraction"
 
+    # Per-OBJECT metrics, for barcodes whose rows are objects rather than fields. Named
+    # distinctly from their field-level aggregates on purpose: "Contact Number" is one
+    # object's neighbour count, "Mean Contact Number" is the field's average, and a
+    # column headed the same in both would make the two silently interchangeable.
+    OBJECT_VOLUME = "Object Volume"
+    OBJECT_DIAMETER = "Equivalent Diameter"
+    OBJECT_CONTACT_NUMBER = "Contact Number"
+
     # Identity of the object a row describes, when a supplied instance mask partitions
     # the field into several. Blank on aggregate rows. Present in the contract from the
     # start so per-object rows are later a behaviour change, not a schema change.

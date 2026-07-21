@@ -157,6 +157,55 @@ def _crop_to_mask_bbox(images: Dict[str, np.ndarray], mask, padding: int):
     return cropped, mask[z0:z1, y0:y1, x0:x1], bbox
 
 
+def resample_images_to_isotropic(
+    images: Dict[str, np.ndarray],
+    image_spacings: Dict[str, Tuple[float, float, float]],
+):
+    """Put every channel on an isotropic grid WITHOUT needing a segmentation.
+
+    ``prepare_volume`` resamples onto the mask's grid, which is the right target when a
+    segmentation exists -- image and mask then share one grid exactly. But it made a
+    mask a prerequisite for isotropy, and there is no reason for that: the target grid
+    is fully determined by the acquired spacing. Without this, a run with no
+    segmentation analysed the acquired anisotropic voxels however ``make_isotropic`` was
+    set, so every 3D shape and connectivity metric was measured on non-cubic voxels
+    (4.6x taller than wide on typical confocal data) with only a log line to say so.
+
+    The target is isotropic at the XY spacing -- upsampling z rather than throwing away
+    in-plane resolution, matching what ``prepare_volume`` produces against a mask that
+    is itself isotropic at xy.
+
+    Returns ``(images_iso, spacing_iso_xyz, info)``.
+    """
+    images = {name: _ensure_3d_volume(np.asarray(img), name) for name, img in images.items()}
+    info: Dict[str, object] = {}
+
+    first = next(iter(images))
+    target_spacing = _isotropic_xy_spacing_xyz(image_spacings[first])
+    target_shape = _reference_shape_for_spacing(
+        images[first].shape, image_spacings[first], target_spacing
+    )
+
+    out: Dict[str, np.ndarray] = {}
+    for name, img in images.items():
+        source_spacing = tuple(float(v) for v in image_spacings[name])
+        if img.shape == target_shape and source_spacing == target_spacing:
+            out[name] = img
+            info[f"{name}_canon"] = "none"
+            continue
+        resampled = _resample_array_to_reference(
+            img, source_spacing, target_shape, target_spacing, sitk.sitkLinear
+        )
+        # Interpolation runs in float; restore the input dtype so downstream thresholding
+        # and intensity statistics see the same type they would without resampling.
+        out[name] = resampled.astype(img.dtype, copy=False)
+        info[f"{name}_canon"] = "resampled_to_isotropic_no_mask"
+
+    info["isotropic"] = "from_spacing"
+    info["isotropic_target_um"] = float(target_spacing[0])
+    return out, target_spacing, info
+
+
 def prepare_volume(
     images: Dict[str, np.ndarray],
     image_spacings: Dict[str, Tuple[float, float, float]],

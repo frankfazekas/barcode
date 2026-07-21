@@ -50,6 +50,13 @@ class MaskIntensityDetail:
     mfi: List[float] = field(default_factory=list)
     cv: List[float] = field(default_factory=list)
     entropy: List[float] = field(default_factory=list)
+    # The remaining four were computed per object and then averaged away. Keeping them
+    # costs nothing and is what lets a barcode have one row per object; recomputing them
+    # later would mean a second pass over every object's voxels.
+    sd: List[float] = field(default_factory=list)
+    skewness: List[float] = field(default_factory=list)
+    entropy_normalized: List[float] = field(default_factory=list)
+    bright_fraction: List[float] = field(default_factory=list)
     skipped: int = 0          # objects too small or too flat to describe
 
     def describe(self) -> str:
@@ -207,6 +214,10 @@ def analyze_mask_intensity(
         detail.mfi.append(measured["mfi"])
         detail.cv.append(measured["cv"])
         detail.entropy.append(measured["entropy"])
+        detail.sd.append(measured["sd"])
+        detail.skewness.append(measured["skewness"])
+        detail.entropy_normalized.append(measured["entropy_normalized"])
+        detail.bright_fraction.append(measured["bright_fraction"])
 
     if not per_object:
         return MaskIntensityResults(), detail

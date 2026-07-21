@@ -171,11 +171,20 @@ def test_slice_profile_and_clipping_come_out_of_a_real_run(tmp_path):
     results, detail = run_volumetric_analysis(path, config)
 
     assert results.slice_profile.is_populated()
-    # These objects are cylinders spanning z 4..8, so every one of those slices is
-    # equally broad and argmax legitimately returns the first. The exact-centre claim
+    # These objects are cylinders spanning acquired z 4..8, so every one of those slices
+    # is equally broad and argmax legitimately returns the first. The exact-centre claim
     # is pinned on an ellipsoid in tests/test_slice_profile.py, where it is well posed;
     # here the honest assertion is that it lands inside the object.
-    assert 4.0 <= results.slice_profile.broadest_index <= 8.0
+    #
+    # Asserted in MICRONS, not slice indices. A run with no segmentation now resamples to
+    # an isotropic grid (12 acquired slices -> 51 at 0.065 um), so an index-based bound is
+    # a statement about which grid happens to be in use; the physical depth is not.
+    # The cylinders occupy z 4..8 x 0.3 um = 1.2..2.4 um, and linear interpolation ramps
+    # the boundary over roughly one acquired slice either side, so the first thresholded
+    # slice sits a little below 1.2.
+    assert 0.85 <= results.slice_profile.broadest_depth <= 2.45, (
+        f"broadest slice at {results.slice_profile.broadest_depth} um is outside the "
+        f"cylinders' 1.2-2.4 um extent")
     assert results.slice_profile.broadest_area > 0
     assert results.fov_clip_flag == 0
     assert "6" not in results.convert_flags()
@@ -282,3 +291,71 @@ def test_cli_switches_follow_the_config():
     assert switches["include_slice_profile"] is True
     assert switches["include_mask_intensity"] is True
     assert switches["include_curvature_range"] is False
+
+
+# ------------------------------------------- meshing / isotropy without a mask
+
+def test_a_run_without_a_segmentation_is_still_resampled_to_isotropic(tmp_path):
+    """make_isotropic used to be a no-op without a mask, silently.
+
+    Resampling targeted the mask's grid, so with no segmentation the run fell through to
+    the acquired voxels -- 4.6x anisotropic on typical confocal data -- and every 3D
+    shape and connectivity metric was measured on non-cubic voxels. The isotropic grid
+    is fixed by the acquired spacing alone and needs no mask.
+    """
+    from analysis.volumetric.run import run_volumetric_analysis
+
+    path = write_volume(tmp_path / "Cell1_1.tif")
+    config = BarcodeConfig()
+    config.modules.image_binarization = True
+    config.modules.intensity_distribution = False
+    config.volumetric.analysis_mode = "xyzt"
+    config.volumetric.make_isotropic = True
+
+    _results, detail = run_volumetric_analysis(path, config)
+
+    spacing = detail.spacing_zyx_um
+    assert max(spacing) - min(spacing) < 1e-9, f"grid is not isotropic: {spacing}"
+    assert abs(spacing[0] - XY_STEP) < 1e-9, "should resample z up to the xy step"
+    # 12 acquired slices at 0.3 um span 3.3 um, which is 51 slices at 0.065 um.
+    assert detail.shape_zyx[0] == 51
+
+
+def test_make_isotropic_off_leaves_the_acquired_grid_alone(tmp_path):
+    from analysis.volumetric.run import run_volumetric_analysis
+
+    path = write_volume(tmp_path / "Cell1_1.tif")
+    config = BarcodeConfig()
+    config.modules.image_binarization = True
+    config.modules.intensity_distribution = False
+    config.volumetric.analysis_mode = "xyzt"
+    config.volumetric.make_isotropic = False
+
+    _results, detail = run_volumetric_analysis(path, config)
+
+    assert detail.shape_zyx[0] == 12, "opting out must not resample"
+    assert abs(detail.spacing_zyx_um[0] - Z_STEP) < 1e-9
+
+
+def test_meshing_without_a_segmentation_meshes_the_binarized_volume(tmp_path):
+    """Previously this printed "skipping the mesh" and returned nothing.
+
+    The binarization branch already computes the surface; refusing to mesh it withheld a
+    result the pipeline was one call away from producing.
+    """
+    from analysis.volumetric.run import run_volumetric_analysis
+
+    path = write_volume(tmp_path / "Cell1_1.tif")
+    config = BarcodeConfig()
+    config.modules.image_binarization = True
+    config.modules.intensity_distribution = False
+    v = config.volumetric
+    v.analysis_mode = "xyzt"
+    v.mesh_enabled = True
+    v.mesh_curvature = False          # curvature is the slow part and not what is under test
+
+    results, detail = run_volumetric_analysis(path, config)
+
+    assert detail.meshes, "no mesh produced without a segmentation"
+    assert results.mesh.is_populated()
+    assert results.mesh.get_data()[0] > 0, "mesh volume should be positive"

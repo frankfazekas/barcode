@@ -157,6 +157,10 @@ def main() -> int:
     parser.add_argument("--mesh-maxrad", type=float, default=2.0,
                         help="triangle-size bound for --mesh. The pipeline default of 5 "
                              "is too coarse for cells this size (see validate_phantoms)")
+    parser.add_argument("--dump", default=None, metavar="CSV",
+                        help="write every per-cell pair (volume, area, height) so the "
+                             "distribution can be plotted. A median alone cannot show "
+                             "whether a tail or a second population exists")
     parser.add_argument("--mesh-fields", type=int, default=8,
                         help="how many fields to mesh (default 8; meshing is the slow part)")
     args = parser.parse_args()
@@ -259,6 +263,16 @@ def main() -> int:
             if not pv:
                 continue
             pv, pa, ph, mv, ma, mh = map(np.asarray, (pv, pa, ph, mv, ma, mh))
+            if args.dump:
+                new = not os.path.isfile(args.dump)
+                with open(args.dump, "a", newline="", encoding="utf-8") as handle:
+                    writer = csv.writer(handle)
+                    if new:
+                        writer.writerow(["dataset", "quantity", "allen", "barcode"])
+                    for q, p_, m_ in (("volume", pv, mv), ("area", pa, ma),
+                                      ("height", ph, mh)):
+                        for a_, b_ in zip(p_, m_):
+                            writer.writerow([name, q, f"{a_:.6g}", f"{b_:.6g}"])
             print(f"\n=== {name}   ({len(pv)} cells, maxrad {args.mesh_maxrad})")
             for label, published, measured in (("mesh volume", pv, mv),
                                                ("surface area", pa, ma),

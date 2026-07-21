@@ -690,6 +690,7 @@ class VolumetricConfigGUI:
     """Auto-generated GUI wrapper for VolumetricConfig"""
     _core_config: VolumetricConfig = field(default_factory=VolumetricConfig)
 
+    row_axis: tk.StringVar = field(init=False)
     analysis_mode: tk.StringVar = field(init=False)
     enabled: tk.BooleanVar = field(init=False)
     z_step_um: tk.DoubleVar = field(init=False)
@@ -765,6 +766,7 @@ class VolumetricConfigGUI:
     mesh_export_obj: tk.BooleanVar = field(init=False)
 
     def __post_init__(self):
+        self.row_axis = tk.StringVar(value=self._core_config.row_axis)
         self.analysis_mode = tk.StringVar(value=self._core_config.analysis_mode)
         self.enabled = tk.BooleanVar(value=self._core_config.enabled)
         self.z_step_um = tk.DoubleVar(value=self._core_config.z_step_um)
@@ -843,6 +845,7 @@ class VolumetricConfigGUI:
     def config(self) -> VolumetricConfig:
         """Get current config from GUI values"""
         return VolumetricConfig(
+            row_axis=self.row_axis.get(),
             analysis_mode=self.analysis_mode.get(),
             enabled=self.enabled.get(),
             z_step_um=self.z_step_um.get(),
@@ -921,6 +924,7 @@ class VolumetricConfigGUI:
     def update_gui(self, new_config: VolumetricConfig):
         """Update GUI from new config values"""
         self._core_config = new_config
+        self.row_axis.set(new_config.row_axis)
         self.analysis_mode.set(new_config.analysis_mode)
         self.enabled.set(new_config.enabled)
         self.z_step_um.set(new_config.z_step_um)

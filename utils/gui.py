@@ -56,10 +56,15 @@ def _bind_popup_dismissal(widget):
         top.bind(sequence, _dismiss_popup, add="+")
 
 
-def create_popup(parent, description, row, title_label):
-    """Helper to create a popup window describing the feature and place the icon."""
+def create_popup(parent, description, row, title_label, indent=0):
+    """Helper to create a popup window describing the feature and place the icon.
+
+    ``indent`` shifts the icon right by the same amount the caption was indented. The
+    icon is positioned from the left edge of the column, not from the label, so a nested
+    control whose caption moved right would otherwise have its icon land on top of it.
+    """
     info_icon = tk.Label(parent, text="ℹ️", font=("Arial", 12), bg=parent.winfo_toplevel().cget("bg"), fg="blue", relief="flat", borderwidth=0)
-    info_icon.grid(row=row, column=0, sticky="w", padx=(title_label.winfo_reqwidth() + 30, 0))
+    info_icon.grid(row=row, column=0, sticky="w", padx=(title_label.winfo_reqwidth() + 30 + indent, 0))
 
     def show_popup(event=None):
         _dismiss_popup()  # never stack a second box on top of an existing one
@@ -111,17 +116,24 @@ def label_preview_axis(config, frame_number_label):
     _apply()
 
 
-def create_option_section(parent, row, var, title, description):
-    """Helper to create option sections with a checkbox, description, and a popup icon."""
-    tk.Checkbutton(parent, variable=var).grid(row=row, column=0, sticky="w", padx=5)
+def create_option_section(parent, row, var, title, description, indent=0):
+    """Helper to create option sections with a checkbox, description, and a popup icon.
+
+    ``indent`` (pixels) nests the row under the option above it, for a setting that only
+    means anything when its parent is on -- so a parameter cannot be mistaken for another
+    independent choice.
+    """
+    checkbox = tk.Checkbutton(parent, variable=var)
+    checkbox.grid(row=row, column=0, sticky="w", padx=(5 + indent, 0))
 
     normal = ("TkDefaultFont", 13)
 
     title_label = tk.Label(parent, text=title, font=normal)
-    title_label.grid(row=row, column=0, sticky="w", padx=(25, 5))
+    title_label.grid(row=row, column=0, sticky="w", padx=(25 + indent, 5))
 
     # Call the popup creation function to create and place the info icon
-    create_popup(parent, description, row, title_label)
+    create_popup(parent, description, row, title_label, indent=indent)
+    return checkbox, title_label
 
 def menu_popup(menu: tk.Menu, event):
     try:

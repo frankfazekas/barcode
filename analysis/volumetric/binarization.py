@@ -172,14 +172,30 @@ def find_island_properties_3d(
             "count": 0,
         }
 
-    regions = regionprops_table(
-        labelled, properties=["area", "centroid", "inertia_tensor_eigvals"]
-    )
+    regions = regionprops_table(labelled, properties=["area", "centroid"])
     areas = np.sort(np.asarray(regions["area"], dtype=np.float64))[::-1]
-    eigvals = np.stack(
-        [regions[f"inertia_tensor_eigvals-{i}"] for i in range(3)], axis=1
-    )
     centroids = np.stack([regions[f"centroid-{i}"] for i in range(3)], axis=1)
+
+    # The inertia tensor MUST be built in physical coordinates, and it needs its own
+    # regionprops pass to get there: `spacing` rescales every property in the call, so
+    # folding it into the one above would turn `area` into a physical volume (it is
+    # multiplied by voxel_volume downstream) and `centroid` into microns (it is
+    # multiplied by spacing in _mean_island_separation) -- both double-counted.
+    #
+    # Without spacing the eigenvalues describe the object in VOXEL INDEX space, so
+    # Anisotropy measured the sampling grid rather than the object: a physically perfect
+    # sphere on the Jurkat grid (z 0.3 / xy 0.065 um) reported 4.56, which is just the
+    # 4.6x grid ratio. With spacing it reports 1.01.
+    #
+    # On an isotropic grid this changes nothing at all -- uniform scaling multiplies
+    # every eigenvalue by s^2, so the major/minor ratio is bit-identical -- which is why
+    # this is a fix rather than a new setting.
+    eigen_regions = regionprops_table(
+        labelled, properties=["inertia_tensor_eigvals"], spacing=tuple(spacing_zyx)
+    )
+    eigvals = np.stack(
+        [eigen_regions[f"inertia_tensor_eigvals-{i}"] for i in range(3)], axis=1
+    )
 
     # Spread of the size distribution, not just its summary: one dominant object plus
     # debris and a handful of even objects give the same mean.
