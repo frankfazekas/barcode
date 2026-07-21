@@ -201,6 +201,12 @@ class VolumetricConfig(BaseConfig):
     z_step_um: float = 0.0
     xy_step_um: float = 0.0
 
+    # True axis order, one letter per data dimension, for a file whose header is wrong.
+    # Acquisition software writing a time series into ImageJ's `channels` field is
+    # common: the file then declares ZCYX for data that is really TZYX. Empty means
+    # trust the file. BARCODE never infers this -- it only accepts being told.
+    axes_override: str = ""
+
     # Segmentation masks. When a mask resolves it *replaces* intensity thresholding
     # as the binarization; intensity and autocorrelation still use raw voxels.
     segmentation_enabled: bool = False
@@ -233,6 +239,59 @@ class VolumetricConfig(BaseConfig):
     # default so the barcode does not widen unless the spread of object sizes is
     # actually of interest. Volumetric modes only -- see AnalysisMode.supports_component_stats.
     enable_component_stats: bool = False
+
+    # --- Phase 0 contract: fields the parallel work streams fill in. -------------
+    # Timepoint selection, mirroring the z range above. "index" counts timepoints;
+    # "seconds" uses the exposure time to convert. 0 as the end means "to the last".
+    t_start: float = 0
+    t_end: float = 0
+    t_range_units: str = "index"
+
+    # What counts as an object. BARCODE does not segment: when a mask supplies
+    # instances, those instances are authoritative.
+    #   "labels"       every distinct positive integer in the mask is one object, so
+    #                  touching instances stay separate
+    #   "connectivity" derive objects from the binary volume (correct for a binary mask
+    #                  or an intensity threshold, wrong for supplied instances)
+    #   "auto"         labels when the mask carries more than one positive value
+    object_partition: str = "auto"
+
+    # One row per object rather than one aggregate row. Needs object_partition to
+    # resolve to "labels"; the Object ID column exists either way.
+    per_object_rows: bool = False
+
+    # Mask file format. "auto" dispatches on the file suffix through the reader
+    # registry; name one explicitly only to override that.
+    mask_format: str = "auto"
+
+    # Segmentation. "labels" preserves the integer labels of a multi-object mask
+    # instead of collapsing it to a boolean, so objects stay distinguishable. A
+    # secondary mask lets a nucleus and a cell be supplied for the same image.
+    segmentation_label_mode: str = "binary"
+    segmentation_secondary_root: str = ""
+    segmentation_secondary_template: str = ""
+
+    # How the mesh family reports a field containing several objects. "largest" is the
+    # current behaviour; "mean"/"total" mesh every object, averaging intensive metrics
+    # (sphericity, curvature) and summing extensive ones (volume, surface area).
+    mesh_aggregation: str = "largest"
+
+    # Packing topology (analysis/volumetric/packing.py). Needs an integer label volume:
+    # in a confluent field every cell touches its neighbours, so connectivity labelling
+    # collapses the whole tissue to one object and there is no graph to build.
+    enable_packing_topology: bool = False
+    packing_contact_dilation_vox: int = 1     # bridge a background gap between labels
+    packing_min_contact_voxels: int = 5       # reject spurious one-voxel touches
+    packing_exclude_border_objects: bool = True
+
+    # Extensive intensity metrics -- total, mean, SD, density. The intensity branch is
+    # otherwise entirely intensive (histogram shape), so nothing in it scales with the
+    # amount of material.
+    enable_intensity_magnitude: bool = False
+
+    # Record the analysed z/t ranges as columns. Flag digit 5 already marks *that* a
+    # range was restricted; these say which, and make per-file ranges representable.
+    record_range_columns: bool = False
 
     # Time-lapse assembly. Volumetric time series are often exported one file per
     # timepoint; grouping them restores the change metrics, which are NaN when each

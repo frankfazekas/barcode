@@ -57,18 +57,20 @@ def results_to_csv(
     # The analysis mode decides which metric families this CSV carries. Mesh columns
     # stay conditional on data actually being present, so an xyzt run that skipped
     # meshing does not emit nine empty columns.
-    # Same rule for the component family: present it only when it was computed.
-    if "include_components" not in kwargs and hasattr(results[0], "components"):
-        kwargs = dict(kwargs, include_components=any(
-            getattr(r, "components", None) is not None and r.components.is_populated()
-            for r in results))
+    # An optional family is emitted only when some row actually carries data for it,
+    # so a run that skipped meshing does not produce a block of empty columns. Driven by
+    # the registry, so the writer and the barcode cannot disagree about which families
+    # are present -- the last bug here was a CSV gaining columns the barcode did not
+    # render.
+    from core.results import OPTIONAL_FAMILIES
 
-    if "mode" in kwargs and kwargs["mode"] is not None and "include_mesh" not in kwargs:
-        kwargs = dict(kwargs, include_mesh=any(
-            getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results))
-    elif "include_mesh" not in kwargs and hasattr(results[0], "mesh"):
-        kwargs = dict(kwargs, include_mesh=any(
-            getattr(r, "mesh", None) is not None and r.mesh.is_populated() for r in results))
+    for family in OPTIONAL_FAMILIES:
+        if family.switch in kwargs or not hasattr(results[0], family.attribute):
+            continue
+        populated = any(
+            getattr(r, family.attribute, None) is not None
+            and getattr(r, family.attribute).is_populated() for r in results)
+        kwargs = dict(kwargs, **{family.switch: populated})
 
     headers = results[0].get_physical_headers(**kwargs) if quantified else results[0].get_headers(**kwargs)
     if extra_columns:

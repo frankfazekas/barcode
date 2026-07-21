@@ -309,7 +309,7 @@ class MeshResults(ResultsBase):
     concave_ratio: float = np.nan
 
     @classmethod
-    def get_metrics(cls) -> List[Metrics]:
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
         return [
             Metrics.MESH_VOLUME,
             Metrics.MESH_SURFACE_AREA,
@@ -326,7 +326,7 @@ class MeshResults(ResultsBase):
         ]
 
     @classmethod
-    def get_units(cls) -> List[Units]:
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
         return [
             Units.VOLUME,
             Units.AREA,
@@ -376,35 +376,13 @@ class MeshResults(ResultsBase):
             if name
         })
 
-    def get_dict_data(self) -> dict:
-        return dict(zip(self.get_metrics(), self.get_data()))
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
 
     def is_populated(self) -> bool:
         """True if any value was actually measured."""
         return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
 
-
-
-def _resolve(mode, include_mesh, include_components=None):
-    """Normalise the optional-family switches used across ChannelResults.
-
-    ``mode`` may be an AnalysisMode, a key string, or None for the legacy 2D layout.
-    Each optional family defaults to whatever the mode supports but can be forced either
-    way; the writer uses that to emit a family's columns only when data is really there,
-    so an xyzt run that skipped meshing does not produce nine empty columns.
-
-    If a fourth optional family ever appears, replace these positional flags with a
-    registry of (name, results class, capability predicate) -- three is the point at
-    which that starts paying for itself.
-    """
-    if mode is not None and not isinstance(mode, AnalysisMode):
-        mode = get_mode(mode)
-    if include_mesh is None:
-        include_mesh = bool(mode is not None and mode.supports_mesh)
-    if include_components is None:
-        include_components = False
-    with_flow = True if mode is None else mode.supports_flow
-    return mode, bool(include_mesh), with_flow, bool(include_components)
 
 
 @dataclass
@@ -452,6 +430,202 @@ class ComponentResults(ResultsBase):
 
 
 @dataclass
+class IntensityMagnitudeResults(ResultsBase):
+    """Extensive intensity quantities -- how much signal, not what shape.
+
+    Every other intensity metric is intensive: kurtosis and skewness describe the shape
+    of the histogram and are unchanged if the object doubles in size. Nothing in the
+    branch scaled with the amount of material until this family existed, which is why
+    "is the intensity branch volume based?" had no answer.
+
+    ``total`` is a raw sum over the analysed region and therefore includes background;
+    on a cropped stack that can dominate, so it is most meaningful with
+    ``intensity_use_mask`` on. It is also meaningless if the detector clipped -- check
+    the saturation flag (digit 2) before reading it.
+
+    Populated by stream A; see docs/parallel_work_plan.md.
+    """
+
+    total: float = np.nan
+    mean: float = np.nan
+    sd: float = np.nan
+    density: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        volumetric = mode is not None and mode.is_volumetric
+        return [
+            Metrics.INTENSITY_TOTAL,
+            Metrics.INTENSITY_MEAN,
+            Metrics.INTENSITY_SD,
+            Metrics.INTENSITY_DENSITY_VOLUME if volumetric
+            else Metrics.INTENSITY_DENSITY_AREA,
+        ]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        volumetric = mode is not None and mode.is_volumetric
+        return [
+            Units.INTENSITY,
+            Units.INTENSITY,
+            Units.INTENSITY,
+            Units.INTENSITY_PER_VOLUME if volumetric else Units.INTENSITY_PER_AREA,
+        ]
+
+    def get_data(self) -> List[float]:
+        return [self.total, self.mean, self.sd, self.density]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
+class RangeResults(ResultsBase):
+    """Which slices and timepoints this row's numbers were computed over.
+
+    Flag digit 5 marks *that* the analysis covered part of the data; this says which
+    part. It also makes per-file ranges representable, which the global z_start/z_end
+    settings cannot express -- and it means a CSV separated from its Settings.yaml still
+    describes itself.
+
+    Indices are into the acquired data, before any isotropic resampling.
+    Populated by stream A; see docs/parallel_work_plan.md.
+    """
+
+    z_start: float = np.nan
+    z_end: float = np.nan
+    t_start: float = np.nan
+    t_end: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        return [Metrics.RANGE_Z_START, Metrics.RANGE_Z_END,
+                Metrics.RANGE_T_START, Metrics.RANGE_T_END]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        return [Units.SLICE_INDEX] * 4
+
+    def get_data(self) -> List[float]:
+        return [self.z_start, self.z_end, self.t_start, self.t_end]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
+class PackingResults(ResultsBase):
+    """How objects are arranged relative to each other -- who touches whom.
+
+    BARCODE describes objects individually (volume, sphericity, curvature) and describes
+    their spacing with one scalar. Nothing described the *topology* of a packing. In a
+    space-filling monolayer sizes and separations are near-uniform and what changes is
+    the neighbour-number distribution, which is the standard epithelial readout.
+
+    Computable only from an integer label volume: in a confluent field every cell touches
+    its neighbours, so connectivity labelling yields a single object and no graph.
+    """
+
+    contact_number_mean: float = np.nan
+    contact_number_sd: float = np.nan
+    hexagonal_fraction: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        return [Metrics.CONTACT_NUMBER_MEAN, Metrics.CONTACT_NUMBER_SD,
+                Metrics.HEXAGONAL_FRACTION]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        return [Units.NONE, Units.NONE, Units.NONE]
+
+    def get_data(self) -> List[float]:
+        return [self.contact_number_mean, self.contact_number_sd,
+                self.hexagonal_fraction]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass(frozen=True)
+class OptionalFamily:
+    """A metric family that only some modes or runs produce.
+
+    Replaces the positional include_* flags that _resolve used to juggle. With six
+    families those flags were about to be rewritten by two work streams at once, and a
+    registry means adding a seventh touches one tuple rather than eight signatures.
+
+    ``supported`` answers "can this mode produce it at all"; the per-call switch answers
+    "did this run actually produce it", which is how the writer avoids emitting a
+    family's columns full of NaN.
+    """
+
+    switch: str          # keyword argument name, e.g. "include_mesh"
+    attribute: str       # ChannelResults attribute holding the values
+    results_cls: type
+    supported: object    # callable(mode) -> bool
+
+
+OPTIONAL_FAMILIES = (
+    OptionalFamily("include_mesh", "mesh", MeshResults,
+                   lambda mode: bool(mode is not None and mode.supports_mesh)),
+    OptionalFamily("include_components", "components", ComponentResults,
+                   lambda mode: False),
+    OptionalFamily("include_intensity_magnitude", "intensity_magnitude",
+                   IntensityMagnitudeResults, lambda mode: False),
+    OptionalFamily("include_ranges", "ranges", RangeResults,
+                   lambda mode: False),
+    OptionalFamily("include_packing", "packing", PackingResults,
+                   lambda mode: False),
+)
+
+
+def _resolve(mode, **switches):
+    """Normalise the mode and the optional-family switches.
+
+    ``mode`` may be an AnalysisMode, a key string, or None for the legacy 2D layout.
+    Each family defaults to what the mode supports; passing the switch explicitly forces
+    it either way. Returns ``(mode, with_flow, enabled)`` where ``enabled`` maps each
+    family's switch name to a bool.
+    """
+    known = {family.switch for family in OPTIONAL_FAMILIES}
+    unknown = set(switches) - known
+    if unknown:
+        raise TypeError(
+            f"Unknown optional-family switch(es) {sorted(unknown)}; "
+            f"expected any of {sorted(known)}."
+        )
+
+    if mode is not None and not isinstance(mode, AnalysisMode):
+        mode = get_mode(mode)
+    with_flow = True if mode is None else mode.supports_flow
+
+    enabled = {}
+    for family in OPTIONAL_FAMILIES:
+        value = switches.get(family.switch)
+        enabled[family.switch] = (family.supported(mode) if value is None else bool(value))
+    return mode, with_flow, enabled
+
+
+def _family_parts(mode, enabled, getter):
+    """Concatenate ``getter(family)`` for every enabled family, in registry order."""
+    parts = []
+    for family in OPTIONAL_FAMILIES:
+        if enabled[family.switch]:
+            parts.extend(getter(family))
+    return parts
+
+
+@dataclass
 class ChannelResults(ResultsBase):
     """Complete analysis results for a single channel."""
 
@@ -470,82 +644,68 @@ class ChannelResults(ResultsBase):
     flow: FlowResults = field(default_factory=FlowResults)
     mesh: MeshResults = field(default_factory=MeshResults)
     components: ComponentResults = field(default_factory=ComponentResults)
+    intensity_magnitude: IntensityMagnitudeResults = field(
+        default_factory=IntensityMagnitudeResults)
+    ranges: RangeResults = field(default_factory=RangeResults)
+    packing: PackingResults = field(default_factory=PackingResults)
 
     @classmethod
     def _get_base_headers(cls) -> List[str]:
         return ["Filepath", "Channel", "Flags"]
 
     @classmethod
-    def get_metrics(cls, just_metrics: bool = False, include_mesh: bool = None,
-                    mode=None, include_components=None) -> List[Metrics]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
+    def get_metrics(cls, just_metrics: bool = False, mode=None, **switches) -> List[Metrics]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
         return (
-            (
-                [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
-                if not just_metrics
-                else []
-            )
+            ([Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS] if not just_metrics else [])
             + BinarizationResults.get_metrics(mode)
             + IntensityResults.get_metrics(mode)
             + (FlowResults.get_metrics() if with_flow else [])
-            + (MeshResults.get_metrics() if include_mesh else [])
-            + (ComponentResults.get_metrics(mode) if include_components else [])
+            + _family_parts(mode, enabled, lambda f: f.results_cls.get_metrics(mode))
         )
 
     @classmethod
-    def get_physical_metrics(cls, just_metrics: bool = False, include_mesh: bool = None,
-                             mode=None, include_components=None) -> List[Metrics]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
+    def get_physical_metrics(cls, just_metrics: bool = False, mode=None,
+                             **switches) -> List[Metrics]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
         return (
-            (
-                [Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS]
-                if not just_metrics
-                else []
-            )
+            ([Metrics.FILEPATH, Metrics.CHANNEL, Metrics.FLAGS] if not just_metrics else [])
             + BinarizationResults.get_physical_metrics(mode)
             + IntensityResults.get_metrics(mode)
             + (FlowResults.get_metrics() if with_flow else [])
-            + (MeshResults.get_metrics() if include_mesh else [])
-            + (ComponentResults.get_metrics(mode) if include_components else [])
+            + _family_parts(mode, enabled, lambda f: f.results_cls.get_metrics(mode))
         )
-    
-    @classmethod
-    def get_physical_headers(cls, just_metrics: bool = False, include_mesh: bool = None,
-                             mode=None, include_components=None) -> List[str]:
-        """Get headers for CSV output."""
-        return [m.value for m in cls.get_physical_metrics(
-            just_metrics, include_mesh, mode, include_components)]
 
     @classmethod
-    def get_units(cls, just_metrics: bool = False, include_mesh: bool = None,
-                  mode=None, include_components=None) -> List[Units]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
+    def get_physical_headers(cls, just_metrics: bool = False, mode=None,
+                             **switches) -> List[str]:
+        """Get headers for CSV output."""
+        return [m.value for m in cls.get_physical_metrics(
+            just_metrics, mode, **switches)]
+
+    @classmethod
+    def get_units(cls, just_metrics: bool = False, mode=None, **switches) -> List[Units]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_units(mode)
             + IntensityResults.get_units(mode)
             + (FlowResults.get_units() if with_flow else [])
-            + (MeshResults.get_units() if include_mesh else [])
-            + (ComponentResults.get_units(mode) if include_components else [])
+            + _family_parts(mode, enabled, lambda f: f.results_cls.get_units(mode))
         )
-    
+
     @classmethod
-    def get_physical_units(cls, just_metrics: bool = False, include_mesh: bool = None,
-                           mode=None, include_components=None) -> List[Units]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
+    def get_physical_units(cls, just_metrics: bool = False, mode=None,
+                           **switches) -> List[Units]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
         return (
             ([Units.NONE, Units.NONE, Units.NONE] if not just_metrics else [])
             + BinarizationResults.get_physical_units(mode)
             + IntensityResults.get_units(mode)
             + (FlowResults.get_units() if with_flow else [])
-            + (MeshResults.get_units() if include_mesh else [])
-            + (ComponentResults.get_units(mode) if include_components else [])
+            + _family_parts(mode, enabled, lambda f: f.results_cls.get_units(mode))
         )
-    
+
     def convert_flags(self) -> str:
         flag_lst = []
         if self.dim_channel_flag == 1:
@@ -559,92 +719,65 @@ class ChannelResults(ResultsBase):
         if self.z_range_flag == 1:
             flag_lst.append("5")
         return ";".join(flag_lst) if flag_lst else "0"
-            
 
-    def get_data(self, just_metrics: bool = False, include_mesh: bool = None,
-                 mode=None, include_components=None) -> List[float]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
+    def _rows(self, just_metrics, mode, enabled, with_flow, physical):
         data = []
         self.total_flags = self.convert_flags()
         if not just_metrics:
             data = [self.filepath, self.channel, self.total_flags]
-        data.extend(self.binarization.get_data())
+        data.extend(self.binarization.get_physical_data() if physical
+                    else self.binarization.get_data())
         data.extend(self.intensity.get_data())
         if with_flow:
             data.extend(self.flow.get_data())
-        if include_mesh:
-            data.extend(self.mesh.get_data())
-        if include_components:
-            data.extend(self.components.get_data())
+        for family in OPTIONAL_FAMILIES:
+            if enabled[family.switch]:
+                data.extend(getattr(self, family.attribute).get_data())
         return data
-    
-    def get_physical_data(self, just_metrics: bool = False, include_mesh: bool = None,
-                 mode=None, include_components=None) -> List[float]:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
-        data = []
-        self.total_flags = self.convert_flags()
-        if not just_metrics:
-            data = [self.filepath, self.channel, self.total_flags]
-        data.extend(self.binarization.get_physical_data())
-        data.extend(self.intensity.get_data())
+
+    def get_data(self, just_metrics: bool = False, mode=None, **switches) -> List[float]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
+        return self._rows(just_metrics, mode, enabled, with_flow, physical=False)
+
+    def get_physical_data(self, just_metrics: bool = False, mode=None,
+                          **switches) -> List[float]:
+        mode, with_flow, enabled = _resolve(mode, **switches)
+        return self._rows(just_metrics, mode, enabled, with_flow, physical=True)
+
+    def _dict(self, just_metrics, mode, enabled, with_flow, physical):
+        # Keys come from the mode-aware metric lists so a dict and a CSV row built from
+        # the same results always agree on names and membership.
+        data = dict(zip(
+            BinarizationResults.get_physical_metrics(mode) if physical
+            else BinarizationResults.get_metrics(mode),
+            self.binarization.get_physical_data() if physical
+            else self.binarization.get_data()))
+        data |= dict(zip(IntensityResults.get_metrics(mode), self.intensity.get_data()))
         if with_flow:
-            data.extend(self.flow.get_data())
-        if include_mesh:
-            data.extend(self.mesh.get_data())
-        if include_components:
-            data.extend(self.components.get_data())
-        return data
-    
-    def get_dict_data(self, just_metrics: bool = False, include_mesh: bool = None,
-                      mode=None, include_components=None) -> dict:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
-        # Keys come from the mode-aware metric lists so a dict and a CSV row
-        # built from the same results always agree on names and membership.
-        binarization_data = dict(zip(
-            BinarizationResults.get_metrics(mode), self.binarization.get_data()))
-        intensity_data = dict(zip(
-            IntensityResults.get_metrics(mode), self.intensity.get_data()))
-        flow_data = self.flow.get_dict_data() if with_flow else {}
-        mesh_data = self.mesh.get_dict_data() if include_mesh else {}
-        component_data = (self.components.get_dict_data(mode)
-                          if include_components else {})
+            data |= self.flow.get_dict_data()
+        for family in OPTIONAL_FAMILIES:
+            if enabled[family.switch]:
+                values = getattr(self, family.attribute)
+                try:
+                    data |= values.get_dict_data(mode)
+                except TypeError:      # families whose dict takes no mode
+                    data |= values.get_dict_data()
         self.total_flags = self.convert_flags()
         if just_metrics:
-            data = binarization_data | intensity_data | flow_data | mesh_data | component_data
-        else:
-            data = {Metrics.FILEPATH: self.filepath,
-                    Metrics.CHANNEL: self.channel,
-                    Metrics.FLAGS: self.total_flags}
-            data = data | binarization_data | intensity_data | flow_data | mesh_data
-        return data
-    
-    def get_physical_dict_data(self, just_metrics: bool = False, include_mesh: bool = None,
-                      mode=None, include_components=None) -> dict:
-        mode, include_mesh, with_flow, include_components = _resolve(
-            mode, include_mesh, include_components)
-        # Keys come from the mode-aware metric lists so a dict and a CSV row
-        # built from the same results always agree on names and membership.
-        binarization_data = dict(zip(
-            BinarizationResults.get_physical_metrics(mode), self.binarization.get_physical_data()))
-        intensity_data = dict(zip(
-            IntensityResults.get_metrics(mode), self.intensity.get_data()))
-        flow_data = self.flow.get_dict_data() if with_flow else {}
-        mesh_data = self.mesh.get_dict_data() if include_mesh else {}
-        component_data = (self.components.get_dict_data(mode)
-                          if include_components else {})
-        self.total_flags = self.convert_flags()
-        if just_metrics:
-            data = binarization_data | intensity_data | flow_data | mesh_data | component_data
-        else:
-            data = {Metrics.FILEPATH: self.filepath,
-                    Metrics.CHANNEL: self.channel,
-                    Metrics.FLAGS: self.total_flags}
-            data = data | binarization_data | intensity_data | flow_data | mesh_data
-        return data
-    
+            return data
+        return {Metrics.FILEPATH: self.filepath,
+                 Metrics.CHANNEL: self.channel,
+                 Metrics.FLAGS: self.total_flags} | data
+
+    def get_dict_data(self, just_metrics: bool = False, mode=None, **switches) -> dict:
+        mode, with_flow, enabled = _resolve(mode, **switches)
+        return self._dict(just_metrics, mode, enabled, with_flow, physical=False)
+
+    def get_physical_dict_data(self, just_metrics: bool = False, mode=None,
+                               **switches) -> dict:
+        mode, with_flow, enabled = _resolve(mode, **switches)
+        return self._dict(just_metrics, mode, enabled, with_flow, physical=True)
+
     def to_physical_array(self, **kwargs) -> np.ndarray:
         """Convert results to a NumPy array for easier manipulation."""
         return np.array(self.get_physical_data(**kwargs), dtype=float)

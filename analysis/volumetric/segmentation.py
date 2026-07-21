@@ -132,9 +132,30 @@ def load_segmentation(
             f"mask_spacing_um and z_step_um."
         )
 
-    mask = mask > 0
-    if not mask.any():
+    if not (mask > 0).any():
         raise ValueError(f"Segmentation {os.path.basename(path)} is empty.")
+
+    # Whether to keep the integer labels. An instance segmentation carries one label per
+    # object; collapsing it to a boolean throws that away, and objects are then
+    # re-derived by connectivity -- which merges every touching instance. "auto" keeps
+    # labels whenever the mask actually distinguishes more than one object.
+    partition = getattr(config, "object_partition", "auto")
+    distinct = int(np.count_nonzero(np.unique(mask)))
+    keep_labels = (partition == "labels"
+                   or (partition == "auto" and distinct > 1)
+                   or getattr(config, "segmentation_label_mode", "binary") == "labels")
+
+    if keep_labels:
+        mask = mask.astype(np.int32, copy=False)
+        if config.invert_binarization:
+            raise ValueError(
+                "invert_binarization is meaningless for a label mask: inverting "
+                "instance labels does not describe anything. Use a binary mask, or "
+                "set object_partition='connectivity'."
+            )
+        return mask, path, mask_spacing
+
+    mask = mask > 0
     if config.invert_binarization:
         mask = ~mask
 

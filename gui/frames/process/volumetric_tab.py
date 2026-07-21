@@ -69,6 +69,28 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
+    tk.Label(frame, text="File Layout", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    axes_label = tk.Label(frame, text="Axis Order Override (blank = read from file)")
+    axes_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Entry(frame, textvariable=cv.axes_override, width=9).grid(
+        row=row_idx, column=1, padx=5, pady=5
+    )
+    create_popup(
+        frame,
+        "The true axis order, one letter per dimension, for a file whose header is "
+        "wrong -- for example 'TZYX' for a stack that declares 'ZCYX' because the "
+        "microscope wrote its timepoints into ImageJ's 'channels' field. Leave blank "
+        "to trust the file. BARCODE never guesses an axis order, but it will accept "
+        "being told: a wrong entry here silently reinterprets every axis, so check it "
+        "against the shape the log prints.",
+        row_idx, axes_label,
+    )
+    row_idx += 1
+
     tk.Label(frame, text="Z Range", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
     )
@@ -117,6 +139,53 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
+    tk.Label(frame, text="Time Range", font=header).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
+    )
+    row_idx += 1
+
+    t_units_label = tk.Label(frame, text="Time Range Units")
+    t_units_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Combobox(
+        frame, textvariable=cv.t_range_units, values=["index", "seconds"],
+        width=10, state="readonly",
+    ).grid(row=row_idx, column=1, sticky="w", padx=5, pady=5)
+    create_popup(
+        frame,
+        "How the two values below are read. 'index' counts timepoints from 0. "
+        "'seconds' converts through the exposure time, so a range can be stated in the "
+        "units the experiment was designed in rather than frame numbers that change if "
+        "the acquisition rate does.",
+        row_idx, t_units_label,
+    )
+    row_idx += 1
+
+    t_start_label = tk.Label(frame, text="Time Range Start")
+    t_start_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=100000, increment=1, textvariable=cv.t_start, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "First timepoint to analyse, in the units chosen above. Useful when the start of "
+        "an acquisition is out of focus or pre-stimulus.",
+        row_idx, t_start_label,
+    )
+    row_idx += 1
+
+    t_end_label = tk.Label(frame, text="Time Range End (0 = to the end)")
+    t_end_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=-100000, to=100000, increment=1, textvariable=cv.t_end, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "One past the last timepoint. 0 always means to the end of the series; for "
+        "'index', negatives count back from the end.",
+        row_idx, t_end_label,
+    )
+    row_idx += 1
+
     tk.Label(frame, text="Optional Metrics", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
     )
@@ -131,6 +200,60 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "spread of the object-size distribution, which the mean and total cannot: one "
         "dominant object plus debris gives the same mean as several even ones. "
         "Volumetric modes only. Off by default so the barcode stays readable.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_packing_topology,
+        "Packing Topology",
+        "Add mean contact number, contact number SD and hexagonal fraction: how objects "
+        "are arranged relative to each other, which no other metric describes. In a "
+        "space-filling monolayer sizes and separations are near-uniform and it is the "
+        "neighbour-number distribution that changes. Needs an instance segmentation "
+        "with integer labels -- in a confluent field, deriving objects by connectivity "
+        "merges the whole tissue into one.",
+    )
+    row_idx += 2
+
+    contact_label = tk.Label(frame, text="Minimum Contact [voxels]")
+    contact_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=1, to=1000, increment=1,
+        textvariable=cv.packing_min_contact_voxels, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Shared face area, in voxels, below which a touch is treated as a segmentation "
+        "nick rather than a real interface between two objects.",
+        row_idx, contact_label,
+    )
+    row_idx += 1
+
+    dilation_label = tk.Label(frame, text="Contact Gap Bridging [voxels]")
+    dilation_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0, to=20, increment=1,
+        textvariable=cv.packing_contact_dilation_vox, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Grow labels by this many voxels before looking for contacts, so objects "
+        "separated by a thin background gap -- a segmented membrane between cells -- "
+        "still count as neighbours. 0 requires them to touch exactly.",
+        row_idx, dilation_label,
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.packing_exclude_border_objects,
+        "Exclude Border Objects From Packing",
+        "Objects touching the edge of the field have an artificially low contact number. "
+        "They stay in the graph so their interior neighbours keep full degree; only the "
+        "reported statistics exclude them.",
     )
     row_idx += 2
 

@@ -89,6 +89,36 @@ class Metrics(Enum):
     ISLAND_VOLUME_SKEW = "Island Volume Skewness"
     ISLAND_VOLUME_MEDIAN = "Median Island Volume"
 
+    # Extensive intensity quantities. Every other intensity metric is intensive -- a
+    # dimensionless descriptor of histogram shape -- so until these exist nothing in the
+    # branch scales with the amount of material. Density is named per mode, following
+    # the Area/Volume precedent, because its unit genuinely differs.
+    INTENSITY_TOTAL = "Total Intensity"
+    INTENSITY_MEAN = "Mean Intensity"
+    INTENSITY_SD = "Intensity SD"
+    INTENSITY_DENSITY_AREA = "Intensity Density (per area)"
+    INTENSITY_DENSITY_VOLUME = "Intensity Density (per volume)"
+
+    # Packing topology: how objects are arranged relative to each other, which nothing
+    # else in BARCODE describes. Sizes and separations can be near-uniform in a
+    # space-filling monolayer while the neighbour-number distribution changes -- that
+    # distribution is the canonical epithelial readout.
+    CONTACT_NUMBER_MEAN = "Mean Contact Number"
+    CONTACT_NUMBER_SD = "Contact Number SD"
+    HEXAGONAL_FRACTION = "Hexagonal Fraction"
+
+    # Identity of the object a row describes, when a supplied instance mask partitions
+    # the field into several. Blank on aggregate rows. Present in the contract from the
+    # start so per-object rows are later a behaviour change, not a schema change.
+    OBJECT_ID = "Object ID"
+
+    # Provenance: which range the numbers in this row were computed over. Flag digit 5
+    # says a range was restricted; these say which one, per row.
+    RANGE_Z_START = "Z Range Start"
+    RANGE_Z_END = "Z Range End"
+    RANGE_T_START = "T Range Start"
+    RANGE_T_END = "T Range End"
+
     # Metrics for optical flow analysis
     SPEED = "Speed"
     DELTA_SPEED = "Speed Change"
@@ -155,6 +185,10 @@ class Units(UnitsNum):
     AREA: str = "μm^2"
     VOLUME: str = "μm^3"
     CURVATURE: str = "1/μm"
+    INTENSITY: str = "a.u."
+    INTENSITY_PER_AREA: str = "a.u./μm^2"
+    INTENSITY_PER_VOLUME: str = "a.u./μm^3"
+    SLICE_INDEX: str = "slice"
 
 
 def get_data_limits(
@@ -206,7 +240,9 @@ def get_data_limits(
                 limits.append(direction_static_limits)
         elif unit == Units.PERCENT_CHANGE:
             limits.append(dynamic_limits(data[:, i], 1))
-        elif unit in [Units.SPEED, Units.LENGTH, Units.AREA, Units.VOLUME, Units.CURVATURE]:
+        elif unit in [Units.SPEED, Units.LENGTH, Units.AREA, Units.VOLUME,
+                      Units.CURVATURE, Units.INTENSITY, Units.INTENSITY_PER_AREA,
+                      Units.INTENSITY_PER_VOLUME, Units.SLICE_INDEX]:
             if metric == Metrics.DELTA_SPEED or unit == Units.CURVATURE:
                 # Curvature is signed: a concave surface gives a negative mean, so a
                 # [0, max] scale would clip half its range.

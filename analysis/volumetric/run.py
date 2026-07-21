@@ -20,9 +20,14 @@ from analysis.volumetric.flow import VolumetricFlowDetail, analyze_optical_flow_
 from analysis.volumetric.intensity import (
     VolumetricIntensityDetail,
     analyze_intensity_3d,
+    analyze_intensity_magnitude,
 )
 from analysis.volumetric.mesh import MeshingError, NucleusMesh, mesh_series
-from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
+from analysis.volumetric.packing import (
+    VolumetricPackingDetail, packing_topology, summarise_packing)
+from analysis.volumetric.provenance import build_range_results
+from analysis.volumetric.reader import (
+    VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_segmentation
 from core import BarcodeConfig, ChannelResults, VolumetricConfig
 from core.results import ComponentResults, MeshResults
@@ -41,6 +46,7 @@ class VolumetricRunDetail:
     intensity: Optional[VolumetricIntensityDetail] = None
     flow: Optional[VolumetricFlowDetail] = None
     meshes: List[NucleusMesh] = field(default_factory=list)
+    packing: List[VolumetricPackingDetail] = field(default_factory=list)
     frame_indices: List[int] = field(default_factory=list)
 
 
@@ -148,7 +154,10 @@ def _load_masks(
     A grouped series carries its constituent file paths in ``metadata_source``; each
     timepoint gets its own mask, since the object moves and changes shape over time.
     """
-    shape_zyx = stack.data.shape[1:]
+    # Validate against the acquired depth, not the analysed sub-range; the mask covers
+    # the whole acquisition and is cropped to match further down.
+    acquired_z = stack.n_slices_acquired or stack.n_slices
+    shape_zyx = (acquired_z,) + tuple(stack.data.shape[2:])
     paths = stack.metadata_source.get("paths") or [stack.source_path]
 
     masks, mask_paths, spacing = [], [], None
@@ -169,7 +178,11 @@ def _load_masks(
         mask_paths.append(mask_path)
         spacing = mask_spacing
 
-    return np.stack(masks), mask_paths, spacing
+    stacked = np.stack(masks)
+    if stack.z_range and stacked.shape[1] == (stack.n_slices_acquired or 0):
+        # The mask is on the acquired grid; take the same slices the image kept.
+        stacked = stacked[:, stack.z_range[0]:stack.z_range[1]]
+    return stacked, mask_paths, spacing
 
 
 def _prepare_geometry(
@@ -289,9 +302,11 @@ def run_volumetric_analysis(
             channel=channel,
             z_step_um=vcfg.z_step_um or None,
             xy_step_um=vcfg.xy_step_um or None,
+            axes_override=getattr(vcfg, "axes_override", "") or None,
         )
     # Same depth restriction as xyz: a volume padded with empty slices reports a
     # different shape and a diluted intensity distribution.
+    stack = apply_t_range(stack, vcfg)
     stack = apply_z_range(stack, vcfg)
 
     volumes, masks, spacing_zyx, info, mask_paths = _prepare_geometry(stack, vcfg)
@@ -306,7 +321,7 @@ def run_volumetric_analysis(
         frame_indices=frame_indices,
     )
     results = ChannelResults(filepath=filepath, channel=channel)
-    results.z_range_flag = 1 if stack.z_range else 0
+    results.z_range_flag = 1 if (stack.z_range or stack.t_range) else 0
 
     if config.modules.image_binarization:
         results.binarization, detail.binarization = analyze_binarization_3d(
@@ -338,6 +353,40 @@ def run_volumetric_analysis(
                 results.mesh = summarise_meshes(detail.meshes)
             except MeshingError as exc:
                 print(f"Meshing failed: {exc}", flush=True)
+
+    if vcfg.enable_packing_topology:
+        # Needs a label volume. Reported rather than raised, matching how meshing
+        # handles a missing segmentation: silently falling back to connectivity would
+        # report a contact number of 0 for a confluent field, which reads as a
+        # measurement rather than a misconfiguration.
+        if masks is None:
+            print("Packing topology needs a segmentation; skipping.", flush=True)
+        elif masks.dtype == bool or int(np.count_nonzero(np.unique(masks))) < 2:
+            print(
+                "Packing topology needs an integer label volume with more than one "
+                "object; the mask has none, so the family is left empty. Supply an "
+                "instance segmentation and set object_partition='labels'.",
+                flush=True,
+            )
+        else:
+            per_frame, frame_details = [], []
+            for frame_idx in frame_indices:
+                frame_result, frame_detail = packing_topology(masks[frame_idx], vcfg)
+                per_frame.append(frame_result)
+                frame_details.append(frame_detail)
+            results.packing = summarise_packing(frame_details, per_frame)
+            detail.packing = frame_details
+            print(f"  {frame_details[0].describe()}", flush=True)
+
+    # Stream A's families: computed there, populated here, because the orchestration
+    # files belong to stream B. The writer and barcode detect them automatically.
+    if vcfg.enable_intensity_magnitude:
+        results.intensity_magnitude = analyze_intensity_magnitude(
+            volumes, spacing_zyx, frame_indices,
+            masks if vcfg.intensity_use_mask else None)
+
+    if vcfg.record_range_columns:
+        results.ranges = build_range_results(stack)
 
     if config.modules.optical_flow:
         # Unlike the other branches, flow needs a contiguous window of 6*t_sigma+1
@@ -404,7 +453,10 @@ def run_volumetric_timelapse(
             continue
 
         print(
-            f"  {len(group)} timepoints -> {detail.shape_zyx} @ "
+            f"  {detail.stack.n_timepoints} of {len(group)} timepoints"
+            + (f" (t[{detail.stack.t_range[0]}:{detail.stack.t_range[1]}])"
+               if detail.stack.t_range else "")
+            + f" -> {detail.shape_zyx} @ "
             f"{tuple(round(s, 4) for s in detail.spacing_zyx_um)} um"
             f"{' (common crop box)' if detail.resample_info.get('common_crop') else ''}",
             flush=True,

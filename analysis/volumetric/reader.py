@@ -26,6 +26,36 @@ _UNKNOWN_AXES = set("IQS")
 _KNOWN_AXES = set("TZCYX")
 
 
+def validate_axes_override(override: str, shape: Tuple[int, ...], filename: str = "") -> str:
+    """Check a user-supplied axis order against the file's actual shape.
+
+    Acquisition software mislabels hyperstacks — writing a time series into ImageJ's
+    ``channels`` field is common, and the file then declares ``ZCYX`` for data that is
+    really ``TZYX``. The module's rule is that BARCODE never *guesses* the axis order;
+    it does not forbid the user from *stating* it. This is that statement, and it is
+    checked hard, because a wrong override silently reinterprets every axis.
+    """
+    label = f"{filename}: " if filename else ""
+    axes = str(override).strip().upper()
+
+    if len(axes) != len(shape):
+        raise ValueError(
+            f"{label}axis override {axes!r} has {len(axes)} axes but the file's data is "
+            f"{len(shape)}-dimensional {shape}. Give one letter per dimension."
+        )
+    unsupported = set(axes) - _KNOWN_AXES
+    if unsupported:
+        raise ValueError(
+            f"{label}axis override {axes!r} contains {sorted(unsupported)!r}; "
+            f"only T, Z, C, Y and X are understood."
+        )
+    if len(set(axes)) != len(axes):
+        raise ValueError(f"{label}axis override {axes!r} repeats an axis.")
+    if "Y" not in axes or "X" not in axes:
+        raise ValueError(f"{label}axis override {axes!r} must include both Y and X.")
+    return axes
+
+
 @dataclass
 class VolumeStack:
     """A single-channel volumetric stack in canonical ``(T, Z, Y, X)`` order."""
@@ -37,9 +67,18 @@ class VolumeStack:
     axes: str
     source_path: str
     channel: int = 0
+    # What the file itself claimed, when that differs from `axes` because the user
+    # supplied an override. Kept so provenance records the reinterpretation.
+    declared_axes: str = None
     metadata_source: dict = field(default_factory=dict)
     # (start, stop) of the analysed slices within the acquired stack; None = all of it.
     z_range: tuple = None
+    # How tall the stack was as acquired. A mask covers the whole acquisition, so
+    # validating it against an already-restricted image compares its full depth with a
+    # sub-range and rejects a perfectly good mask.
+    n_slices_acquired: int = None
+    # (start, stop) of the analysed timepoints within the acquired series.
+    t_range: tuple = None
 
     @property
     def n_timepoints(self) -> int:
@@ -97,6 +136,67 @@ class VolumeStack:
 
         return to_acquired(z_start, False), to_acquired(z_end, True)
 
+    def resolve_t_range(self, t_start, t_end, units: str = "index") -> Tuple[int, int]:
+        """Convert a timepoint range to indices.
+
+        ``index`` counts timepoints; ``seconds`` converts through the exposure time, so a
+        range can be stated in the units the experiment was designed in rather than in
+        frame numbers that change if the acquisition rate does.
+        """
+        units = (units or "index").strip().lower()
+        if units not in ("index", "seconds"):
+            raise ValueError(
+                f"Unknown t_range_units {units!r}; expected 'index' or 'seconds'."
+            )
+        if units == "index":
+            return int(t_start), int(t_end)
+
+        if not self.exposure_time_s:
+            raise ValueError(
+                "Cannot convert a t range in seconds without an exposure time; set it "
+                "explicitly or use t_range_units='index'."
+            )
+
+        def to_index(value, is_end):
+            if value == 0 and is_end:
+                return 0                       # 0 always means "to the end"
+            return int(round(float(value) / self.exposure_time_s))
+
+        return to_index(t_start, False), to_index(t_end, True)
+
+    def restrict_t(self, t_start: int = 0, t_end: int = 0) -> "VolumeStack":
+        """Return a copy limited to a range of timepoints.
+
+        Same conventions as ``restrict_z``: ``t_end`` of 0 means "to the last", negatives
+        index from the end, and an empty or reversed range raises rather than yielding a
+        zero-timepoint stack that would surface later as an unexplained NaN.
+        """
+        n_t = self.n_timepoints
+        start = t_start + n_t if t_start < 0 else t_start
+        stop = n_t if t_end == 0 else (t_end + n_t if t_end < 0 else t_end)
+        start, stop = max(start, 0), min(stop, n_t)
+
+        if stop <= start:
+            raise ValueError(
+                f"{os.path.basename(self.source_path)}: t range [{t_start}, {t_end}) "
+                f"selects no timepoints from a {n_t}-timepoint series."
+            )
+        if (start, stop) == (0, n_t):
+            return self
+
+        restricted = replace(self, data=self.data[start:stop])
+        restricted.t_range = (start, stop)
+        # A grouped series carries its source files; keep them aligned with the data.
+        paths = self.metadata_source.get("paths")
+        if paths:
+            metadata = dict(self.metadata_source)
+            metadata["paths"] = list(paths[start:stop])
+            frames = metadata.get("frames")
+            if frames:
+                metadata["frames"] = list(frames[start:stop])
+            restricted.metadata_source = metadata
+        return restricted
+
     def restrict_z(self, z_start: int = 0, z_end: int = 0) -> "VolumeStack":
         """Return a copy limited to a range of z slices.
 
@@ -119,6 +219,7 @@ class VolumeStack:
 
         restricted = replace(self, data=self.data[:, start:stop])
         restricted.z_range = (start, stop)
+        restricted.n_slices_acquired = n_z
         return restricted
 
     def describe(self) -> str:
@@ -129,6 +230,7 @@ class VolumeStack:
             f"z={self.z_step_um:g}um xy={self.xy_step_um:g}um "
             f"anisotropy={anisotropy:.3f}x channel={self.channel}"
             + (f" z[{self.z_range[0]}:{self.z_range[1]}]" if self.z_range else "")
+            + (f" t[{self.t_range[0]}:{self.t_range[1]}]" if self.t_range else "")
         )
 
 
@@ -167,6 +269,7 @@ def read_volume(
     z_step_um: Optional[float] = None,
     xy_step_um: Optional[float] = None,
     exposure_time_s: Optional[float] = None,
+    axes_override: Optional[str] = None,
 ) -> VolumeStack:
     """Load a volumetric TIFF as ``(T, Z, Y, X)`` for one channel.
 
@@ -174,6 +277,11 @@ def read_volume(
     always win over file metadata; if neither supplies a value the spacing falls back
     to 1.0 with a printed warning, because silently assuming a voxel size would make
     every physical metric wrong by an unknown factor.
+
+    ``axes_override`` states the true axis order for a file whose header is wrong (or
+    undeclared), one letter per data dimension. It replaces the declared order outright,
+    so it also rescues the ``IQS`` "undetermined axis" files this module otherwise
+    refuses. The distinction the module keeps is between guessing and being told.
     """
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
@@ -181,6 +289,13 @@ def read_volume(
         array = series.asarray()
         ij = tf.imagej_metadata or {}
         tag_xy = _xy_spacing_from_tags(tf.pages[0])
+
+    declared = axes
+    if axes_override:
+        axes = validate_axes_override(axes_override, array.shape, os.path.basename(path))
+        if axes != declared:
+            print(f"{os.path.basename(path)}: reading axes as {axes} "
+                  f"(file declares {declared}).", flush=True)
 
     unknown = set(axes) & _UNKNOWN_AXES
     if unknown:
@@ -202,6 +317,9 @@ def read_volume(
             f"{os.path.basename(path)}: axes {axes!r} have no Z axis — this is not a "
             f"volumetric stack. Use the standard (2D) BARCODE pipeline for this file."
         )
+
+    # The loop below rewrites `axes` as it pads, so keep what the data really is.
+    effective_axes = axes
 
     # Reorder to (T, Z, C, Y, X), inserting length-1 axes for anything absent.
     for missing in ("T", "Z", "C"):
@@ -235,7 +353,8 @@ def read_volume(
         z_step_um=float(z_um),
         xy_step_um=float(xy_um),
         exposure_time_s=float(exposure if exposure is not None else 1.0),
-        axes=read_axes(path)[0],
+        axes=effective_axes,
+        declared_axes=declared,
         source_path=path,
         channel=channel,
         metadata_source={
@@ -243,6 +362,19 @@ def read_volume(
             "xresolution_um_per_px": tag_xy,
         },
     )
+
+
+def apply_t_range(stack: VolumeStack, config) -> VolumeStack:
+    """Restrict ``stack`` to the config's timepoint range, in whatever unit it is stated.
+
+    Paired with ``apply_z_range`` so no pipeline can interpret either setting its own way.
+    """
+    start, end = stack.resolve_t_range(
+        getattr(config, "t_start", 0),
+        getattr(config, "t_end", 0),
+        getattr(config, "t_range_units", "index"),
+    )
+    return stack.restrict_t(start, end)
 
 
 def apply_z_range(stack: VolumeStack, config) -> VolumeStack:

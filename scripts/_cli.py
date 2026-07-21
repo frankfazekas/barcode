@@ -25,12 +25,41 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
              "physical depth, which cannot be misread either way (default: acquired)",
     )
     group.add_argument(
+        "--t-units", default="index", choices=["index", "seconds"],
+        help="how --t-start/--t-end are read: timepoint index, or seconds via the "
+             "exposure time (default: index)",
+    )
+    group.add_argument(
+        "--t-start", type=float, default=0, metavar="POS",
+        help="first timepoint to analyse, in --t-units (default 0)",
+    )
+    group.add_argument(
+        "--t-end", type=float, default=0, metavar="POS",
+        help="end of the timepoint range; 0 means to the end",
+    )
+    group.add_argument(
         "--z-start", type=float, default=0, metavar="POS",
         help="start of the z range, in --z-units (default 0)",
     )
     group.add_argument(
         "--z-end", type=float, default=0, metavar="POS",
         help="end of the z range, in --z-units; 0 means to the end",
+    )
+
+    group = parser.add_argument_group("file layout")
+    group.add_argument(
+        "--axes", default="", metavar="ORDER",
+        help="true axis order (e.g. TZYX), one letter per data dimension, for a file "
+             "whose header is wrong. Acquisition software writing a time series into "
+             "ImageJ's 'channels' field is the common case. Default: trust the file",
+    )
+    group.add_argument(
+        "--xy-step", type=float, default=0, metavar="UM",
+        help="microns per pixel in xy, overriding the file's XResolution tag",
+    )
+    group.add_argument(
+        "--z-step", type=float, default=0, metavar="UM",
+        help="microns between z slices, overriding the file's ImageJ 'spacing'",
     )
 
 
@@ -64,6 +93,12 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.z_start = getattr(args, "z_start", 0)
     v.z_end = getattr(args, "z_end", 0)
     v.z_range_units = getattr(args, "z_units", "acquired")
+    v.t_start = getattr(args, "t_start", 0)
+    v.t_end = getattr(args, "t_end", 0)
+    v.t_range_units = getattr(args, "t_units", "index")
+    v.axes_override = getattr(args, "axes", "") or ""
+    v.xy_step_um = getattr(args, "xy_step", 0) or v.xy_step_um
+    v.z_step_um = getattr(args, "z_step", 0) or v.z_step_um
     v.enable_component_stats = getattr(args, "component_stats", False)
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))

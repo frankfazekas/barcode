@@ -693,6 +693,7 @@ class VolumetricConfigGUI:
     enabled: tk.BooleanVar = field(init=False)
     z_step_um: tk.DoubleVar = field(init=False)
     xy_step_um: tk.DoubleVar = field(init=False)
+    axes_override: tk.StringVar = field(init=False)
     segmentation_enabled: tk.BooleanVar = field(init=False)
     segmentation_root: tk.StringVar = field(init=False)
     segmentation_regex: tk.StringVar = field(init=False)
@@ -704,6 +705,22 @@ class VolumetricConfigGUI:
     make_isotropic: tk.BooleanVar = field(init=False)
     crop_padding_vox: tk.IntVar = field(init=False)
     enable_component_stats: tk.BooleanVar = field(init=False)
+    t_start: tk.DoubleVar = field(init=False)
+    t_end: tk.DoubleVar = field(init=False)
+    t_range_units: tk.StringVar = field(init=False)
+    object_partition: tk.StringVar = field(init=False)
+    per_object_rows: tk.BooleanVar = field(init=False)
+    mask_format: tk.StringVar = field(init=False)
+    segmentation_label_mode: tk.StringVar = field(init=False)
+    segmentation_secondary_root: tk.StringVar = field(init=False)
+    segmentation_secondary_template: tk.StringVar = field(init=False)
+    mesh_aggregation: tk.StringVar = field(init=False)
+    enable_packing_topology: tk.BooleanVar = field(init=False)
+    packing_contact_dilation_vox: tk.IntVar = field(init=False)
+    packing_min_contact_voxels: tk.IntVar = field(init=False)
+    packing_exclude_border_objects: tk.BooleanVar = field(init=False)
+    enable_intensity_magnitude: tk.BooleanVar = field(init=False)
+    record_range_columns: tk.BooleanVar = field(init=False)
     timelapse_enabled: tk.BooleanVar = field(init=False)
     timelapse_regex: tk.StringVar = field(init=False)
     threshold_offset: tk.DoubleVar = field(init=False)
@@ -738,6 +755,7 @@ class VolumetricConfigGUI:
         self.enabled = tk.BooleanVar(value=self._core_config.enabled)
         self.z_step_um = tk.DoubleVar(value=self._core_config.z_step_um)
         self.xy_step_um = tk.DoubleVar(value=self._core_config.xy_step_um)
+        self.axes_override = tk.StringVar(value=self._core_config.axes_override)
         self.segmentation_enabled = tk.BooleanVar(value=self._core_config.segmentation_enabled)
         self.segmentation_root = tk.StringVar(value=self._core_config.segmentation_root)
         self.segmentation_regex = tk.StringVar(value=self._core_config.segmentation_regex)
@@ -749,6 +767,22 @@ class VolumetricConfigGUI:
         self.make_isotropic = tk.BooleanVar(value=self._core_config.make_isotropic)
         self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
         self.enable_component_stats = tk.BooleanVar(value=self._core_config.enable_component_stats)
+        self.t_start = tk.DoubleVar(value=self._core_config.t_start)
+        self.t_end = tk.DoubleVar(value=self._core_config.t_end)
+        self.t_range_units = tk.StringVar(value=self._core_config.t_range_units)
+        self.object_partition = tk.StringVar(value=self._core_config.object_partition)
+        self.per_object_rows = tk.BooleanVar(value=self._core_config.per_object_rows)
+        self.mask_format = tk.StringVar(value=self._core_config.mask_format)
+        self.segmentation_label_mode = tk.StringVar(value=self._core_config.segmentation_label_mode)
+        self.segmentation_secondary_root = tk.StringVar(value=self._core_config.segmentation_secondary_root)
+        self.segmentation_secondary_template = tk.StringVar(value=self._core_config.segmentation_secondary_template)
+        self.mesh_aggregation = tk.StringVar(value=self._core_config.mesh_aggregation)
+        self.enable_packing_topology = tk.BooleanVar(value=self._core_config.enable_packing_topology)
+        self.packing_contact_dilation_vox = tk.IntVar(value=self._core_config.packing_contact_dilation_vox)
+        self.packing_min_contact_voxels = tk.IntVar(value=self._core_config.packing_min_contact_voxels)
+        self.packing_exclude_border_objects = tk.BooleanVar(value=self._core_config.packing_exclude_border_objects)
+        self.enable_intensity_magnitude = tk.BooleanVar(value=self._core_config.enable_intensity_magnitude)
+        self.record_range_columns = tk.BooleanVar(value=self._core_config.record_range_columns)
         self.timelapse_enabled = tk.BooleanVar(value=self._core_config.timelapse_enabled)
         self.timelapse_regex = tk.StringVar(value=self._core_config.timelapse_regex)
         self.threshold_offset = tk.DoubleVar(value=self._core_config.threshold_offset)
@@ -786,6 +820,7 @@ class VolumetricConfigGUI:
             enabled=self.enabled.get(),
             z_step_um=self.z_step_um.get(),
             xy_step_um=self.xy_step_um.get(),
+            axes_override=self.axes_override.get(),
             segmentation_enabled=self.segmentation_enabled.get(),
             segmentation_root=self.segmentation_root.get(),
             segmentation_regex=self.segmentation_regex.get(),
@@ -797,6 +832,22 @@ class VolumetricConfigGUI:
             make_isotropic=self.make_isotropic.get(),
             crop_padding_vox=self.crop_padding_vox.get(),
             enable_component_stats=self.enable_component_stats.get(),
+            t_start=self.t_start.get(),
+            t_end=self.t_end.get(),
+            t_range_units=self.t_range_units.get(),
+            object_partition=self.object_partition.get(),
+            per_object_rows=self.per_object_rows.get(),
+            mask_format=self.mask_format.get(),
+            segmentation_label_mode=self.segmentation_label_mode.get(),
+            segmentation_secondary_root=self.segmentation_secondary_root.get(),
+            segmentation_secondary_template=self.segmentation_secondary_template.get(),
+            mesh_aggregation=self.mesh_aggregation.get(),
+            enable_packing_topology=self.enable_packing_topology.get(),
+            packing_contact_dilation_vox=self.packing_contact_dilation_vox.get(),
+            packing_min_contact_voxels=self.packing_min_contact_voxels.get(),
+            packing_exclude_border_objects=self.packing_exclude_border_objects.get(),
+            enable_intensity_magnitude=self.enable_intensity_magnitude.get(),
+            record_range_columns=self.record_range_columns.get(),
             timelapse_enabled=self.timelapse_enabled.get(),
             timelapse_regex=self.timelapse_regex.get(),
             threshold_offset=self.threshold_offset.get(),
@@ -834,6 +885,7 @@ class VolumetricConfigGUI:
         self.enabled.set(new_config.enabled)
         self.z_step_um.set(new_config.z_step_um)
         self.xy_step_um.set(new_config.xy_step_um)
+        self.axes_override.set(new_config.axes_override)
         self.segmentation_enabled.set(new_config.segmentation_enabled)
         self.segmentation_root.set(new_config.segmentation_root)
         self.segmentation_regex.set(new_config.segmentation_regex)
@@ -845,6 +897,22 @@ class VolumetricConfigGUI:
         self.make_isotropic.set(new_config.make_isotropic)
         self.crop_padding_vox.set(new_config.crop_padding_vox)
         self.enable_component_stats.set(new_config.enable_component_stats)
+        self.t_start.set(new_config.t_start)
+        self.t_end.set(new_config.t_end)
+        self.t_range_units.set(new_config.t_range_units)
+        self.object_partition.set(new_config.object_partition)
+        self.per_object_rows.set(new_config.per_object_rows)
+        self.mask_format.set(new_config.mask_format)
+        self.segmentation_label_mode.set(new_config.segmentation_label_mode)
+        self.segmentation_secondary_root.set(new_config.segmentation_secondary_root)
+        self.segmentation_secondary_template.set(new_config.segmentation_secondary_template)
+        self.mesh_aggregation.set(new_config.mesh_aggregation)
+        self.enable_packing_topology.set(new_config.enable_packing_topology)
+        self.packing_contact_dilation_vox.set(new_config.packing_contact_dilation_vox)
+        self.packing_min_contact_voxels.set(new_config.packing_min_contact_voxels)
+        self.packing_exclude_border_objects.set(new_config.packing_exclude_border_objects)
+        self.enable_intensity_magnitude.set(new_config.enable_intensity_magnitude)
+        self.record_range_columns.set(new_config.record_range_columns)
         self.timelapse_enabled.set(new_config.timelapse_enabled)
         self.timelapse_regex.set(new_config.timelapse_regex)
         self.threshold_offset.set(new_config.threshold_offset)

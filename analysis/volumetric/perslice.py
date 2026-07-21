@@ -35,7 +35,8 @@ from analysis.binarization import (
     spatial_image_autocorrelation,
 )
 from analysis.volumetric.binarization import correlation_length_from_radial
-from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
+from analysis.volumetric.reader import (
+    VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_mask_on_image_grid
 from core import BarcodeConfig, BinarizationResults, ChannelResults, IntensityResults
 from core.modes import get_mode
@@ -166,9 +167,15 @@ def run_per_slice_analysis(
     stack = read_volume(
         filepath, channel=channel,
         z_step_um=vcfg.z_step_um or None, xy_step_um=vcfg.xy_step_um or None,
+        axes_override=getattr(vcfg, "axes_override", "") or None,
     )
     mode.validate_axes(stack.axes, os.path.basename(filepath))
     # Indices refer to ACQUIRED slices, before any isotropic resampling.
+    # Timepoints first: the t range decides which volumes are analysed at all, so
+    # selecting them before any mask or geometry work keeps that work off the ones
+    # that were excluded.
+    stack = apply_t_range(stack, vcfg)
+
     # Load the mask against the FULL acquired stack, then restrict both together.
     # Validating it against an already-restricted image would compare the mask's whole
     # depth with a sub-range and reject a perfectly good mask.
@@ -205,7 +212,7 @@ def run_per_slice_analysis(
                 filepath=f"{os.path.basename(filepath)} z={offset + i} ({depth_um:.2f}um)",
                 channel=channel,
             )
-            row.z_range_flag = 1 if stack.z_range else 0
+            row.z_range_flag = 1 if (stack.z_range or stack.t_range) else 0
             if config.modules.image_binarization:
                 try:
                     row.binarization = _binarization_for_slice(

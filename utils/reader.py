@@ -103,15 +103,20 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
 
     accepted_headers = [expected_headers, expected_physical_headers, expected_v1_headers,
                         expected_mesh_headers, expected_mesh_physical_headers]
+    # Every combination of mode and optional family, generated from the registry
+    # rather than hard-coded: a header list this loop does not know about used to make
+    # the reader drop every row in silence.
+    from itertools import product
+
+    from core.results import OPTIONAL_FAMILIES
+
     for _mode in MODES.values():
-        for _mesh in ((False, True) if _mode.supports_mesh else (False,)):
-            for _comp in ((False, True) if _mode.supports_component_stats else (False,)):
-                accepted_headers.append(ChannelResults.get_headers(
-                    just_metrics=False, include_mesh=_mesh, mode=_mode,
-                    include_components=_comp))
-                accepted_headers.append(ChannelResults.get_physical_headers(
-                    just_metrics=False, include_mesh=_mesh, mode=_mode,
-                    include_components=_comp))
+        for _combo in product((False, True), repeat=len(OPTIONAL_FAMILIES)):
+            _switches = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, _combo)}
+            accepted_headers.append(ChannelResults.get_headers(
+                just_metrics=False, mode=_mode, **_switches))
+            accepted_headers.append(ChannelResults.get_physical_headers(
+                just_metrics=False, mode=_mode, **_switches))
 
     v1_header_length = 18 # Channel, 7 Image_Binarization, 6 Intensity_Distribution, 4 Optical_Flow
     v2_header_length = 26 # Channel, 12 Image_Binarization, 6 Intensity_Distribution, 7 Optical_Flow
@@ -281,16 +286,18 @@ def _identify_layout(headers):
     """
     from core.modes import MODES
 
+    from itertools import product
+
+    from core.results import OPTIONAL_FAMILIES
+
     for mode in MODES.values():
-        for include_mesh in ((False, True) if mode.supports_mesh else (False,)):
-            for include_components in (
-                    (False, True) if mode.supports_component_stats else (False,)):
-                kw = dict(just_metrics=False, include_mesh=include_mesh, mode=mode,
-                          include_components=include_components)
-                if headers == ChannelResults.get_headers(**kw):
-                    return (mode, False, include_mesh, include_components)
-                if headers == ChannelResults.get_physical_headers(**kw):
-                    return (mode, True, include_mesh, include_components)
+        for combo in product((False, True), repeat=len(OPTIONAL_FAMILIES)):
+            switches = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, combo)}
+            kw = dict(just_metrics=False, mode=mode, **switches)
+            if headers == ChannelResults.get_headers(**kw):
+                return (mode, False, switches)
+            if headers == ChannelResults.get_physical_headers(**kw):
+                return (mode, True, switches)
     return None
 
 
@@ -303,22 +310,29 @@ def _build_from_layout(filename, flags, data, layout):
     """
     from core.results import ComponentResults, MeshResults
 
-    mode, physical, include_mesh, include_components = layout
+    mode, physical, switches = layout
     channel = int(data[0])
     values = data[1:]
 
     n_bin = len(BinarizationResults.get_metrics(mode))
     n_int = len(IntensityResults.get_metrics(mode))
     n_flow = len(FlowResults.get_metrics()) if mode.supports_flow else 0
-    n_mesh = len(MeshResults.get_metrics()) if include_mesh else 0
-    n_comp = len(ComponentResults.get_metrics(mode)) if include_components else 0
+    from core.results import OPTIONAL_FAMILIES
 
     binar = values[:n_bin]
     inten = values[n_bin:n_bin + n_int]
     flow = values[n_bin + n_int:n_bin + n_int + n_flow]
-    mesh = values[n_bin + n_int + n_flow:n_bin + n_int + n_flow + n_mesh]
-    comp = values[n_bin + n_int + n_flow + n_mesh:
-                  n_bin + n_int + n_flow + n_mesh + n_comp]
+
+    # Optional families follow in registry order; slice each off in turn so adding a
+    # family cannot shift the ones after it.
+    cursor = n_bin + n_int + n_flow
+    family_values = {}
+    for family in OPTIONAL_FAMILIES:
+        if not switches.get(family.switch):
+            continue
+        width = len(family.results_cls.get_metrics(mode))
+        family_values[family.attribute] = values[cursor:cursor + width]
+        cursor += width
 
     size_kwargs = (
         dict(max_island_size_quantity=binar[1], max_void_size_quantity=binar[2],
@@ -354,10 +368,15 @@ def _build_from_layout(filename, flags, data, layout):
             mean_sigma_theta=flow[3], velocity_correlation_length=flow[4],
             divergence=flow[5], curl=flow[6],
         )
-    if n_mesh:
-        result.mesh = MeshResults.from_values(mesh)
-    if n_comp:
-        result.components = ComponentResults(
-            count=comp[0], size_sd=comp[1], size_skew=comp[2], size_median=comp[3],
-        )
+
+    # Each family's dataclass fields are in the same order as its get_data(), so the
+    # values can be zipped straight back on without naming them here -- which means a
+    # family gaining a field needs no change in the reader.
+    for family in OPTIONAL_FAMILIES:
+        block = family_values.get(family.attribute)
+        if not block:
+            continue
+        fields = list(family.results_cls.__dataclass_fields__)
+        setattr(result, family.attribute,
+                family.results_cls(**dict(zip(fields, block))))
     return result

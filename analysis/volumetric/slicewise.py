@@ -32,7 +32,10 @@ import numpy as np
 
 from analysis.binarization import analyze_binarization
 from analysis.intensity_distribution import analyze_intensity_distribution
-from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
+from analysis.volumetric.intensity import analyze_intensity_magnitude
+from analysis.volumetric.provenance import build_range_results
+from analysis.volumetric.reader import (
+    VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_mask_on_image_grid
 from core import BarcodeConfig, ChannelResults
 from core.modes import get_mode
@@ -71,12 +74,18 @@ def run_slicewise_analysis(
         channel=channel,
         z_step_um=vcfg.z_step_um or None,
         xy_step_um=vcfg.xy_step_um or None,
+        axes_override=getattr(vcfg, "axes_override", "") or None,
     )
     mode.validate_axes(stack.axes, os.path.basename(filepath))
 
     # Restrict the depth range before anything is measured. Slices past the object are
     # background, and averaging them into the depth profile flattens exactly the trend
     # this mode exists to show.
+    # Timepoints first: the t range decides which volumes are analysed at all, so
+    # selecting them before any mask or geometry work keeps that work off the ones
+    # that were excluded.
+    stack = apply_t_range(stack, vcfg)
+
     # Load the mask against the FULL acquired stack, then restrict both together.
     # Validating it against an already-restricted image would compare the mask's whole
     # depth with a sub-range and reject a perfectly good mask.
@@ -118,7 +127,7 @@ def run_slicewise_analysis(
     for t in range(stack.n_timepoints):
         volume = stack.data[t]  # (Z, Y, X) -- the shape the 2D branches expect
         row = ChannelResults(filepath=filepath, channel=channel)
-        row.z_range_flag = 1 if stack.z_range else 0
+        row.z_range_flag = 1 if (stack.z_range or stack.t_range) else 0
 
         output_dir = ""
         if figure_dir is not None:
@@ -161,6 +170,17 @@ def run_slicewise_analysis(
                 )
             except Exception as exc:
                 print(f"  t={t}: intensity failed ({type(exc).__name__}: {exc})", flush=True)
+
+        if vcfg.enable_intensity_magnitude:
+            # One timepoint's worth: the volume is this timepoint's z-stack, and the
+            # sample size is the in-plane pixel area, since xyz measures planes.
+            results_masks = masks[None] if masks is not None else None
+            row.intensity_magnitude = analyze_intensity_magnitude(
+                volume[None], (1.0, stack.xy_step_um, stack.xy_step_um), [0],
+                results_masks if vcfg.intensity_use_mask else None)
+
+        if vcfg.record_range_columns:
+            row.ranges = build_range_results(stack)
 
         # Flow is deliberately not run; see the module docstring. The columns are omitted
         # from the output by core.modes rather than written as NaN.

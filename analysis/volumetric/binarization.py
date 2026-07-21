@@ -124,9 +124,24 @@ def find_island_properties_3d(
     binary: np.ndarray,
     spacing_zyx: Tuple[float, float, float],
     neighbor_fraction: float,
+    labelled: np.ndarray = None,
 ) -> Dict[str, float]:
-    """Volume/anisotropy/separation statistics for the connected objects."""
-    labelled, count = label(binary, connectivity=3, return_num=True)
+    """Volume/anisotropy/separation statistics for the objects in a field.
+
+    ``labelled`` supplies the object partition directly -- every distinct positive
+    integer is one object. Pass it whenever a segmentation provided instances:
+    re-deriving objects by connectivity merges instances that touch, which is the normal
+    case in a confluent field and silently corrupts count, separation and the whole size
+    distribution. BARCODE does not segment; a supplied partition is authoritative.
+
+    Without it, objects are derived from ``binary`` by 26-connectivity, which is correct
+    for a binary mask or an intensity threshold.
+    """
+    if labelled is not None:
+        labelled = np.asarray(labelled)
+        count = int(np.count_nonzero(np.unique(labelled)))
+    else:
+        labelled, count = label(binary, connectivity=3, return_num=True)
     if count == 0:
         return {
             "largest": np.nan,
@@ -291,8 +306,15 @@ def analyze_binarization_3d(
     for frame_idx in frame_indices:
         raw = volume_series[frame_idx]
 
+        label_partition = None
         if masks is not None:
-            binary = masks[frame_idx].astype(bool)
+            frame_mask = masks[frame_idx]
+            binary = frame_mask.astype(bool)
+            # A label mask supplies the object partition directly. Re-deriving it by
+            # connectivity would merge every touching instance, which in a confluent
+            # field means the whole tissue becomes one object.
+            if frame_mask.dtype != bool and int(np.count_nonzero(np.unique(frame_mask))) > 1:
+                label_partition = frame_mask
         else:
             binary = binarize_volume(
                 raw, config.threshold_offset, config.minimum_island_size
@@ -300,7 +322,8 @@ def analyze_binarization_3d(
             if config.invert_binarization:
                 binary = invert_volume(binary)
 
-        props = find_island_properties_3d(binary, spacing_zyx, config.neighbor_island_fraction)
+        props = find_island_properties_3d(
+            binary, spacing_zyx, config.neighbor_island_fraction, label_partition)
         radii, radial = spatial_volume_autocorrelation(raw, spacing_zyx)
         correlation_length = (
             correlation_length_from_radial(radial, radii, threshold)
