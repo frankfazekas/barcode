@@ -92,7 +92,7 @@ def save_analysis_results(
             # alone it was 37 long against 53 metrics, and itertools.compress stops at
             # the shorter sequence -- so the barcode silently lost every optional
             # family while the CSV kept them. Same detection as the renderer/writer.
-            from core.results import OPTIONAL_FAMILIES
+            from core.results import OPTIONAL_FAMILIES, flow_is_populated
 
             family_switches = {
                 f.switch: any(getattr(r, f.attribute, None) is not None
@@ -100,6 +100,10 @@ def save_analysis_results(
                               for r in all_results)
                 for f in OPTIONAL_FAMILIES
             }
+            # Match the renderer: a static z-stack drops its flow columns, so the barcode
+            # mask must be built over the same shortened column set or the length check in
+            # generate_combined_barcode raises. No-op in 2D.
+            family_switches["include_flow"] = flow_is_populated(all_results, mode)
             barcode_metrics = selection_mask(
                 ChannelResults.get_headers(just_metrics=True, mode=mode,
                                            **family_switches),

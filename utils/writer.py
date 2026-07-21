@@ -120,7 +120,7 @@ def results_to_csv(
     # the registry, so the writer and the barcode cannot disagree about which families
     # are present -- the last bug here was a CSV gaining columns the barcode did not
     # render.
-    from core.results import OPTIONAL_FAMILIES
+    from core.results import OPTIONAL_FAMILIES, flow_is_populated
 
     for family in OPTIONAL_FAMILIES:
         if family.switch in kwargs or not hasattr(results[0], family.attribute):
@@ -129,6 +129,13 @@ def results_to_csv(
             getattr(r, family.attribute, None) is not None
             and getattr(r, family.attribute).is_populated() for r in results)
         kwargs = dict(kwargs, **{family.switch: populated})
+
+    # Drop the optical-flow columns from a static z-stack -- a volumetric run whose flow
+    # branch produced only NaN -- so the CSV does not carry seven empty columns. A no-op
+    # in the 2D modes, where flow_is_populated always returns True, so 2D headers are
+    # unchanged. Skipped when the caller set include_flow explicitly.
+    if "include_flow" not in kwargs:
+        kwargs = dict(kwargs, include_flow=flow_is_populated(results, kwargs.get("mode")))
 
     headers = results[0].get_physical_headers(**kwargs) if quantified else results[0].get_headers(**kwargs)
     if extra_columns:
@@ -217,8 +224,12 @@ def generate_aggregate_csv(
         # everything, saying so, rather than failing: the mask only trims the picture.
         shown = metrics_to_visualize or None
         if shown is not None:
+            from core.results import flow_is_populated
+
+            present = dict(_families_present(all_results),
+                           include_flow=flow_is_populated(all_results, mode))
             expected = len(ChannelResults.get_metrics(
-                just_metrics=True, mode=mode, **_families_present(all_results)))
+                just_metrics=True, mode=mode, **present))
             if len(shown) != expected:
                 print(
                     f"Note: the saved barcode metric selection has {len(shown)} entries "

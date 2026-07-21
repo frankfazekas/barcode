@@ -503,14 +503,26 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
 
     padding_label = tk.Label(frame, text="Crop Padding [voxels]")
     padding_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
+    padding_spin = ttk.Spinbox(
         frame, from_=0, to=50, increment=1, textvariable=cv.crop_padding_vox, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    )
+    padding_spin.grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
         frame, "Voxels of margin kept around the mask bounding box. Only has an effect "
         "when 'Crop to the Mask's Bounding Box' is on.",
         row_idx, padding_label,
     )
+
+    # Padding is only read inside _crop_to_mask_bbox, which runs only when crop_to_mask
+    # is on (analysis/volumetric/resample.py). Grey it when cropping is off so it does
+    # not look like a live setting.
+    def _apply_crop_dependency(*_args):
+        on = bool(cv.crop_to_mask.get())
+        padding_spin.config(state="normal" if on else "disabled")
+        padding_label.config(fg="black" if on else "gray60")
+
+    cv.crop_to_mask.trace_add("write", _apply_crop_dependency)
+    _apply_crop_dependency()
     row_idx += 1
 
     tk.Label(frame, text="Branch Parameters", font=header).grid(
@@ -986,6 +998,12 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     _describe_meshing()
     row_idx += 1
 
+    # Everything from here to the end of the meshing section only does anything when
+    # meshing is on -- curvature rides on the mesh, and the geometry/smoothing settings
+    # shape it. Rather than name each of ~15 widgets, the whole block is greyed by grid
+    # row when "Build Surface Mesh" is off, so a dead control never looks live.
+    mesh_first_row = row_idx
+
     create_option_section(
         frame,
         row_idx,
@@ -997,19 +1015,12 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
-    create_option_section(
-        frame,
-        row_idx,
-        cv.curvature_exclude_caps,
-        "Curvature: Exclude Top & Bottom Caps",
-        "Drop faces in the lowest and highest z bin before measuring curvature. Worth "
-        "turning on only when the segmentation is genuinely clipped by the ends of the "
-        "stack, where that flat surface is an artefact of the acquisition rather than "
-        "the object. For an object sitting entirely inside the imaged volume this "
-        "discards real surface. Off by default.",
-    )
-    row_idx += 2
-
+    # curvature_exclude_caps is intentionally not exposed here. It drops faces in the
+    # lowest and highest z bin, which only makes sense for a segmentation genuinely
+    # clipped by the ends of the stack -- a niche acquisition-artefact correction that
+    # discards real surface on any object sitting inside the volume. It stays in
+    # VolumetricConfig (default False) and is settable from a Settings.yaml or script for
+    # that rare case; it does not belong beside the everyday curvature controls.
     outlier_label = tk.Label(frame, text="Curvature Outlier Limit (0 = keep all)")
     outlier_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
@@ -1145,6 +1156,25 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         row_idx, beta_label,
     )
     row_idx += 1
+
+    mesh_last_row = row_idx
+
+    def _apply_mesh_dependency(*_args):
+        on = bool(cv.mesh_enabled.get())
+        for r in range(mesh_first_row, mesh_last_row):
+            for w in frame.grid_slaves(row=r):
+                cls = w.winfo_class()
+                if cls == "TCombobox":
+                    # readonly comboboxes: re-enabling with "normal" would make them
+                    # freely editable, which they are not meant to be.
+                    w.config(state="readonly" if on else "disabled")
+                elif cls in ("TSpinbox", "Checkbutton", "Radiobutton", "TButton", "Entry"):
+                    w.config(state="normal" if on else "disabled")
+                elif cls == "Label" and str(w.cget("text")).strip() not in ("ℹ️", "ℹ"):
+                    w.config(fg="black" if on else "gray60")
+
+    cv.mesh_enabled.trace_add("write", _apply_mesh_dependency)
+    _apply_mesh_dependency()
 
     # Two controls deliberately absent from this section:
     #

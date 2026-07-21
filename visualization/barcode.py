@@ -56,7 +56,7 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
     #    optional families were dropped from the picture and every volumetric comparison
     #    was labelled with 2D area names. `generate_combined_barcode` was rewritten to
     #    detect families from the results; this is the same detection.
-    from core.results import OPTIONAL_FAMILIES
+    from core.results import OPTIONAL_FAMILIES, flow_is_populated
 
     flat = [r for rs in results_list for r in rs]
     families = {
@@ -67,7 +67,10 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
     }
     modes = {getattr(r, "source_mode", None) for r in flat}
     mode = modes.pop() if len(modes) == 1 else None
-    layout = dict(just_metrics=True, mode=mode, **families)
+    # Static z-stacks carry no flow, so drop those columns from the picture rather than
+    # render seven black stripes; a no-op in the 2D modes.
+    layout = dict(just_metrics=True, mode=mode,
+                  include_flow=flow_is_populated(flat, mode), **families)
 
     limits_list = []
     for results in results_list:
@@ -211,13 +214,15 @@ def generate_combined_barcode(
     # results actually carry mesh data. Mirrors the same detection in utils.writer.
     # Same registry-driven detection as the writer, so the picture always shows
     # exactly the columns the CSV carries.
-    from core.results import OPTIONAL_FAMILIES
+    from core.results import OPTIONAL_FAMILIES, flow_is_populated
 
     family_switches = {
         f.switch: any(getattr(r, f.attribute, None) is not None
                       and getattr(r, f.attribute).is_populated() for r in results)
         for f in OPTIONAL_FAMILIES
     }
+    # A static z-stack has no flow; drop its seven columns from the picture. No-op in 2D.
+    family_switches["include_flow"] = flow_is_populated(results, mode)
 
     n_metrics = len(results_cls.get_metrics(
         just_metrics=True, mode=mode, **family_switches))

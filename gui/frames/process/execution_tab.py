@@ -156,13 +156,19 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
     row_idx += 1
 
     # Channel selection
-    tk.Label(frame, text="Choose Channel (-3 to 4):").grid(
-        row=row_idx, column=0, sticky="w", padx=5, pady=5
-    )
+    channel_label = tk.Label(frame, text="Choose Channel:")
+    channel_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     channel_spin = tk.Spinbox(
         frame, from_=-4, to=4, textvariable=cc.selected_channel, width=5
     )
     channel_spin.grid(row=row_idx, column=1, padx=(50, 5), pady=2)
+    create_popup(
+        frame,
+        "Which channel of a multi-channel file to analyse. 0 is the first channel, 1 the "
+        "second, and so on. A negative number counts back from the last channel: -1 is "
+        "the last, -2 the second-to-last. A single-channel file is always channel 0.",
+        row_idx, channel_label,
+    )
     row_idx += 1
 
     create_option_section(
@@ -170,9 +176,45 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
        row_idx,
        cc.parse_all_channels,
        "Parse All Channels",
-       "Scan either a specific channel or every video channel. Selecting a channel less than 0 will result in reverse indexing of channels (i.e. selecting -1 " \
-       "will analyze the last channel of every file scanned, rather than the first).",
+       "Analyse every channel of each file and write one row per channel, instead of the "
+       "single channel chosen above. Not supported by Volumetric analysis, which reads "
+       "one channel per run -- see the note below.",
     )
+    row_idx += 1
+
+    # The Parse-All-Channels / Volumetric conflict is surfaced HERE, where both controls
+    # live, not only on the Volumetric tab. Volumetric is one checkbox up on this same
+    # tab, so a user can tick both without ever opening the Volumetric tab; the run would
+    # then quietly analyse channel 0 alone and only say so in the log.
+    channel_conflict = tk.Label(frame, wraplength=560, justify="left", fg="#b45309",
+                                font=("TkDefaultFont", 11))
+    channel_conflict.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=25, pady=(0, 2))
+
+    def _channel_conflict(*_args):
+        both = cc.parse_all_channels.get() and cvol.analysis_mode.get() != "xyt"
+        if not both:
+            channel_conflict.config(text="")
+            return
+        # Name the channel the run will ACTUALLY use, not a guessed 0: it uses
+        # selected_channel (see analysis/volumetric/run.py's channel-dropped warning),
+        # which keeps whatever value it held when Parse All was ticked.
+        try:
+            ch = cc.selected_channel.get()
+        except tk.TclError:
+            ch = 0
+        # "Choose Channel" is greyed while Parse All is ticked (the 2D mutual exclusion),
+        # so the actionable instruction is to untick Parse All -- which re-enables it --
+        # rather than "just change Choose Channel", which the user cannot reach.
+        channel_conflict.config(
+            text=f"Volumetric analysis reads ONE channel per run, so “Parse All Channels” "
+                 f"does nothing here — the run will analyse channel {ch}. Untick “Parse "
+                 f"All Channels” to enable “Choose Channel”, and run other channels one at "
+                 f"a time.")
+
+    cc.parse_all_channels.trace_add("write", _channel_conflict)
+    cvol.analysis_mode.trace_add("write", _channel_conflict)
+    cc.selected_channel.trace_add("write", _channel_conflict)
+    _channel_conflict()
     row_idx += 1
 
     # Channel selection mutual exclusion

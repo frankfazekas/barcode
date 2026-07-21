@@ -253,6 +253,16 @@ class FlowResults(ResultsBase):
     def get_dict_data(self) -> dict:
         return dict(zip(self.get_metrics(), self.get_data()))
 
+    def is_populated(self) -> bool:
+        """True if the flow branch actually produced a value.
+
+        A static z-stack (one timepoint, or fewer than the flow window needs) cannot be
+        analysed for motion, so every field here is NaN. The writer and the barcode use
+        this to drop the seven flow columns rather than paint a row of meaningless black
+        cells -- see the ``include_flow`` handling in ``_resolve``.
+        """
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
 
 @dataclass
 class IntensityResults(ResultsBase):
@@ -762,6 +772,25 @@ OPTIONAL_FAMILIES = (
 )
 
 
+def flow_is_populated(results, mode) -> bool:
+    """Whether the optical-flow branch carries data across ``results``.
+
+    Only ever answers False in a **volumetric** mode: the 2D modes always emit flow, so
+    the reference schema stays byte-identical whatever a given 2D run's flow happens to
+    be. In a volumetric mode a static z-stack -- one timepoint, or too few for the flow
+    window -- produces an all-NaN flow branch, and this returns False so the seven flow
+    columns are dropped rather than painted black.
+    """
+    if mode is not None and not isinstance(mode, AnalysisMode):
+        mode = get_mode(mode)
+    if not _volumetric(mode):
+        return True
+    return any(
+        getattr(r, "flow", None) is not None and r.flow.is_populated()
+        for r in results
+    )
+
+
 def _resolve(mode, **switches):
     """Normalise the mode and the optional-family switches.
 
@@ -769,7 +798,13 @@ def _resolve(mode, **switches):
     Each family defaults to what the mode supports; passing the switch explicitly forces
     it either way. Returns ``(mode, with_flow, enabled)`` where ``enabled`` maps each
     family's switch name to a bool.
+
+    ``include_flow`` is accepted alongside the family switches but is not one of them: it
+    can only *suppress* the flow branch a mode already supports (for a static z-stack),
+    never force it on where the mode has no time axis.
     """
+    include_flow = switches.pop("include_flow", None)
+
     known = {family.switch for family in OPTIONAL_FAMILIES}
     unknown = set(switches) - known
     if unknown:
@@ -780,7 +815,14 @@ def _resolve(mode, **switches):
 
     if mode is not None and not isinstance(mode, AnalysisMode):
         mode = get_mode(mode)
-    with_flow = True if mode is None else mode.supports_flow
+    base_flow = True if mode is None else mode.supports_flow
+    # include_flow can only suppress flow in a VOLUMETRIC mode. The 2D modes always emit
+    # their flow columns whatever a caller passes, so the published reference schema stays
+    # byte-identical -- the suppression exists only for static z-stacks (xyzt).
+    if include_flow is None or not _volumetric(mode):
+        with_flow = base_flow
+    else:
+        with_flow = base_flow and bool(include_flow)
 
     enabled = {}
     for family in OPTIONAL_FAMILIES:

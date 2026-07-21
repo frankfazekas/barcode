@@ -112,11 +112,16 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
 
     for _mode in MODES.values():
         for _combo in product((False, True), repeat=len(OPTIONAL_FAMILIES)):
-            _switches = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, _combo)}
-            accepted_headers.append(ChannelResults.get_headers(
-                just_metrics=False, mode=_mode, **_switches))
-            accepted_headers.append(ChannelResults.get_physical_headers(
-                just_metrics=False, mode=_mode, **_switches))
+            _base = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, _combo)}
+            # include_flow varies too: a static z-stack drops its flow columns, so its
+            # volumetric CSV must still read back. For 2D modes this changes nothing
+            # (flow_is_populated always keeps them), so the extra entries never match.
+            for _flow in (True, False):
+                _switches = dict(_base, include_flow=_flow)
+                accepted_headers.append(ChannelResults.get_headers(
+                    just_metrics=False, mode=_mode, **_switches))
+                accepted_headers.append(ChannelResults.get_physical_headers(
+                    just_metrics=False, mode=_mode, **_switches))
 
     v1_header_length = 18 # Channel, 7 Image_Binarization, 6 Intensity_Distribution, 4 Optical_Flow
     v2_header_length = 26 # Channel, 12 Image_Binarization, 6 Intensity_Distribution, 7 Optical_Flow
@@ -292,12 +297,17 @@ def _identify_layout(headers):
 
     for mode in MODES.values():
         for combo in product((False, True), repeat=len(OPTIONAL_FAMILIES)):
-            switches = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, combo)}
-            kw = dict(just_metrics=False, mode=mode, **switches)
-            if headers == ChannelResults.get_headers(**kw):
-                return (mode, False, switches)
-            if headers == ChannelResults.get_physical_headers(**kw):
-                return (mode, True, switches)
+            base = {f.switch: on for f, on in zip(OPTIONAL_FAMILIES, combo)}
+            # include_flow must be part of the matched layout: a flow-suppressed CSV has
+            # seven fewer columns, and the returned switches carry include_flow so the row
+            # is rebuilt over the right block. Try flow-present first, the common case.
+            for flow in (True, False):
+                switches = dict(base, include_flow=flow)
+                kw = dict(just_metrics=False, mode=mode, **switches)
+                if headers == ChannelResults.get_headers(**kw):
+                    return (mode, False, switches)
+                if headers == ChannelResults.get_physical_headers(**kw):
+                    return (mode, True, switches)
     return None
 
 
@@ -316,7 +326,11 @@ def _build_from_layout(filename, flags, data, layout):
 
     n_bin = len(BinarizationResults.get_metrics(mode))
     n_int = len(IntensityResults.get_metrics(mode))
-    n_flow = len(FlowResults.get_metrics()) if mode.supports_flow else 0
+    # Respect the layout's flow switch, not just the mode: a static z-stack's CSV has no
+    # flow columns, so reading n_flow off mode.supports_flow alone would slice seven values
+    # that are not there and shift every family after it.
+    with_flow = mode.supports_flow and switches.get("include_flow", True)
+    n_flow = len(FlowResults.get_metrics()) if with_flow else 0
     from core.results import OPTIONAL_FAMILIES
 
     binar = values[:n_bin]

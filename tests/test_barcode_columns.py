@@ -19,13 +19,19 @@ from core.results import OPTIONAL_FAMILIES, ChannelResults
 def populated_xyzt_results(n=3):
     """Results carrying the optional families a real masked xyzt run produces."""
     from core.results import (
-        ComponentResults, CurvatureRangeResults, MaskIntensityResults,
+        ComponentResults, CurvatureRangeResults, FlowResults, MaskIntensityResults,
         MeshResults, SliceProfileResults,
     )
 
     out = []
     for i in range(n):
         r = ChannelResults(filepath=f"Cell1_{i + 1}.tif", channel=0)
+        # A flow-bearing run: these tests are about family detection and mask length, so
+        # flow must be populated or it is (correctly) dropped as a static z-stack and the
+        # column counts below shift by seven. Flow suppression is exercised separately.
+        r.flow = FlowResults(mean_speed=1.0, delta_speed=0.0, mean_theta=0.1,
+                             mean_sigma_theta=0.2, velocity_correlation_length=3.0,
+                             divergence=0.0, curl=0.1)
         r.mesh = MeshResults(mesh_volume=500.0 + i)
         r.components = ComponentResults(count=1.0)
         r.curvature_range = CurvatureRangeResults(min_curvature=-0.05, max_curvature=0.4)
@@ -100,3 +106,30 @@ def test_hiding_metrics_still_yields_a_full_length_mask():
     mask = selection_mask(headers, ["Connectivity", "Curl"])
     assert len(mask) == len(headers), "length must not shrink when metrics are hidden"
     assert sum(mask) == len(headers) - 2
+
+
+def test_a_static_zstack_drops_the_flow_columns():
+    """A volumetric run whose flow branch produced only NaN must not emit flow columns.
+
+    A single-timepoint z-stack (or any series too short for the flow window) cannot be
+    analysed for motion, so painting seven all-NaN Speed/Divergence/Curl columns onto the
+    barcode is noise. The writer, reader and barcode drop them; the 2D modes are untouched.
+    """
+    from core.results import flow_is_populated
+
+    from core.results import FlowResults
+
+    static = populated_xyzt_results()
+    for r in static:
+        r.flow = FlowResults()                       # all NaN -- the static case
+
+    assert not flow_is_populated(static, "xyzt")
+    headers = ChannelResults.get_headers(
+        just_metrics=True, mode="xyzt", include_flow=False, **switches_for(static))
+    for col in ("Speed", "Speed Change", "Mean Flow Direction", "Directional Spread",
+                "Velocity Correlation Length", "Divergence", "Curl"):
+        assert col not in headers
+
+    # ...but a 2D run keeps its flow columns whatever is passed.
+    assert "Speed" in ChannelResults.get_headers(
+        just_metrics=True, mode="xyt", include_flow=False)
