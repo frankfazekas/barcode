@@ -36,6 +36,7 @@ from analysis.binarization import (
 )
 from analysis.volumetric.binarization import correlation_length_from_radial
 from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
+from analysis.volumetric.segmentation import load_mask_on_image_grid
 from core import BarcodeConfig, BinarizationResults, ChannelResults, IntensityResults
 from core.modes import get_mode
 from utils.binarization import binarize, invert_frame
@@ -56,14 +57,27 @@ class PerSliceRunDetail:
     z_range: tuple = None
     z_step_um: float = np.nan
     xy_step_um: float = np.nan
+    mask_path: Optional[str] = None
     slice_indices: List[int] = field(default_factory=list)
 
 
-def _binarization_for_slice(frame, bin_config, um_pixel_ratio) -> BinarizationResults:
-    """Structural metrics for one 2D slice, using the 2D branch's own primitives."""
+def _binarization_for_slice(frame, bin_config, um_pixel_ratio,
+                            mask_slice=None) -> BinarizationResults:
+    """Structural metrics for one 2D slice, using the 2D branch's own primitives.
+
+    ``mask_slice``, when given, *replaces* intensity thresholding for this slice --
+    the same rule the volumetric path follows.
+    """
     binning = bin_config.bin_factor
-    binary = binarize(frame, bin_config.threshold_offset, binning,
-                      bin_config.minimum_island_size)
+    if mask_slice is not None:
+        binary = mask_slice.astype(int)
+        if binning > 1:
+            # Match the binning the threshold path applies, so the two are comparable.
+            from utils import groupAvg
+            binary = (groupAvg(binary.astype(float), binning) >= 0.5).astype(int)
+    else:
+        binary = binarize(frame, bin_config.threshold_offset, binning,
+                          bin_config.minimum_island_size)
     if bin_config.invert_binarization:
         binary = invert_frame(binary)
 
@@ -116,10 +130,14 @@ def _binarization_for_slice(frame, bin_config, um_pixel_ratio) -> BinarizationRe
     )
 
 
-def _intensity_for_slice(frame, id_config) -> IntensityResults:
-    counts, values = histogram(frame, id_config.bin_size, id_config.noise_threshold)
+def _intensity_for_slice(frame, id_config, mask_slice=None) -> IntensityResults:
+    """Intensity statistics for one slice, optionally from in-mask pixels only."""
+    data = frame if mask_slice is None else frame[mask_slice.astype(bool)]
+    if data.size == 0:
+        return IntensityResults()
+    counts, values = histogram(data, id_config.bin_size, id_config.noise_threshold)
     saturated = bool(
-        frame_mode(frame, id_config.bin_size, id_config.noise_threshold) == values[-1])
+        frame_mode(data, id_config.bin_size, id_config.noise_threshold) == values[-1])
     return IntensityResults(
         max_kurtosis=kurtosis(values, counts),
         max_median_skew=median_skewness(values, counts),
@@ -151,7 +169,19 @@ def run_per_slice_analysis(
     )
     mode.validate_axes(stack.axes, os.path.basename(filepath))
     # Indices refer to ACQUIRED slices, before any isotropic resampling.
+    # Load the mask against the FULL acquired stack, then restrict both together.
+    # Validating it against an already-restricted image would compare the mask's whole
+    # depth with a sub-range and reject a perfectly good mask.
+    full_mask = load_mask_on_image_grid(filepath, stack, vcfg)
+
     stack = apply_z_range(stack, vcfg)
+
+    masks = mask_path = None
+    if full_mask is not None:
+        mask_volume, mask_path = full_mask
+        if stack.z_range:
+            mask_volume = mask_volume[stack.z_range[0]:stack.z_range[1]]
+        masks = mask_volume
 
     offset = stack.z_range[0] if stack.z_range else 0
     indices = list(range(0, stack.n_slices, max(int(slice_step), 1)))
@@ -159,6 +189,7 @@ def run_per_slice_analysis(
     detail = PerSliceRunDetail(
         stack=stack, n_timepoints=stack.n_timepoints, n_slices=stack.n_slices,
         z_range=stack.z_range, z_step_um=stack.z_step_um, xy_step_um=stack.xy_step_um,
+        mask_path=mask_path,
         slice_indices=[offset + i for i in indices],
     )
 
@@ -174,17 +205,20 @@ def run_per_slice_analysis(
                 filepath=f"{os.path.basename(filepath)} z={offset + i} ({depth_um:.2f}um)",
                 channel=channel,
             )
+            row.z_range_flag = 1 if stack.z_range else 0
             if config.modules.image_binarization:
                 try:
                     row.binarization = _binarization_for_slice(
-                        frame, config.image_binarization_parameters, stack.xy_step_um)
+                        frame, config.image_binarization_parameters, stack.xy_step_um,
+                        masks[i] if masks is not None else None)
                 except Exception as exc:
                     print(f"  z={offset + i}: binarization failed "
                           f"({type(exc).__name__}: {exc})", flush=True)
             if config.modules.intensity_distribution:
                 try:
                     row.intensity = _intensity_for_slice(
-                        frame, config.intensity_distribution_parameters)
+                        frame, config.intensity_distribution_parameters,
+                        masks[i] if (masks is not None and vcfg.intensity_use_mask) else None)
                 except Exception as exc:
                     print(f"  z={offset + i}: intensity failed "
                           f"({type(exc).__name__}: {exc})", flush=True)

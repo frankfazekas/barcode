@@ -41,6 +41,12 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
         help="add per-object count, size SD, skewness and median (volumetric modes only)",
     )
     group.add_argument(
+        "--intensity-in-mask", action="store_true",
+        help="build the intensity distribution from voxels INSIDE the segmentation only. "
+             "Removes the background peak, which changes the metrics substantially -- "
+             "masked and unmasked runs are not comparable with each other.",
+    )
+    group.add_argument(
         "--hide-metric", action="append", default=[], metavar="NAME",
         help="leave a metric off the barcode image (repeatable). The CSV always keeps "
              "the full set for the mode.",
@@ -59,6 +65,7 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.z_end = getattr(args, "z_end", 0)
     v.z_range_units = getattr(args, "z_units", "acquired")
     v.enable_component_stats = getattr(args, "component_stats", False)
+    v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))
     return config
 

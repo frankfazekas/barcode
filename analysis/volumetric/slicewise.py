@@ -33,6 +33,7 @@ import numpy as np
 from analysis.binarization import analyze_binarization
 from analysis.intensity_distribution import analyze_intensity_distribution
 from analysis.volumetric.reader import VolumeStack, apply_z_range, read_volume
+from analysis.volumetric.segmentation import load_mask_on_image_grid
 from core import BarcodeConfig, ChannelResults
 from core.modes import get_mode
 from utils.setup import create_channel_output_dir, create_output_directories
@@ -48,6 +49,7 @@ class SlicewiseRunDetail:
     xy_step_um: float = np.nan
     z_step_um: float = np.nan
     z_range: tuple = None
+    mask_path: Optional[str] = None
     timepoints: List[int] = field(default_factory=list)
 
 
@@ -75,7 +77,19 @@ def run_slicewise_analysis(
     # Restrict the depth range before anything is measured. Slices past the object are
     # background, and averaging them into the depth profile flattens exactly the trend
     # this mode exists to show.
+    # Load the mask against the FULL acquired stack, then restrict both together.
+    # Validating it against an already-restricted image would compare the mask's whole
+    # depth with a sub-range and reject a perfectly good mask.
+    full_mask = load_mask_on_image_grid(filepath, stack, vcfg)
+
     stack = apply_z_range(stack, vcfg)
+
+    masks = mask_path = None
+    if full_mask is not None:
+        mask_volume, mask_path = full_mask
+        if stack.z_range:
+            mask_volume = mask_volume[stack.z_range[0]:stack.z_range[1]]
+        masks = mask_volume
 
     detail = SlicewiseRunDetail(
         stack=stack,
@@ -85,6 +99,7 @@ def run_slicewise_analysis(
         z_step_um=stack.z_step_um,
         timepoints=list(range(stack.n_timepoints)),
         z_range=stack.z_range,
+        mask_path=mask_path,
     )
 
     # In-plane metrics only, so the scale is the XY pixel size. The 2D branches read this
@@ -94,12 +109,16 @@ def run_slicewise_analysis(
 
     reader_config = _replace(config.reader, um_pixel_ratio=stack.xy_step_um)
 
+    # A mask, if one resolves, is matched to the acquired slice grid so mask slice i
+    # lines up with image slice i. In xyz there is no isotropic resampling to piggyback
+    # on, so the mask comes to the data rather than the other way round.
     figure_dir = create_output_directories(filepath) if config.writer.save_visualizations else None
 
     results: List[ChannelResults] = []
     for t in range(stack.n_timepoints):
         volume = stack.data[t]  # (Z, Y, X) -- the shape the 2D branches expect
         row = ChannelResults(filepath=filepath, channel=channel)
+        row.z_range_flag = 1 if stack.z_range else 0
 
         output_dir = ""
         if figure_dir is not None:
@@ -114,17 +133,31 @@ def run_slicewise_analysis(
         # find_island_properties partitions a 1x1 distance matrix (analysis/binarization.py).
         if config.modules.image_binarization:
             try:
+                # A mask replaces intensity thresholding, so hand the 2D branch the mask
+                # volume itself: it binarizes at mean*(1+offset), and a 0/1 volume with
+                # offset 0 reproduces the mask exactly.
+                source = volume
+                bin_config = config.image_binarization_parameters
+                if masks is not None:
+                    from dataclasses import replace as _replace_cfg
+                    source = masks.astype(np.float64)
+                    bin_config = _replace_cfg(bin_config, threshold_offset=0.0)
                 _, row.binarization = analyze_binarization(
-                    volume, output_dir, config.image_binarization_parameters,
-                    reader_config, config.writer,
+                    source, output_dir, bin_config, reader_config, config.writer,
                 )
             except Exception as exc:
                 print(f"  t={t}: binarization failed ({type(exc).__name__}: {exc})", flush=True)
 
         if config.modules.intensity_distribution:
             try:
+                intensity_source = volume
+                if masks is not None and vcfg.intensity_use_mask:
+                    # Restrict to in-mask voxels by blanking the rest; the histogram
+                    # helper flattens, so a masked array is not needed.
+                    intensity_source = np.where(masks, volume, np.nan)
                 _, row.intensity = analyze_intensity_distribution(
-                    volume, output_dir, config.intensity_distribution_parameters, config.writer,
+                    intensity_source, output_dir,
+                    config.intensity_distribution_parameters, config.writer,
                 )
             except Exception as exc:
                 print(f"  t={t}: intensity failed ({type(exc).__name__}: {exc})", flush=True)

@@ -139,3 +139,39 @@ def load_segmentation(
         mask = ~mask
 
     return mask, path, mask_spacing
+
+
+def match_mask_to_image_grid(mask_zyx: np.ndarray, n_image_slices: int) -> np.ndarray:
+    """Resample a mask's z axis onto the image's acquired slice grid.
+
+    Masks are routinely stored on a finer isotropic grid than the data was acquired on
+    (250 planes at 0.065 um for a 54-slice stack at 0.3 um). The volumetric path can
+    upsample the *image* onto the mask grid instead, but the 2D modes analyse acquired
+    slices as they are, so the mask has to come to them.
+
+    Nearest-neighbour index mapping: exact for a boolean mask, and far cheaper than
+    interpolating either array.
+    """
+    mask_zyx = np.asarray(mask_zyx)
+    if mask_zyx.shape[0] == n_image_slices:
+        return mask_zyx.astype(bool)
+    index = np.clip(
+        np.round(np.linspace(0, mask_zyx.shape[0] - 1, n_image_slices)).astype(int),
+        0, mask_zyx.shape[0] - 1,
+    )
+    return mask_zyx[index].astype(bool)
+
+
+def load_mask_on_image_grid(image_path, stack, config):
+    """Load the mask for ``stack`` already matched to its z grid, or None.
+
+    Convenience for the 2D modes, which have no resampling step of their own. Returns
+    ``(mask_zyx, mask_path)``; the mask is restricted to the same z range as the stack
+    so mask slice i lines up with image slice i.
+    """
+    loaded = load_segmentation(
+        image_path, stack.data.shape[1:], stack.z_step_um, stack.xy_step_um, config)
+    if loaded is None:
+        return None
+    mask, mask_path, _ = loaded
+    return match_mask_to_image_grid(mask, stack.n_slices), mask_path

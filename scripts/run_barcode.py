@@ -133,6 +133,15 @@ def main() -> int:
         print(f"  note: per-object statistics are volumetric-only; not added for {mode.key}")
 
     run_analysis(args.path, config, InputConfig())
+
+    # BARCODE writes the Summary CSV, barcode PNG, Settings YAML and Time log into the
+    # folder it processed (utils/setup.py::setup_paths). Say so, because it means a data
+    # folder stops being images-only after a run.
+    target = args.path if os.path.isdir(args.path) else os.path.dirname(args.path)
+    print()
+    print(f"outputs written into {target}")
+    print("  (BARCODE writes beside the input; move them to a results folder if you "
+          "want the data folder kept clean)")
     return 0
 
 

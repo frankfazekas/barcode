@@ -233,3 +233,100 @@ def test_apply_z_range_reads_the_config(tmp_path):
     config = BarcodeConfig().volumetric
     config.z_start, config.z_end, config.z_range_units = 3.6, 13.8, "microns"
     assert apply_z_range(stack, config).n_slices == 34
+
+
+# ------------------------------------------------------- intensity masking
+
+
+def write_masked_pair(tmp_path, n_z=20):
+    """An image with a bright object, and a mask on a FINER z grid, as real data is."""
+    zz, yy, xx = np.indices((n_z, 32, 32))
+    inside = (np.abs(zz - n_z // 2) < 4) & ((yy - 16) ** 2 + (xx - 16) ** 2 <= 25)
+    image = np.where(inside, 800, 100).astype(np.uint16)
+    tifffile.imwrite(str(tmp_path / "Cell1_1.tif"), image, imagej=True,
+                     resolution=(1 / 0.065, 1 / 0.065),
+                     metadata={"axes": "ZYX", "spacing": 0.3, "unit": "micron"})
+
+    masks = tmp_path / "masks"
+    masks.mkdir(exist_ok=True)
+    fine = int(round(n_z * 0.3 / 0.065))              # the isotropic grid a mask lives on
+    fz, fy, fx = np.indices((fine, 32, 32))
+    centre = fine // 2
+    span = int(round(4 * 0.3 / 0.065))
+    fine_mask = ((np.abs(fz - centre) < span) &
+                 ((fy - 16) ** 2 + (fx - 16) ** 2 <= 25))
+    tifffile.imwrite(str(masks / "Cell1_1_SegMask.tif"), fine_mask.astype(np.uint8) * 255)
+    return str(tmp_path / "Cell1_1.tif"), str(masks), fine
+
+
+def test_mask_is_matched_to_the_acquired_slice_grid():
+    """Masks are stored finer than the acquisition; the 2D modes bring them down."""
+    from analysis.volumetric.segmentation import match_mask_to_image_grid
+
+    fine = np.zeros((250, 8, 8), bool)
+    fine[100:150] = True
+    matched = match_mask_to_image_grid(fine, 54)
+    assert matched.shape == (54, 8, 8)
+    assert matched.dtype == bool
+    assert matched.any(), "the object must survive the regrid"
+    # already-matching input is returned untouched
+    assert match_mask_to_image_grid(fine, 250).shape == (250, 8, 8)
+
+
+def test_xyz_can_use_a_mask_for_binarization_and_intensity(tmp_path):
+    """The three configurations must give three different answers."""
+    from analysis.volumetric.perslice import run_per_slice_analysis
+
+    image, masks, _ = write_masked_pair(tmp_path)
+
+    def run(use_mask, in_mask_intensity):
+        config = BarcodeConfig()
+        config.modules.image_binarization = True
+        config.modules.intensity_distribution = True
+        v = config.volumetric
+        v.analysis_mode = XYZ
+        config.image_binarization_parameters.bin_factor = 1
+        if use_mask:
+            v.segmentation_enabled = True
+            v.segmentation_root = masks
+        v.intensity_use_mask = in_mask_intensity
+        per_timepoint, detail = run_per_slice_analysis(image, config)
+        middle = per_timepoint[0][len(per_timepoint[0]) // 2]
+        return detail.mask_path, middle.binarization.max_island_size, \
+            middle.intensity.max_kurtosis
+
+    no_mask_path, _, plain_kurtosis = run(False, False)
+    mask_path, _, mask_kurtosis = run(True, False)
+    _, _, in_mask_kurtosis = run(True, True)
+
+    assert no_mask_path is None and mask_path is not None
+    # binarization source changed but the histogram did not
+    assert mask_kurtosis == pytest.approx(plain_kurtosis)
+    # restricting the histogram to in-mask voxels must move it
+    assert not np.isclose(in_mask_kurtosis, mask_kurtosis), \
+        "in-mask intensity should differ from whole-slice intensity"
+
+
+def test_mask_is_restricted_alongside_the_image(tmp_path):
+    """A z range must not make a whole-stack mask look like the wrong depth.
+
+    The mask is validated against the full acquired stack and only then cropped to the
+    same range; validating against an already-restricted image compared the mask's whole
+    depth with a sub-range and rejected a perfectly good mask.
+    """
+    from analysis.volumetric.perslice import run_per_slice_analysis
+
+    image, masks, _ = write_masked_pair(tmp_path, n_z=20)
+    config = BarcodeConfig()
+    config.modules.image_binarization = True
+    v = config.volumetric
+    v.analysis_mode = XYZ
+    v.segmentation_enabled = True
+    v.segmentation_root = masks
+    v.z_start, v.z_end = 5, 15            # a sub-range of the stack
+    config.image_binarization_parameters.bin_factor = 1
+
+    per_timepoint, detail = run_per_slice_analysis(image, config)
+    assert detail.mask_path is not None, "the mask must survive a restricted z range"
+    assert len(per_timepoint[0]) == 10
+    assert detail.z_range == (5, 15)

@@ -50,6 +50,14 @@ def build_config(args) -> BarcodeConfig:
     v.analysis_mode = "xyz"
     v.z_start, v.z_end = args.z_start, args.z_end
     v.z_range_units = args.z_units
+    if args.seg_root or args.seg_template:
+        v.segmentation_enabled = True
+        v.segmentation_root = args.seg_root or ""
+        if args.seg_regex:
+            v.segmentation_regex = args.seg_regex
+        if args.seg_template:
+            v.segmentation_template = args.seg_template
+    v.intensity_use_mask = args.intensity_in_mask
     config.image_binarization_parameters.bin_factor = args.bin_factor
     config.image_binarization_parameters.threshold_offset = args.threshold_offset
     return config
@@ -70,6 +78,12 @@ def main() -> int:
                    help="analyse every Nth slice (default every one)")
     p.add_argument("--bin-factor", type=int, default=1)
     p.add_argument("--threshold-offset", type=float, default=0.1)
+    p.add_argument("--seg-root", default=None,
+                   help="folder of segmentation masks; a mask replaces thresholding")
+    p.add_argument("--seg-regex", default=None)
+    p.add_argument("--seg-template", default=None)
+    p.add_argument("--intensity-in-mask", action="store_true",
+                   help="intensity histogram from in-mask voxels only")
     p.add_argument("--hide-metric", action="append", default=[], metavar="NAME")
     p.add_argument("--no-binarization", action="store_true")
     p.add_argument("--no-intensity", action="store_true")

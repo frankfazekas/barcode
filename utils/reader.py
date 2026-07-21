@@ -115,7 +115,9 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
 
     v1_header_length = 18 # Channel, 7 Image_Binarization, 6 Intensity_Distribution, 4 Optical_Flow
     v2_header_length = 26 # Channel, 12 Image_Binarization, 6 Intensity_Distribution, 7 Optical_Flow
-    mesh_block_length = 9 # Mesh + curvature, appended by volumetric runs
+    # Derived, never hardcoded: this slices the mesh family off the end of a row, so a
+    # stale literal here would silently mis-assign every column in the block.
+    mesh_block_length = len(MeshResults.get_metrics())
     v3_header_length = v2_header_length + mesh_block_length
 
     import csv
@@ -267,17 +269,7 @@ def read_csv_to_channel_results(filepath: str) -> list[ChannelResults]:
                         )
                     )
             if mesh_values is not None and results:
-                results[-1].mesh = MeshResults(
-                    mesh_volume=mesh_values[0],
-                    surface_area=mesh_values[1],
-                    sphericity=mesh_values[2],
-                    equivalent_radius=mesh_values[3],
-                    height=mesh_values[4],
-                    volume_ratio=mesh_values[5],
-                    mean_curvature=mesh_values[6],
-                    invagination_ratio=mesh_values[7],
-                    concave_ratio=mesh_values[8],
-                )
+                results[-1].mesh = MeshResults.from_values(mesh_values)
     return results
 
 
@@ -363,11 +355,7 @@ def _build_from_layout(filename, flags, data, layout):
             divergence=flow[5], curl=flow[6],
         )
     if n_mesh:
-        result.mesh = MeshResults(
-            mesh_volume=mesh[0], surface_area=mesh[1], sphericity=mesh[2],
-            equivalent_radius=mesh[3], height=mesh[4], volume_ratio=mesh[5],
-            mean_curvature=mesh[6], invagination_ratio=mesh[7], concave_ratio=mesh[8],
-        )
+        result.mesh = MeshResults.from_values(mesh)
     if n_comp:
         result.components = ComponentResults(
             count=comp[0], size_sd=comp[1], size_skew=comp[2], size_median=comp[3],

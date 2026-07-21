@@ -101,6 +101,7 @@ if TYPE_CHECKING:  # avoids a cycle: curvature.py imports the geometry helpers h
 import numpy as np
 from scipy import ndimage
 from scipy.spatial import ConvexHull, Delaunay
+from skimage.measure import label, regionprops_table
 
 # Spacings this close together count as isotropic (um).
 _ISOTROPY_TOLERANCE_UM = 1e-9
@@ -266,6 +267,68 @@ def mesh_volume(vertices: np.ndarray, faces: np.ndarray) -> float:
     )
 
 
+def mip_axis_lengths(mask: np.ndarray, voxel_size_um: float) -> Tuple[float, float, float]:
+    """XY maximum-intensity-projection area and ellipse axes, in microns.
+
+    Port of TCell's ``compute_MIP_properties.m``: project the mask along z, then take the
+    axis lengths of the ellipse with the same normalised second central moments. Returns
+    ``(area_um2, major_um, minor_um)``.
+
+    Two deliberate notes on the area:
+
+    * MATLAB uses ``bwarea``, which is *not* a pixel count -- it weights 2x2 boundary
+      configurations to estimate the area of the underlying continuous object, and so
+      runs a percent or two below the count on a rounded shape. The plain count is used
+      here because it is the unambiguous quantity and the one every other area in
+      BARCODE reports; only ``mip_area_um2`` is affected, not the axis lengths.
+    * The axes come from moments and are unaffected by that choice, so
+      :func:`aspect_ratio` is directly comparable to MATLAB's.
+    """
+    binary = np.asarray(mask).astype(bool)
+    projection = binary.any(axis=0)          # arrays are (Z, Y, X): project along z
+    if not projection.any():
+        return 0.0, 0.0, 0.0
+
+    area = float(projection.sum()) * voxel_size_um ** 2
+    labelled = label(projection.astype(np.uint8), connectivity=2)
+    props = regionprops_table(
+        labelled, properties=["area", "axis_major_length", "axis_minor_length"]
+    )
+    # MATLAB takes stats(1); the mask is single-object by construction here, but if it is
+    # not, the largest projected region is the nucleus rather than whichever comes first.
+    largest = int(np.argmax(props["area"]))
+    return (
+        area,
+        float(props["axis_major_length"][largest]) * voxel_size_um,
+        float(props["axis_minor_length"][largest]) * voxel_size_um,
+    )
+
+
+def aspect_ratio(mip_major_um: float, mip_minor_um: float, height_um: float) -> float:
+    """TCell ``nuc_aspect_ratio`` = (MIP major + MIP minor) / (2 * height).
+
+    ``process_nucleus_channel.m:270-272``. Lateral size over axial size: > 1 is a flat,
+    oblate nucleus, ~1 is round. ``height_um`` is the mesh height (the z extent of the
+    face centroids), which is what MATLAB divides by.
+
+    chromatin-analysis ports the same formula as ``aspect_ratio_mip``
+    (``feature_sources/tcell/shape_metrics.py``), where it is described as a
+    size-independent readout that carries a consistent substrate-stiffness signal.
+
+    **A sphere does not give exactly 1.** The numerator is a mask-projection extent
+    (the full silhouette) while the denominator is the z extent of the mesh *face
+    centroids*, which lie inside the surface -- so the denominator is systematically
+    short. A rasterised sphere of true diameter 4.4 um measures 4.41 um across the
+    projection but only 4.07 um in face-centroid height, giving 1.08. The offset grows
+    as the mesh coarsens. This is inherited from the MATLAB definition and is kept for
+    comparability; read the metric as a relative measure of flatness across conditions,
+    not as an absolute axis ratio.
+    """
+    if not height_um or not np.isfinite(height_um):
+        return np.nan
+    return float((mip_major_um + mip_minor_um) / (2.0 * height_um))
+
+
 def convex_hull_voxel_count(mask: np.ndarray) -> float:
     """Voxels inside the 3D convex hull of ``mask`` -- MATLAB's ``ConvexVolume``.
 
@@ -278,7 +341,17 @@ def convex_hull_voxel_count(mask: np.ndarray) -> float:
     One change from the original: it tested *every* voxel in the volume, materialising an
     (N, 3) coordinate array for the whole grid -- ~300 MB on the nuclei here. The hull
     cannot extend beyond the mask's bounding box, so only that sub-grid is tested, and in
-    slabs, which is exact and bounded in memory.
+    slabs. Verified bit-identical to the chromatin-analysis implementation on solid and
+    dented masks, so this is a pure memory/speed change.
+
+    Relation to MATLAB: TCell's ``nuc_solidity`` is ``regionprops3(...,'Solidity')``,
+    the same Volume/ConvexVolume ratio, but its ``ConvexVolume`` rasterisation is not
+    reproduced by either obvious point convention. Measured against 187 stored MATLAB
+    values, a hull over voxel *centres* (this function) runs ~1.5% high and a hull over
+    voxel *corners* ~1.2% low -- MATLAB sits between them. The centre convention is used
+    here because it makes BARCODE agree exactly with chromatin-analysis, an actively used
+    sibling pipeline, which is worth more than chasing an undocumented rasterisation.
+    Treat solidity as cross-repo consistent and ~1.5% off the MATLAB column.
     """
     binary = np.asarray(mask).astype(bool)
     coords = np.argwhere(binary)
@@ -503,6 +576,12 @@ class MeshGeometry:
     mesh_solidity: float = np.nan
     convex_hull_volume_um3: float = np.nan
 
+    # Lateral (XY projection) size, and its ratio to the axial size.
+    mip_area_um2: float = np.nan
+    mip_major_um: float = np.nan
+    mip_minor_um: float = np.nan
+    aspect_ratio: float = np.nan
+
     # Independent voxel-side cross-check on volume_um3.
     voxel_count: int = 0
     voxel_volume_um3: float = np.nan
@@ -536,6 +615,10 @@ class MeshGeometry:
             f"extent (z, y, x)    : "
             + ", ".join(f"{e:.4f}" for e in self.extent_zyx_um)
             + " um",
+            f"aspect ratio        : {self.aspect_ratio:.4f}"
+            f"   (MIP {self.mip_major_um:.3f} x {self.mip_minor_um:.3f} um)",
+            f"solidity            : {self.solidity:.4f}"
+            f"   (concavity {self.concavity:.4f}, mesh-hull {self.mesh_solidity:.4f})",
         ]
 
 
@@ -544,8 +627,17 @@ def mesh_geometry(
     faces: np.ndarray,
     voxel_count: int = 0,
     voxel_volume_um3: float = np.nan,
+    hull_voxel_count: float = np.nan,
+    mask: Optional[np.ndarray] = None,
+    voxel_size_um: float = np.nan,
 ) -> MeshGeometry:
-    """Scalars for a mesh whose vertices are already in microns, ordered (z, y, x)."""
+    """Scalars for a mesh whose vertices are already in microns, ordered (z, y, x).
+
+    ``hull_voxel_count`` is the mask's convex-hull voxel count, when the caller has the
+    mask to compute it from (see :func:`convex_hull_voxel_count`); it turns into the
+    MATLAB-comparable ``solidity``. The geometric ``mesh_solidity`` needs no mask and is
+    always computed.
+    """
     signed = mesh_volume(vertices_um, faces)
     volume = abs(signed)
     area = float(face_areas(vertices_um, faces).sum())
@@ -555,6 +647,23 @@ def mesh_geometry(
 
     centroids = face_centroids(vertices_um, faces)
     extent = centroids.max(axis=0) - centroids.min(axis=0)
+
+    # The XY projection is a mask property, not a mesh one, so it needs the mask.
+    if mask is not None and np.isfinite(voxel_size_um):
+        mip_area, mip_major, mip_minor = mip_axis_lengths(mask, voxel_size_um)
+    else:
+        mip_area = mip_major = mip_minor = np.nan
+
+    hull_volume = convex_hull_volume(vertices_um)
+    mesh_solidity = volume / hull_volume if hull_volume and np.isfinite(hull_volume) else np.nan
+    # MATLAB's regionprops3 Solidity is a ratio of voxel counts, so both sides here must
+    # be voxel counts -- mixing the mesh volume with a voxel hull would fold the meshing
+    # shrinkage into what is meant to be a pure convexity measure.
+    solidity = (
+        voxel_count / hull_voxel_count
+        if hull_voxel_count and np.isfinite(hull_voxel_count)
+        else np.nan
+    )
 
     return MeshGeometry(
         n_vertices=int(vertices_um.shape[0]),
@@ -569,6 +678,13 @@ def mesh_geometry(
         extent_zyx_um=tuple(float(e) for e in extent),
         z_min_um=float(vertices_um[:, 0].min()),
         z_max_um=float(vertices_um[:, 0].max()),
+        mip_area_um2=float(mip_area),
+        mip_major_um=float(mip_major),
+        mip_minor_um=float(mip_minor),
+        aspect_ratio=aspect_ratio(mip_major, mip_minor, float(extent[0])),
+        solidity=float(solidity),
+        mesh_solidity=float(mesh_solidity),
+        convex_hull_volume_um3=float(hull_volume),
         voxel_count=int(voxel_count),
         voxel_volume_um3=float(voxel_volume_um3),
     )
@@ -599,8 +715,13 @@ def mesh_nucleus(
     matlab_compat: bool = False,
     verbose: bool = False,
     frame_index: int = 0,
+    solidity: bool = True,
 ) -> NucleusMesh:
     """Mesh one segmented nucleus and measure it.
+
+    ``solidity`` controls only the voxel-count convex hull, which is the one costly
+    extra (a qhull build plus a point-in-hull test over the bounding box); the geometric
+    ``mesh_solidity`` is free and always computed.
 
     ``mask_zyx`` must be on an isotropic grid -- which is what
     ``analysis.volumetric.resample.prepare_nucleus`` produces -- because ``maxrad``
@@ -635,6 +756,9 @@ def mesh_nucleus(
         faces,
         voxel_count=int(binary.sum()),
         voxel_volume_um3=float(np.prod(spacing)),
+        hull_voxel_count=convex_hull_voxel_count(binary) if solidity else np.nan,
+        mask=binary,
+        voxel_size_um=voxel_size,
     )
     return NucleusMesh(
         vertices_um=vertices_um, faces=faces, geometry=geometry, frame_index=frame_index

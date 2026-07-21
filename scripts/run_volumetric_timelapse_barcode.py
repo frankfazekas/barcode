@@ -55,6 +55,7 @@ def build_config(args) -> BarcodeConfig:
     v.crop_padding_vox = args.crop_padding
     v.mesh_enabled = args.mesh
     v.enable_component_stats = args.component_stats
+    v.intensity_use_mask = args.intensity_in_mask
     v.z_start, v.z_end = args.z_start, args.z_end
     if hasattr(v, 'mesh_curvature'):
         v.mesh_curvature = args.mesh and not args.no_curvature
@@ -91,6 +92,8 @@ def main() -> int:
                    help="add the mesh + curvature columns (needs a segmentation)")
     p.add_argument("--component-stats", action="store_true",
                    help="add per-object count, size SD, skewness and median")
+    p.add_argument("--intensity-in-mask", action="store_true",
+                   help="intensity histogram from in-mask voxels only")
     p.add_argument("--hide-metric", action="append", default=[], metavar="NAME",
                    help="leave a metric off the barcode (repeatable)")
     p.add_argument("--z-start", type=int, default=0)

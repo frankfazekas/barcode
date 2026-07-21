@@ -90,6 +90,7 @@ def summarise_meshes(meshes: List[NucleusMesh]) -> MeshResults:
         equivalent_radius=mean_of([g.equivalent_sphere_radius_um for g in geometries]),
         height=mean_of([g.height_um for g in geometries]),
         volume_ratio=mean_of([g.volume_ratio for g in geometries]),
+        solidity=mean_of([g.solidity for g in geometries]),
         mean_curvature=mean_of([c.mean_curvature for c in curvatures]),
         invagination_ratio=mean_of([c.invagination_ratio for c in curvatures]),
         concave_ratio=mean_of([c.concave_ratio for c in curvatures]),
@@ -305,6 +306,7 @@ def run_volumetric_analysis(
         frame_indices=frame_indices,
     )
     results = ChannelResults(filepath=filepath, channel=channel)
+    results.z_range_flag = 1 if stack.z_range else 0
 
     if config.modules.image_binarization:
         results.binarization, detail.binarization = analyze_binarization_3d(

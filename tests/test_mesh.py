@@ -6,9 +6,13 @@ rasterised sphere and skipped when the CGAL binaries are unavailable.
 """
 import numpy as np
 import pytest
+from scipy import ndimage
 
 from analysis.volumetric.mesh import (
     MeshingError,
+    aspect_ratio,
+    convex_hull_volume,
+    convex_hull_voxel_count,
     face_areas,
     face_centroids,
     gibbon_patch_area,
@@ -16,6 +20,7 @@ from analysis.volumetric.mesh import (
     mesh_geometry,
     mesh_has_holes,
     mesh_nucleus,
+    mip_axis_lengths,
     mesh_series,
     mesh_volume,
     write_obj,
@@ -124,6 +129,142 @@ def test_largest_component_drops_satellites():
 def test_largest_component_rejects_empty_mask():
     with pytest.raises(MeshingError):
         largest_component(np.zeros((4, 4, 4), dtype=bool))
+
+
+# --------------------------------------------------------------------------- #
+# lateral extent and aspect ratio
+# --------------------------------------------------------------------------- #
+def test_mip_axes_of_a_flat_ellipse_are_its_own():
+    """A cylinder's projection is a disc, so both axes equal its diameter."""
+    zz, yy, xx = np.indices((10, 41, 41))
+    disc = ((yy - 20) ** 2 + (xx - 20) ** 2) <= 15 ** 2
+    area, major, minor = mip_axis_lengths(disc, 0.5)
+
+    assert area == pytest.approx(disc[0].sum() * 0.25)
+    assert major == pytest.approx(minor, rel=0.02)
+    assert major == pytest.approx(2 * 15 * 0.5, rel=0.05)
+
+
+def test_mip_projects_along_z_not_another_axis():
+    """A z-oriented rod projects to a dot; a y-oriented one to a line."""
+    rod_z = np.zeros((30, 30, 30), dtype=bool)
+    rod_z[:, 14:17, 14:17] = True
+    rod_y = np.zeros((30, 30, 30), dtype=bool)
+    rod_y[14:17, :, 14:17] = True
+
+    _, major_z, _ = mip_axis_lengths(rod_z, 1.0)
+    _, major_y, _ = mip_axis_lengths(rod_y, 1.0)
+    assert major_y > 5 * major_z
+
+
+def test_aspect_ratio_is_lateral_over_axial():
+    # A flat object: 20 um across, 2 um tall -> ratio 10.
+    assert aspect_ratio(20.0, 20.0, 2.0) == pytest.approx(10.0)
+    # An isotropic one -> ratio 1.
+    assert aspect_ratio(8.0, 8.0, 8.0) == pytest.approx(1.0)
+    assert np.isnan(aspect_ratio(8.0, 8.0, 0.0))
+
+
+def test_aspect_ratio_is_scale_invariant():
+    """Dimensionless: doubling every dimension must not change it."""
+    assert aspect_ratio(10.0, 6.0, 4.0) == pytest.approx(aspect_ratio(20.0, 12.0, 8.0))
+
+
+@needs_iso2mesh
+def test_sphere_aspect_ratio_shows_the_known_face_centroid_offset():
+    """A sphere gives ~1.08, not 1.00, and that is the definition working as specified.
+
+    The numerator is the mask silhouette (full width) while the denominator is the z
+    extent of the mesh face centroids, which sit inside the surface -- see
+    ``aspect_ratio``. Pinned so the offset stays a documented property rather than
+    drifting silently if the height definition ever changes.
+    """
+    g = mesh_nucleus(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1)).geometry
+
+    assert g.mip_major_um == pytest.approx(g.mip_minor_um, rel=0.02)   # round in xy
+    assert g.mip_major_um == pytest.approx(2 * 22.0 * 0.1, rel=0.02)   # true diameter
+    assert g.height_um < g.mip_major_um                                # centroids inset
+    assert 1.02 < g.aspect_ratio < 1.15
+
+
+@needs_iso2mesh
+def test_oblate_object_reports_a_high_aspect_ratio():
+    """Squash a ball in z: lateral stays, axial shrinks, so the ratio rises."""
+    zz, yy, xx = np.indices((40, 80, 80))
+    flat = (((zz - 19.5) / 8.0) ** 2 + ((yy - 39.5) / 30.0) ** 2
+            + ((xx - 39.5) / 30.0) ** 2) <= 1.0
+    g = mesh_nucleus(flat, (0.1, 0.1, 0.1)).geometry
+    assert g.aspect_ratio > 3.0
+
+
+# --------------------------------------------------------------------------- #
+# convexity
+# --------------------------------------------------------------------------- #
+def test_convex_shape_has_hull_equal_to_itself():
+    """A cuboid is its own convex hull, so solidity is exactly 1."""
+    mask = np.zeros((20, 20, 20), dtype=bool)
+    mask[4:16, 5:15, 6:14] = True
+    assert convex_hull_voxel_count(mask) == pytest.approx(mask.sum())
+
+
+def test_concave_shape_has_hull_larger_than_itself():
+    """Carve a bite out of a cuboid: the hull partly refills it, so solidity drops.
+
+    A *face* bite is used rather than a corner one: removing a corner deletes one of the
+    box's own vertices, so the hull legitimately shrinks to a corner-cut box rather than
+    restoring the original, which makes the bound uninformative.
+    """
+    mask = np.zeros((20, 20, 20), dtype=bool)
+    mask[4:16, 5:15, 6:14] = True
+    box = mask.sum()
+    mask[8:12, 7:13, 6:9] = False               # dent the middle of one face
+    dented = mask.sum()
+
+    hull = convex_hull_voxel_count(mask)
+    assert dented < hull                         # the hull spans the dent
+    assert hull == pytest.approx(box)            # ... back to the full box
+    assert dented / hull < 1.0                   # so solidity is below 1
+
+
+def test_hull_voxel_count_is_bounded_by_the_bounding_box():
+    mask = _ball(shape=(30, 30, 30), radius=10.0)
+    bbox = np.prod([s.stop - s.start for s in ndimage.find_objects(mask)[0]])
+    hull = convex_hull_voxel_count(mask)
+    assert mask.sum() <= hull <= bbox
+
+
+def test_convex_hull_volume_matches_a_cube_analytically():
+    v = np.array(
+        [[0, 0, 0], [0, 0, 2], [0, 2, 0], [0, 2, 2],
+         [2, 0, 0], [2, 0, 2], [2, 2, 0], [2, 2, 2]], dtype=np.float64
+    )
+    assert convex_hull_volume(v) == pytest.approx(8.0)
+
+
+def test_degenerate_inputs_do_not_raise():
+    """Fewer than four points has no 3-D hull; both helpers must degrade, not crash."""
+    tiny = np.zeros((4, 4, 4), dtype=bool)
+    tiny[1, 1, 1] = True
+    assert convex_hull_voxel_count(tiny) == 1.0
+    assert np.isnan(convex_hull_volume(np.zeros((3, 3))))
+
+
+@needs_iso2mesh
+def test_sphere_is_almost_perfectly_solid():
+    mesh = mesh_nucleus(_ball(shape=(60, 60, 60), radius=22.0), (0.1, 0.1, 0.1))
+    g = mesh.geometry
+    assert 0.97 < g.solidity <= 1.0
+    assert 0.97 < g.mesh_solidity <= 1.0
+    assert g.concavity == pytest.approx(1.0 - g.solidity)
+    assert g.convex_hull_volume_um3 >= g.volume_um3
+
+
+@needs_iso2mesh
+def test_solidity_can_be_skipped():
+    """The voxel hull is the one costly extra, so it must be optional."""
+    mesh = mesh_nucleus(_ball(), (0.1, 0.1, 0.1), solidity=False)
+    assert np.isnan(mesh.geometry.solidity)
+    assert np.isfinite(mesh.geometry.mesh_solidity)   # geometric hull is free
 
 
 # --------------------------------------------------------------------------- #

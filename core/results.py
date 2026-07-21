@@ -300,7 +300,9 @@ class MeshResults(ResultsBase):
     sphericity: float = np.nan
     equivalent_radius: float = np.nan
     height: float = np.nan
+    aspect_ratio: float = np.nan
     volume_ratio: float = np.nan
+    solidity: float = np.nan
 
     mean_curvature: float = np.nan
     invagination_ratio: float = np.nan
@@ -314,7 +316,10 @@ class MeshResults(ResultsBase):
             Metrics.MESH_SPHERICITY,
             Metrics.MESH_EQUIVALENT_RADIUS,
             Metrics.MESH_HEIGHT,
+            Metrics.MESH_ASPECT_RATIO,
             Metrics.MESH_VOLUME_RATIO,
+            Metrics.MESH_SOLIDITY,
+            Metrics.MESH_CONCAVITY,
             Metrics.CURVATURE_MEAN,
             Metrics.CURVATURE_INVAGINATION,
             Metrics.CURVATURE_CONCAVE,
@@ -329,23 +334,47 @@ class MeshResults(ResultsBase):
             Units.LENGTH,
             Units.LENGTH,
             Units.NONE,
+            Units.NONE,
+            Units.NONE,
+            Units.NONE,
             Units.CURVATURE,
             Units.NONE,
             Units.NONE,
         ]
 
+    # The single source of truth for the CSV column order of this family: get_data
+    # writes it and from_values reads it back. They used to be two hand-kept lists of
+    # positional indices in different files, which silently mis-assigns every column
+    # after an insertion. None marks a derived column that is written but not read back.
+    _CSV_FIELDS = (
+        "mesh_volume",
+        "surface_area",
+        "sphericity",
+        "equivalent_radius",
+        "height",
+        "aspect_ratio",
+        "volume_ratio",
+        "solidity",
+        None,                             # Concavity = 1 - Solidity
+        "mean_curvature",
+        "invagination_ratio",
+        "concave_ratio",
+    )
+
     def get_data(self) -> List[float]:
         return [
-            self.mesh_volume,
-            self.surface_area,
-            self.sphericity,
-            self.equivalent_radius,
-            self.height,
-            self.volume_ratio,
-            self.mean_curvature,
-            self.invagination_ratio,
-            self.concave_ratio,
+            getattr(self, name) if name else 1.0 - self.solidity
+            for name in self._CSV_FIELDS
         ]
+
+    @classmethod
+    def from_values(cls, values) -> "MeshResults":
+        """Rebuild from one CSV row's mesh block, in ``_CSV_FIELDS`` order."""
+        return cls(**{
+            name: float(value)
+            for name, value in zip(cls._CSV_FIELDS, values)
+            if name
+        })
 
     def get_dict_data(self) -> dict:
         return dict(zip(self.get_metrics(), self.get_data()))

@@ -116,7 +116,16 @@ class Metrics(Enum):
     MESH_SPHERICITY = "Sphericity"
     MESH_EQUIVALENT_RADIUS = "Equivalent Sphere Radius"
     MESH_HEIGHT = "Mesh Height"
+    # TCell nuc_aspect_ratio: lateral size over axial size, (MIP major + minor)/(2*height).
+    # > 1 is a flat/oblate object, ~1 is round. Dimensionless, so it is size-independent.
+    MESH_ASPECT_RATIO = "Aspect Ratio"
     MESH_VOLUME_RATIO = "Mesh Volume Ratio"
+    # Convexity, as voxel counts (volume / convex-hull volume), matching
+    # chromatin-analysis' morph3d_solidity and MATLAB's regionprops3 Solidity. 1 = convex;
+    # lower = more lobed. Concavity is its complement and is reported for readers who
+    # think in "how much of the hull is empty".
+    MESH_SOLIDITY = "Solidity"
+    MESH_CONCAVITY = "Concavity"
 
     # Curvature of that surface (analysis/volumetric/curvature.py).
     # <H> denotes the area-weighted surface average of the pointwise mean curvature

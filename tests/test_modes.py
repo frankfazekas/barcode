@@ -41,7 +41,9 @@ def test_unknown_mode_names_the_valid_options():
 # --------------------------------------------------------------- column sets
 
 
-@pytest.mark.parametrize("mode,expected", [(XYT, 28), (XYZ, 21), (XYZT, 37)])
+# XYZT = the 28 shared columns + the 12-column mesh family (mesh geometry, Aspect Ratio,
+# Solidity/Concavity, and curvature). XYZ is slice-wise 2D, so it carries no mesh family.
+@pytest.mark.parametrize("mode,expected", [(XYT, 28), (XYZ, 21), (XYZT, 40)])
 def test_column_counts_per_mode(mode, expected):
     """Pinned so a schema drift is caught rather than discovered in a figure."""
     assert len(ChannelResults.get_headers(just_metrics=False, mode=mode)) == expected
