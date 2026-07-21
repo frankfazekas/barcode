@@ -289,6 +289,30 @@ class VolumetricConfig(BaseConfig):
     # amount of material.
     enable_intensity_magnitude: bool = False
 
+    # Minimum and maximum of the curvature field (analysis/volumetric/curvature.py).
+    # Already computed there; these expose them as columns. <H> averages the two
+    # principal curvatures together, so a saddle reads as flat -- the extremes do not.
+    # Only meaningful alongside the mesh family.
+    enable_curvature_range: bool = False
+
+    # Broadest-slice depth and the field-of-view clipping flag
+    # (analysis/volumetric/slice_profile.py). The only metrics in the branch that say
+    # *where* in depth something is, rather than reducing the stack to one number.
+    enable_slice_profile: bool = False
+
+    # Intensity distribution inside the segmentation
+    # (analysis/volumetric/mask_intensity.py): MFI, SD, CV, skewness, entropy,
+    # normalized entropy and the fraction above twice the median. Needs a segmentation.
+    # Distinct from intensity_use_mask below, which restricts the *existing* intensity
+    # branch to in-mask voxels rather than adding per-object statistics.
+    enable_mask_intensity: bool = False
+    # Histogram bins for the in-mask entropy. Normalized entropy divides by log2 of
+    # this, so runs are only comparable with each other at the same value.
+    mask_intensity_bins: int = 64
+    # Objects below this many voxels are skipped: entropy from a handful of voxels is
+    # noise, and averaging it in biases the run.
+    mask_intensity_min_voxels: int = 8
+
     # Record the analysed z/t ranges as columns. Flag digit 5 already marks *that* a
     # range was restricted; these say which, and make per-file ranges representable.
     record_range_columns: bool = False

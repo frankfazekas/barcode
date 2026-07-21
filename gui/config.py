@@ -720,6 +720,11 @@ class VolumetricConfigGUI:
     packing_min_contact_voxels: tk.IntVar = field(init=False)
     packing_exclude_border_objects: tk.BooleanVar = field(init=False)
     enable_intensity_magnitude: tk.BooleanVar = field(init=False)
+    enable_curvature_range: tk.BooleanVar = field(init=False)
+    enable_slice_profile: tk.BooleanVar = field(init=False)
+    enable_mask_intensity: tk.BooleanVar = field(init=False)
+    mask_intensity_bins: tk.IntVar = field(init=False)
+    mask_intensity_min_voxels: tk.IntVar = field(init=False)
     record_range_columns: tk.BooleanVar = field(init=False)
     timelapse_enabled: tk.BooleanVar = field(init=False)
     timelapse_regex: tk.StringVar = field(init=False)
@@ -782,6 +787,11 @@ class VolumetricConfigGUI:
         self.packing_min_contact_voxels = tk.IntVar(value=self._core_config.packing_min_contact_voxels)
         self.packing_exclude_border_objects = tk.BooleanVar(value=self._core_config.packing_exclude_border_objects)
         self.enable_intensity_magnitude = tk.BooleanVar(value=self._core_config.enable_intensity_magnitude)
+        self.enable_curvature_range = tk.BooleanVar(value=self._core_config.enable_curvature_range)
+        self.enable_slice_profile = tk.BooleanVar(value=self._core_config.enable_slice_profile)
+        self.enable_mask_intensity = tk.BooleanVar(value=self._core_config.enable_mask_intensity)
+        self.mask_intensity_bins = tk.IntVar(value=self._core_config.mask_intensity_bins)
+        self.mask_intensity_min_voxels = tk.IntVar(value=self._core_config.mask_intensity_min_voxels)
         self.record_range_columns = tk.BooleanVar(value=self._core_config.record_range_columns)
         self.timelapse_enabled = tk.BooleanVar(value=self._core_config.timelapse_enabled)
         self.timelapse_regex = tk.StringVar(value=self._core_config.timelapse_regex)
@@ -847,6 +857,11 @@ class VolumetricConfigGUI:
             packing_min_contact_voxels=self.packing_min_contact_voxels.get(),
             packing_exclude_border_objects=self.packing_exclude_border_objects.get(),
             enable_intensity_magnitude=self.enable_intensity_magnitude.get(),
+            enable_curvature_range=self.enable_curvature_range.get(),
+            enable_slice_profile=self.enable_slice_profile.get(),
+            enable_mask_intensity=self.enable_mask_intensity.get(),
+            mask_intensity_bins=self.mask_intensity_bins.get(),
+            mask_intensity_min_voxels=self.mask_intensity_min_voxels.get(),
             record_range_columns=self.record_range_columns.get(),
             timelapse_enabled=self.timelapse_enabled.get(),
             timelapse_regex=self.timelapse_regex.get(),
@@ -912,6 +927,11 @@ class VolumetricConfigGUI:
         self.packing_min_contact_voxels.set(new_config.packing_min_contact_voxels)
         self.packing_exclude_border_objects.set(new_config.packing_exclude_border_objects)
         self.enable_intensity_magnitude.set(new_config.enable_intensity_magnitude)
+        self.enable_curvature_range.set(new_config.enable_curvature_range)
+        self.enable_slice_profile.set(new_config.enable_slice_profile)
+        self.enable_mask_intensity.set(new_config.enable_mask_intensity)
+        self.mask_intensity_bins.set(new_config.mask_intensity_bins)
+        self.mask_intensity_min_voxels.set(new_config.mask_intensity_min_voxels)
         self.record_range_columns.set(new_config.record_range_columns)
         self.timelapse_enabled.set(new_config.timelapse_enabled)
         self.timelapse_regex.set(new_config.timelapse_regex)

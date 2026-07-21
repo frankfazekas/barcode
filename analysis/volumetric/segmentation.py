@@ -25,6 +25,7 @@ from typing import Optional, Tuple
 import numpy as np
 import tifffile
 
+from analysis.volumetric.mask_io import load_mask_array
 from core import VolumetricConfig
 
 # The mask's Z extent should match the image's to within about one slice once voxel
@@ -108,7 +109,7 @@ def load_segmentation(
     if path is None:
         return None
 
-    mask = coerce_to_zyx(tifffile.imread(path), os.path.basename(path))
+    mask = coerce_to_zyx(load_mask_array(path), os.path.basename(path))
     mask_spacing = _mask_spacing_um(config, xy_step_um)
 
     img_z, img_y, img_x = image_shape_zyx
@@ -170,17 +171,22 @@ def match_mask_to_image_grid(mask_zyx: np.ndarray, n_image_slices: int) -> np.nd
     upsample the *image* onto the mask grid instead, but the 2D modes analyse acquired
     slices as they are, so the mask has to come to them.
 
-    Nearest-neighbour index mapping: exact for a boolean mask, and far cheaper than
-    interpolating either array.
+    Nearest-neighbour index mapping: exact for a boolean *or* a label mask, and far
+    cheaper than interpolating either array. Interpolation would be actively wrong for
+    labels -- averaging object 3 and object 7 yields object 5.
+
+    The dtype is passed through untouched. Casting to bool here would silently undo
+    ``load_segmentation``'s decision to keep instance labels, which is the difference
+    between counting cells and counting one fused tissue.
     """
     mask_zyx = np.asarray(mask_zyx)
     if mask_zyx.shape[0] == n_image_slices:
-        return mask_zyx.astype(bool)
+        return mask_zyx
     index = np.clip(
         np.round(np.linspace(0, mask_zyx.shape[0] - 1, n_image_slices)).astype(int),
         0, mask_zyx.shape[0] - 1,
     )
-    return mask_zyx[index].astype(bool)
+    return mask_zyx[index]
 
 
 def load_mask_on_image_grid(image_path, stack, config):

@@ -188,7 +188,9 @@ def run_per_slice_analysis(
         mask_volume, mask_path = full_mask
         if stack.z_range:
             mask_volume = mask_volume[stack.z_range[0]:stack.z_range[1]]
-        masks = mask_volume
+        # See slicewise: the 2D branches want a binary field, and the loader now
+        # preserves instance labels for the volumetric families.
+        masks = mask_volume.astype(bool)
 
     offset = stack.z_range[0] if stack.z_range else 0
     indices = list(range(0, stack.n_slices, max(int(slice_step), 1)))

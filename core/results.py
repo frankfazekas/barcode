@@ -430,6 +430,133 @@ class ComponentResults(ResultsBase):
 
 
 @dataclass
+class CurvatureRangeResults(ResultsBase):
+    """The extremes of the curvature field, which <H> averages away.
+
+    ``curvature.py`` has always computed these -- they are printed by ``describe()``
+    -- but they never reached the CSV. A saddle point is sharply curved in both
+    principal directions and averages to nearly zero in <H>, so a surface can be
+    highly structured and still report a flat mean. These say how structured.
+
+    Off by default: they are only meaningful alongside the mesh family, and the barcode
+    is already wide.
+    """
+
+    min_curvature: float = np.nan
+    max_curvature: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        return [Metrics.CURVATURE_MIN, Metrics.CURVATURE_MAX]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        return [Units.CURVATURE, Units.CURVATURE]
+
+    def get_data(self) -> List[float]:
+        return [self.min_curvature, self.max_curvature]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
+class SliceProfileResults(ResultsBase):
+    """Where through the stack the object is widest.
+
+    Everything else in the volumetric branch reduces a stack to one number per
+    timepoint and so cannot say *where* in depth anything happened. For a stack through
+    a curved surface or a rounded object the broadest slice locates the equator, and it
+    moves when the object flattens, tilts, or drifts through the focal range.
+
+    The depth is measured from the first *analysed* slice, so it is unaffected by a
+    z-range restriction -- but that also means it is not an absolute stage position.
+    """
+
+    broadest_index: float = np.nan
+    broadest_depth: float = np.nan
+    broadest_area: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        return [
+            Metrics.BROADEST_SLICE_INDEX,
+            Metrics.BROADEST_SLICE_DEPTH,
+            Metrics.BROADEST_SLICE_AREA,
+        ]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        return [Units.SLICE_INDEX, Units.LENGTH, Units.PERCENT_FOV]
+
+    def get_data(self) -> List[float]:
+        return [self.broadest_index, self.broadest_depth, self.broadest_area]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
+class MaskIntensityResults(ResultsBase):
+    """How signal is distributed *inside* the segmented objects.
+
+    The intensity branch describes whatever voxels it is handed, which normally means
+    the background peak dominates. These describe the inside of each object and then
+    average over objects, which is the clustering readout: a uniformly-filled nucleus
+    and one with bright foci have the same mean and very different CV and entropy.
+
+    Only ``entropy`` is computed on a per-object [0, 1] rescaling, which it needs so that
+    every object is binned over the same range. The rest are computed on raw voxels: CV
+    and skewness are already scale-invariant, and the bright fraction is undefined on
+    rescaled values for punctate objects. See ``analysis/volumetric/mask_intensity.py``,
+    which sets out where this departs from the source MATLAB and why.
+    """
+
+    mfi: float = np.nan
+    sd: float = np.nan
+    cv: float = np.nan
+    skewness: float = np.nan
+    entropy: float = np.nan
+    entropy_normalized: float = np.nan
+    bright_fraction: float = np.nan
+
+    @classmethod
+    def get_metrics(cls, mode: AnalysisMode = None) -> List[Metrics]:
+        return [
+            Metrics.MASK_INTENSITY_MFI,
+            Metrics.MASK_INTENSITY_SD,
+            Metrics.MASK_INTENSITY_CV,
+            Metrics.MASK_INTENSITY_SKEW,
+            Metrics.MASK_INTENSITY_ENTROPY,
+            Metrics.MASK_INTENSITY_ENTROPY_NORM,
+            Metrics.MASK_INTENSITY_BRIGHT_FRACTION,
+        ]
+
+    @classmethod
+    def get_units(cls, mode: AnalysisMode = None) -> List[Units]:
+        # MFI and SD are raw voxel statistics and carry detector units; CV, skewness,
+        # entropy and the two fractions are dimensionless by construction.
+        return [Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
+                Units.NONE, Units.NONE, Units.NONE]
+
+    def get_data(self) -> List[float]:
+        return [self.mfi, self.sd, self.cv, self.skewness,
+                self.entropy, self.entropy_normalized, self.bright_fraction]
+
+    def get_dict_data(self, mode: AnalysisMode = None) -> dict:
+        return dict(zip(self.get_metrics(mode), self.get_data()))
+
+    def is_populated(self) -> bool:
+        return bool(np.any(np.isfinite(np.array(self.get_data(), dtype=float))))
+
+
+@dataclass
 class IntensityMagnitudeResults(ResultsBase):
     """Extensive intensity quantities -- how much signal, not what shape.
 
@@ -586,6 +713,12 @@ OPTIONAL_FAMILIES = (
                    lambda mode: False),
     OptionalFamily("include_packing", "packing", PackingResults,
                    lambda mode: False),
+    OptionalFamily("include_curvature_range", "curvature_range", CurvatureRangeResults,
+                   lambda mode: False),
+    OptionalFamily("include_slice_profile", "slice_profile", SliceProfileResults,
+                   lambda mode: False),
+    OptionalFamily("include_mask_intensity", "mask_intensity", MaskIntensityResults,
+                   lambda mode: False),
 )
 
 
@@ -638,6 +771,12 @@ class ChannelResults(ResultsBase):
     # of the data -- the same way a stale CSV once gave no hint that its correlation
     # lengths predated a bug fix.
     z_range_flag: int = 0
+    # 1 when foreground reaches an edge of the analysed field, so the object continues
+    # outside it. Deliberately a separate digit from 5: digit 5 says the *user* narrowed
+    # the analysis, this says the *data* is cut off. Every size, shape and curvature
+    # metric describes a truncated object when this fires, which is not recoverable
+    # from the numbers themselves.
+    fov_clip_flag: int = 0
 
     binarization: BinarizationResults = field(default_factory=BinarizationResults)
     intensity: IntensityResults = field(default_factory=IntensityResults)
@@ -648,6 +787,9 @@ class ChannelResults(ResultsBase):
         default_factory=IntensityMagnitudeResults)
     ranges: RangeResults = field(default_factory=RangeResults)
     packing: PackingResults = field(default_factory=PackingResults)
+    curvature_range: CurvatureRangeResults = field(default_factory=CurvatureRangeResults)
+    slice_profile: SliceProfileResults = field(default_factory=SliceProfileResults)
+    mask_intensity: MaskIntensityResults = field(default_factory=MaskIntensityResults)
 
     @classmethod
     def _get_base_headers(cls) -> List[str]:
@@ -718,6 +860,8 @@ class ChannelResults(ResultsBase):
             flag_lst.append("4")
         if self.z_range_flag == 1:
             flag_lst.append("5")
+        if self.fov_clip_flag == 1:
+            flag_lst.append("6")
         return ";".join(flag_lst) if flag_lst else "0"
 
     def _rows(self, just_metrics, mode, enabled, with_flow, physical):

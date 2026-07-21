@@ -166,6 +166,33 @@ class Metrics(Enum):
     CURVATURE_INVAGINATION = "Invagination Ratio"
     CURVATURE_CONCAVE = "Concave Area Fraction"
 
+    # Extremes of the same area-weighted curvature field. <H> averages k1 and k2
+    # together, so a saddle -- sharply curved both ways -- averages towards zero and
+    # reads as flat. These keep the two principal directions apart: the most concave
+    # and the most convex parts of the surface.
+    CURVATURE_MIN = "Minimum Curvature"
+    CURVATURE_MAX = "Maximum Curvature"
+
+    # Where a volume is widest (analysis/volumetric/slice_profile.py). For a stack
+    # through a curved surface or a rounded object, the slice with the most foreground
+    # locates the equator, and its depth is a shape descriptor rather than a
+    # bookkeeping detail: it moves when the object flattens or tilts.
+    BROADEST_SLICE_INDEX = "Broadest Slice Index"
+    BROADEST_SLICE_DEPTH = "Broadest Slice Depth"
+    BROADEST_SLICE_AREA = "Broadest Slice Area"
+
+    # Intensity distribution WITHIN the segmentation (analysis/volumetric/mask_intensity.py).
+    # Distinct from the intensity branch, which describes whichever voxels it was given
+    # -- usually including background. These describe how signal is distributed inside
+    # each object, which is the clustering readout.
+    MASK_INTENSITY_MFI = "In-Mask MFI"
+    MASK_INTENSITY_SD = "In-Mask Intensity SD"
+    MASK_INTENSITY_CV = "In-Mask Intensity CV"
+    MASK_INTENSITY_SKEW = "In-Mask Intensity Skewness"
+    MASK_INTENSITY_ENTROPY = "In-Mask Intensity Entropy"
+    MASK_INTENSITY_ENTROPY_NORM = "In-Mask Normalized Entropy"
+    MASK_INTENSITY_BRIGHT_FRACTION = "In-Mask Fraction Above 2x Median"
+
     IGNORE = "Ignore this"
     FILEPATH = "File"
     CHANNEL = "Channel"

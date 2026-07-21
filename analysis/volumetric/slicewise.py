@@ -98,7 +98,11 @@ def run_slicewise_analysis(
         mask_volume, mask_path = full_mask
         if stack.z_range:
             mask_volume = mask_volume[stack.z_range[0]:stack.z_range[1]]
-        masks = mask_volume
+        # The 2D branches consume a binary field, and planar area/connectivity metrics
+        # have no use for instance labels. Reduce explicitly: the loader now preserves
+        # labels for the volumetric families, so relying on it to hand back a boolean
+        # would make this silently label-dependent.
+        masks = mask_volume.astype(bool)
 
     detail = SlicewiseRunDetail(
         stack=stack,

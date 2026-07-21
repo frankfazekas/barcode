@@ -15,6 +15,18 @@ import numpy as np
 from analysis.volumetric.binarization import (
     VolumetricBinarizationDetail,
     analyze_binarization_3d,
+    binarize_volume,
+    invert_volume,
+)
+from analysis.volumetric.mask_intensity import (
+    MaskIntensityDetail,
+    analyze_mask_intensity,
+    summarise_mask_intensity,
+)
+from analysis.volumetric.slice_profile import (
+    SliceProfileDetail,
+    slice_profile,
+    summarise_slice_profile,
 )
 from analysis.volumetric.flow import VolumetricFlowDetail, analyze_optical_flow_3d
 from analysis.volumetric.intensity import (
@@ -30,7 +42,7 @@ from analysis.volumetric.reader import (
     VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_segmentation
 from core import BarcodeConfig, ChannelResults, VolumetricConfig
-from core.results import ComponentResults, MeshResults
+from core.results import ComponentResults, CurvatureRangeResults, MeshResults
 
 
 @dataclass
@@ -47,7 +59,89 @@ class VolumetricRunDetail:
     flow: Optional[VolumetricFlowDetail] = None
     meshes: List[NucleusMesh] = field(default_factory=list)
     packing: List[VolumetricPackingDetail] = field(default_factory=list)
+    slice_profile: List[SliceProfileDetail] = field(default_factory=list)
+    mask_intensity: List[MaskIntensityDetail] = field(default_factory=list)
     frame_indices: List[int] = field(default_factory=list)
+
+
+def _frame_binary(volumes, masks, frame_idx, vcfg):
+    """The binary volume for one timepoint, by the binarization branch's own rule.
+
+    Duplicated deliberately rather than cached on the detail: the binarization branch
+    holds only reduced statistics, and keeping every binarized volume alive to serve an
+    optional family would multiply peak memory across the whole series. Recomputing one
+    frame at a time is cheap; the rule itself must not diverge, hence the same helpers.
+    """
+    if masks is not None:
+        return masks[frame_idx].astype(bool)
+    binary = binarize_volume(
+        volumes[frame_idx], vcfg.threshold_offset, vcfg.minimum_island_size)
+    return invert_volume(binary) if vcfg.invert_binarization else binary
+
+
+def _add_optional_families(results, detail, volumes, masks, spacing_zyx,
+                           frame_indices, vcfg):
+    """Populate the opt-in families that need their own pass over the volumes.
+
+    Each reports rather than raises when its prerequisites are missing, matching how
+    meshing and packing handle an absent segmentation: one misconfigured file should not
+    abort a batch, and an empty column with a printed reason is honest whereas a zero is
+    not.
+    """
+    if vcfg.enable_slice_profile:
+        per_frame = []
+        for frame_idx in frame_indices:
+            binary = _frame_binary(volumes, masks, frame_idx, vcfg)
+            frame_result, frame_detail = slice_profile(binary, spacing_zyx[0])
+            per_frame.append(frame_result)
+            detail.slice_profile.append(frame_detail)
+        if per_frame:
+            results.slice_profile = summarise_slice_profile(per_frame)
+            # Clipping anywhere in the series taints the averaged metrics, so the flag
+            # is the union over analysed timepoints rather than the last one's value.
+            results.fov_clip_flag = int(any(d.clipped for d in detail.slice_profile))
+            print(f"  {detail.slice_profile[0].describe()}", flush=True)
+
+    if vcfg.enable_curvature_range:
+        curvatures = [m.curvature for m in detail.meshes if m.curvature is not None]
+        if not curvatures:
+            print(
+                "Curvature range needs the mesh family, which produced no curvature; "
+                "skipping. Enable meshing and supply a segmentation.",
+                flush=True,
+            )
+        else:
+            results.curvature_range = CurvatureRangeResults(
+                min_curvature=_mean_of([c.min_curvature for c in curvatures]),
+                max_curvature=_mean_of([c.max_curvature for c in curvatures]),
+            )
+
+    if vcfg.enable_mask_intensity:
+        if masks is None:
+            print(
+                "In-mask intensity needs a segmentation; skipping. These metrics "
+                "describe the inside of each object, so there is nothing to describe "
+                "without one.",
+                flush=True,
+            )
+        else:
+            per_frame = []
+            for frame_idx in frame_indices:
+                frame_result, frame_detail = analyze_mask_intensity(
+                    volumes[frame_idx], masks[frame_idx],
+                    bins=vcfg.mask_intensity_bins,
+                    min_voxels=vcfg.mask_intensity_min_voxels,
+                )
+                per_frame.append(frame_result)
+                detail.mask_intensity.append(frame_detail)
+            results.mask_intensity = summarise_mask_intensity(per_frame)
+            print(f"  {detail.mask_intensity[0].describe()}", flush=True)
+
+
+def _mean_of(values) -> float:
+    array = np.asarray(list(values), dtype=np.float64)
+    finite = array[np.isfinite(array)]
+    return float(finite.mean()) if finite.size else np.nan
 
 
 def select_frame_indices(n_frames: int, frame_step: int) -> List[int]:
@@ -245,7 +339,9 @@ def _prepare_geometry(
     # Put the per-frame masks on that same cropped grid. When the masks were already
     # isotropic prepare_nucleus only cropped, so the bounding box indexes the masks'
     # own grid and slicing is exact. Otherwise they must be resampled the same way the
-    # union was, with nearest-neighbour so the mask stays binary.
+    # union was, with nearest-neighbour -- which maps each output voxel to exactly one
+    # input voxel and so carries instance labels across unchanged, where any
+    # interpolating kernel would average neighbouring labels into new, meaningless ones.
     bbox = info.get("crop_bbox")
     if bbox is None:
         raise ValueError("Segmentation is empty; cannot establish a crop box.")
@@ -262,14 +358,23 @@ def _prepare_geometry(
         target = (spacing_iso[0], spacing_iso[1], spacing_iso[2])
         source = (mask_spacing, mask_spacing, mask_spacing)
         reference_shape = union_iso.shape
+        # int32, not uint8: an instance segmentation routinely has more than 255
+        # objects -- a confluent Cellpose field has thousands -- and uint8 would wrap
+        # them silently, merging unrelated cells into one label.
         masks_iso = np.stack([
             _resample_array_to_reference(
-                m.astype(np.uint8), source, reference_shape, target, sitk.sitkNearestNeighbor
+                m.astype(np.int32), source, reference_shape, target, sitk.sitkNearestNeighbor
             )
             for m in masks
         ])
 
-    masks_iso = np.asarray(masks_iso, dtype=bool)
+    # Preserve the label dtype. Casting to bool here used to undo the loader's label
+    # preservation, collapsing every instance into one foreground blob -- which is
+    # invisible in the metrics for a single object and silently wrong for a field of
+    # them. Consumers that want a binary field say so themselves with .astype(bool).
+    masks_iso = np.asarray(masks_iso)
+    if masks_iso.dtype != bool and not np.issubdtype(masks_iso.dtype, np.integer):
+        masks_iso = masks_iso.astype(bool)
     if masks_iso.shape[0] == 1 and n_timepoints > 1:
         masks_iso = np.repeat(masks_iso, n_timepoints, axis=0)
     if masks_iso.shape[1:] != volumes.shape[1:]:
@@ -384,6 +489,10 @@ def run_volumetric_analysis(
         results.intensity_magnitude = analyze_intensity_magnitude(
             volumes, spacing_zyx, frame_indices,
             masks if vcfg.intensity_use_mask else None)
+
+    if vcfg.enable_slice_profile or vcfg.enable_curvature_range or vcfg.enable_mask_intensity:
+        _add_optional_families(results, detail, volumes, masks, spacing_zyx,
+                               frame_indices, vcfg)
 
     if vcfg.record_range_columns:
         results.ranges = build_range_results(stack)

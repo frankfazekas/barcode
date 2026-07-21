@@ -217,6 +217,51 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_slice_profile,
+        "Broadest Slice & Clipping Flag",
+        "Add the index, depth and area of the widest z slice -- the only metrics that "
+        "say WHERE in depth something is, rather than reducing the stack to one number. "
+        "For a stack through a curved surface or a rounded object it locates the "
+        "equator, and it moves when the object flattens or tilts. Also raises flag "
+        "digit 6 when foreground reaches an edge of the analysed field, meaning the "
+        "object continues outside it and every size and shape metric describes a "
+        "truncated object. Digit 6 is separate from digit 5 on purpose: 5 means YOU "
+        "restricted the range, 6 means the DATA is cut off.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_curvature_range,
+        "Minimum & Maximum Curvature",
+        "Add the extremes of the curvature field. Mean Curvature <H> averages the two "
+        "principal curvatures together, so a saddle -- sharply curved both ways -- "
+        "averages towards zero and reads as flat. These keep the most concave and most "
+        "convex parts of the surface apart. Needs the mesh family, so it also needs a "
+        "segmentation.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_mask_intensity,
+        "In-Mask Intensity Statistics",
+        "Add per-object MFI, SD, CV, skewness, entropy, normalized entropy and the "
+        "fraction of voxels above twice the median. These describe how signal is "
+        "distributed INSIDE each object -- the clustering readout -- whereas the "
+        "intensity branch describes whatever voxels it is given, usually including "
+        "background. A uniformly-filled object and one with bright foci have the same "
+        "mean and very different CV and entropy. Needs a segmentation; with an instance "
+        "mask each object is measured separately and the results averaged unweighted, "
+        "so one large object does not outvote the rest.",
+    )
+    row_idx += 2
+
     contact_label = tk.Label(frame, text="Minimum Contact [voxels]")
     contact_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(

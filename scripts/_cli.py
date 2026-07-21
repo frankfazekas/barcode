@@ -61,6 +61,13 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
         "--z-step", type=float, default=0, metavar="UM",
         help="microns between z slices, overriding the file's ImageJ 'spacing'",
     )
+    group.add_argument(
+        "--frame-interval", type=float, default=0, metavar="SECONDS",
+        help="seconds between timepoints. Only Speed and Speed Change depend on it, but "
+             "they are wrong by exactly this factor if it is left unset: ImageJ's "
+             "'finterval' often describes the z acquisition, not the time axis, and the "
+             "fallback of 1 s is then reported in um/s as if it were real",
+    )
 
 
 def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
@@ -79,6 +86,32 @@ def add_metric_arguments(parser: argparse.ArgumentParser) -> None:
         "--hide-metric", action="append", default=[], metavar="NAME",
         help="leave a metric off the barcode image (repeatable). The CSV always keeps "
              "the full set for the mode.",
+    )
+    group.add_argument(
+        "--curvature-range", action="store_true",
+        help="add the minimum and maximum curvature. <H> averages the two principal "
+             "curvatures together, so a saddle reads as flat; these do not. Needs the "
+             "mesh family",
+    )
+    group.add_argument(
+        "--slice-profile", action="store_true",
+        help="add the broadest slice (index, depth, area) and raise flag digit 6 when "
+             "foreground reaches an edge of the analysed field. The only metrics that "
+             "say WHERE in depth something is",
+    )
+    group.add_argument(
+        "--mask-intensity", action="store_true",
+        help="add per-object in-mask intensity statistics: MFI, SD, CV, skewness, "
+             "entropy, normalized entropy and the fraction above twice the median. "
+             "Each object is rescaled to [0,1] first so objects are comparable, which "
+             "is why MFI (raw) is the only one in detector units. Needs a segmentation",
+    )
+    group.add_argument(
+        "--packing", action="store_true",
+        help="add contact-number statistics (mean, SD, hexagonal fraction): who touches "
+             "whom. Needs an INSTANCE segmentation -- in a confluent field connectivity "
+             "labelling fuses every cell into one component, so this reports NaN with a "
+             "reason rather than a misleading 0",
     )
     group.add_argument(
         "--list-metrics", action="store_true",
@@ -100,9 +133,44 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.xy_step_um = getattr(args, "xy_step", 0) or v.xy_step_um
     v.z_step_um = getattr(args, "z_step", 0) or v.z_step_um
     v.enable_component_stats = getattr(args, "component_stats", False)
+    v.enable_curvature_range = getattr(args, "curvature_range", False)
+    v.enable_slice_profile = getattr(args, "slice_profile", False)
+    v.enable_mask_intensity = getattr(args, "mask_intensity", False)
+    v.enable_packing_topology = getattr(args, "packing", False)
+    v.frame_interval_s = getattr(args, "frame_interval", 0) or v.frame_interval_s
     v.intensity_use_mask = getattr(args, "intensity_in_mask", False)
     config.writer.hidden_barcode_metrics = list(getattr(args, "hide_metric", []))
     return config
+
+
+def family_switches(config: BarcodeConfig) -> dict:
+    """Which optional families this configuration will produce.
+
+    The config field names do not map mechanically onto the registry's switch names, so
+    the correspondence is written out. Every entry in ``OPTIONAL_FAMILIES`` must appear:
+    the assertion below fails loudly when a family is added and this is not updated,
+    rather than letting ``--list-metrics`` quietly under-report what the run will emit.
+    """
+    from core.results import OPTIONAL_FAMILIES
+
+    v = config.volumetric
+    switches = {
+        "include_mesh": bool(getattr(v, "mesh_enabled", False)),
+        "include_components": bool(v.enable_component_stats),
+        "include_intensity_magnitude": bool(v.enable_intensity_magnitude),
+        "include_ranges": bool(v.record_range_columns),
+        "include_packing": bool(v.enable_packing_topology),
+        "include_curvature_range": bool(v.enable_curvature_range),
+        "include_slice_profile": bool(v.enable_slice_profile),
+        "include_mask_intensity": bool(v.enable_mask_intensity),
+    }
+    missing = {f.switch for f in OPTIONAL_FAMILIES} - set(switches)
+    if missing:
+        raise AssertionError(
+            f"family_switches is missing {sorted(missing)}; add the config field that "
+            f"turns each on so --list-metrics matches what a run emits."
+        )
+    return switches
 
 
 def print_metrics(config: BarcodeConfig) -> None:
@@ -112,9 +180,7 @@ def print_metrics(config: BarcodeConfig) -> None:
 
     mode = config.volumetric.mode
     headers = ChannelResults.get_headers(
-        just_metrics=True, mode=mode,
-        include_components=config.volumetric.enable_component_stats,
-    )
+        just_metrics=True, mode=mode, **family_switches(config))
     shown = selection_mask(headers, config.writer.hidden_barcode_metrics)
 
     print(f"mode {mode.key} -- {mode.label}")
