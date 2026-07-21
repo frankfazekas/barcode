@@ -1,11 +1,11 @@
-"""prepare_nucleus: anisotropic channel + isotropic mask -> common isotropic grid.
+"""prepare_volume: anisotropic channel + isotropic mask -> common isotropic grid.
 
 Ported unmodified (bar the import path) from chromatin-analysis
 ``tests/test_resample.py``, so the port can be checked against its origin.
 """
 import numpy as np
 
-from analysis.volumetric.resample import prepare_nucleus
+from analysis.volumetric.resample import prepare_volume
 
 
 def _sphere(shape, radius):
@@ -14,13 +14,13 @@ def _sphere(shape, radius):
     return ((zz - cz) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2) <= radius ** 2
 
 
-def test_prepare_nucleus_makes_isotropic_aligned_grid():
+def test_prepare_volume_makes_isotropic_aligned_grid():
     # Isotropic mask (0.065 um), anisotropic channel (z = 0.3 um) covering the
     # same physical extent.
     mask = _sphere((40, 40, 40), 14).astype(np.uint8)
     channel = np.ones((9, 40, 40), dtype=np.uint16) * 100
 
-    images_iso, mask_iso, spacing_iso, info = prepare_nucleus(
+    images_iso, mask_iso, spacing_iso, info = prepare_volume(
         images={"hoechst": channel},
         image_spacings={"hoechst": (0.065, 0.065, 0.3)},
         mask=mask,

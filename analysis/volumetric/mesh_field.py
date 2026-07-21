@@ -205,7 +205,7 @@ def mesh_field(
     if float(spacing.max() - spacing.min()) > 1e-9:
         raise MeshingError(
             f"Meshing needs an isotropic grid but spacing (z, y, x) is {tuple(spacing)} "
-            f"um; resample first (analysis.volumetric.resample.prepare_nucleus)."
+            f"um; resample first (analysis.volumetric.resample.prepare_volume)."
         )
     voxel_size = float(spacing[0])
 

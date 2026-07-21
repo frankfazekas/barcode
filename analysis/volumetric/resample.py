@@ -7,9 +7,11 @@ change back. That module is in turn adapted from nuclear-rotation-3D
 intact here deliberately.
 
 Two call-site gotchas worth repeating: spacing arguments are ``(x, y, z)`` while the
-arrays are ``(Z, Y, X)``, and ``prepare_nucleus`` crops to the mask bounding box, so
-every "fraction of field of view" metric computed downstream is relative to the
-cropped nucleus rather than the original field.
+arrays are ``(Z, Y, X)``; and the upstream version cropped to the mask bounding box
+unconditionally, which BARCODE must not do. ``prepare_volume`` therefore takes
+``crop_to_mask`` and defaults it to False, because every "fraction of field of view"
+metric is a fraction of whatever box is analysed. This function is also not
+nucleus-specific despite its provenance -- it prepares any labelled volume.
 
 Original module docstring follows.
 ---
@@ -124,19 +126,31 @@ def _crop_to_mask_bbox(images: Dict[str, np.ndarray], mask, padding: int):
     return cropped, mask[z0:z1, y0:y1, x0:x1], bbox
 
 
-def prepare_nucleus(
+def prepare_volume(
     images: Dict[str, np.ndarray],
     image_spacings: Dict[str, Tuple[float, float, float]],
     mask: np.ndarray,
     mask_spacing: Tuple[float, float, float],
     crop_padding: int = 2,
+    crop_to_mask: bool = False,
 ):
-    """Put every channel + the mask on one isotropic grid, cropped to the nucleus.
+    """Put every channel + the mask on one isotropic grid.
 
     Returns ``(images_iso, mask_iso, spacing_iso, info)`` where ``images_iso`` is
     a dict of (Z, Y, X) arrays (same dtype as input), ``mask_iso`` is uint8 0/1,
     ``spacing_iso`` is the isotropic (x, y, z) spacing, and ``info`` records the
     actions taken (for run provenance).
+
+    ``crop_to_mask`` crops to the mask's bounding box. It defaults to **False**: the
+    analysed field must be the acquired field of view, because every "fraction of field
+    of view" metric is a fraction OF THAT BOX. Cropping per file gives each file its own
+    denominator, so the same object in a tighter box reports a larger fraction and a
+    size trend cannot be distinguished from the box tracking the object. The only
+    intended way to analyse less than the full field is an explicit z range.
+
+    The upstream ``chromatin-analysis`` version cropped unconditionally; that suited a
+    single-nucleus rotation pipeline where every quantity was absolute. It is wrong for
+    BARCODE, whose normalised metrics are all relative to the analysed volume.
     """
     info: Dict[str, object] = {}
 
@@ -174,8 +188,16 @@ def prepare_nucleus(
         info["isotropic"] = "already_isotropic"
     work_mask = (work_mask > 0).astype(np.uint8)
 
-    # 3) Crop everything to the nuclear bounding box.
-    canon, work_mask, bbox = _crop_to_mask_bbox(canon, work_mask, crop_padding)
+    # 3) Optionally crop to the mask's bounding box. Off by default -- see the docstring;
+    # the reported bbox then spans the whole field so callers index identically either way.
+    if crop_to_mask:
+        canon, work_mask, bbox = _crop_to_mask_bbox(canon, work_mask, crop_padding)
+        info["cropped"] = "mask_bbox"
+    else:
+        bbox = {"z": [0, int(work_mask.shape[0])],
+                "y": [0, int(work_mask.shape[1])],
+                "x": [0, int(work_mask.shape[2])]}
+        info["cropped"] = "full_field"
     info["crop_bbox"] = bbox
     canon = {k: np.ascontiguousarray(v) for k, v in canon.items()}
     return canon, np.ascontiguousarray(work_mask), working_spacing, info

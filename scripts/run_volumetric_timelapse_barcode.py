@@ -236,6 +236,12 @@ def main() -> int:
 
         results_to_csv(results, base + ".csv", just_metrics=False, physical_units=False,
                        mode=vcfg.mode)
+        # A second copy in physical units. The normalised CSV above is what the barcode
+        # is built from -- fractions of the analysed volume, comparable across datasets
+        # of different sizes -- but that makes every size column dimensionless, so it
+        # cannot be checked against an external measurement. Volumes in um^3 can.
+        from scripts._cli import write_physical_csv
+        write_physical_csv(results, base + " (physical).csv", vcfg.mode, families)
         generate_combined_barcode(results, base, mode=vcfg.mode,
                                   metrics_to_visualize=shown)
         print(f"  {len(headers)} metrics in the CSV, {sum(shown)} on the barcode")

@@ -143,6 +143,34 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     return config
 
 
+def write_physical_csv(results, path: str, mode, families: dict) -> None:
+    """Write results in physical units (um, um^3, um/s) next to the normalised CSV.
+
+    ``utils.writer.results_to_csv`` cannot do this for the time-lapse runner. Its
+    physical path asserts that every row's third binarization value is NaN in normalised
+    form -- a stand-in for "this row's change metrics were never filled" -- and that
+    runner deliberately fills the change metrics afterwards from the series. The
+    assertion is right about the ordinary path and simply does not describe this one.
+
+    The distinction matters for validation: the normalised CSV reports every size as a
+    fraction of the analysed volume, so it is dimensionless and cannot be compared with
+    an externally measured volume. Only this file can be checked against ground truth.
+    """
+    import csv
+
+    # mode matters here as much as it does for the normalised headers: without it a 3D
+    # run is labelled with the 2D names and every volume column claims to be an area.
+    headers = results[0].get_physical_headers(mode=mode, **families)
+    with open(path, "w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(headers)
+        for result in results:
+            # get_physical_data, not to_physical_array: the row leads with the file path
+            # and flags, which are strings, and coercing the row to a float array to
+            # write it as text just fails on the first column.
+            writer.writerow(list(result.get_physical_data(mode=mode, **families)))
+
+
 def family_switches(config: BarcodeConfig) -> dict:
     """Which optional families this configuration will produce.
 

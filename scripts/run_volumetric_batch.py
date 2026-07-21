@@ -23,6 +23,7 @@ import tifffile
 
 from analysis.volumetric.run import run_volumetric_analysis
 from core import BarcodeConfig
+from core.modes import MODES
 from utils.writer import results_to_csv
 
 
@@ -42,7 +43,15 @@ def build_config(args) -> BarcodeConfig:
     # These scripts call the volumetric branch directly, bypassing the dispatch in
     # core.pipeline, so the mode must be stated here too -- it is what decides the
     # metric names and which families the CSV carries.
-    v.analysis_mode = "xyzt"
+    v.analysis_mode = getattr(args, "mode", "xyzt")
+    # Optional metric families, off unless asked for. Single-timepoint volumes (Allen
+    # FOVs, any SizeT=1 export) need these: without them the run reports only the
+    # metrics that a lone volume mostly cannot fill, and the per-object families --
+    # which are exactly what an instance segmentation is FOR -- never appear.
+    v.enable_component_stats = getattr(args, "component_stats", False)
+    v.enable_packing_topology = getattr(args, "packing", False)
+    v.enable_mask_intensity = getattr(args, "mask_intensity", False)
+    v.mesh_enabled = getattr(args, "mesh", False)
     v.flow_reliability_percentile = args.flow_reliability
     v.flow_downsample = args.flow_downsample
     v.frame_interval_s = args.frame_interval
@@ -89,6 +98,18 @@ def main() -> int:
     p.add_argument("--seg-regex", default=None, help="default: (?P<stem>.+)")
     p.add_argument("--seg-template", default=None)
     p.add_argument("--csv", default=None, help="output CSV path")
+    p.add_argument("--mode", default="xyzt", choices=list(MODES),
+                   help="; ".join(f"{k}: {m.label}" for k, m in MODES.items()))
+    p.add_argument("--component-stats", action="store_true",
+                   help="add per-object count, size SD, skewness and median")
+    p.add_argument("--packing", action="store_true",
+                   help="add contact-number statistics (mean, SD, hexagonal fraction). "
+                        "Needs an INSTANCE segmentation: in a confluent field "
+                        "connectivity labelling fuses every cell into one component")
+    p.add_argument("--mask-intensity", action="store_true",
+                   help="add per-object in-mask intensity statistics")
+    p.add_argument("--mesh", action="store_true",
+                   help="add the mesh + curvature columns (needs a segmentation)")
     args = p.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.folder, args.pattern)), key=natural_key)
@@ -146,11 +167,40 @@ def main() -> int:
             os.path.dirname(os.path.normpath(args.folder)), "results", "per_frame")
         os.makedirs(out_dir, exist_ok=True)
         csv_path = os.path.join(out_dir, "Volumetric Summary.csv")
-    results_to_csv(all_results, csv_path, just_metrics=False, physical_units=False)
+    results_to_csv(all_results, csv_path, just_metrics=False, physical_units=False,
+                   mode=config.volumetric.mode)
     print(f"\nWrote {csv_path}")
 
-    print("\n=== cross-frame consistency (same cell, consecutive timepoints) ===")
-    print(summarise("nuclear volume (um^3)", [r["largest_um3"] for r in rows]))
+    # One barcode row per input file, and a physical-units CSV beside the normalised
+    # one. The normalised CSV is what the barcode renders (each column scaled across
+    # rows), but every size in it is a fraction of the analysed volume, so only the
+    # physical copy can be checked against an external measurement.
+    from core.metrics import selection_mask
+    from core.results import OPTIONAL_FAMILIES
+    from scripts._cli import write_physical_csv
+    from visualization.barcode import generate_combined_barcode
+
+    families = {
+        f.switch: any(getattr(r, f.attribute, None) is not None
+                      and getattr(r, f.attribute).is_populated() for r in all_results)
+        for f in OPTIONAL_FAMILIES
+    }
+    base = os.path.splitext(csv_path)[0]
+    write_physical_csv(all_results, base + " (physical).csv",
+                       config.volumetric.mode, families)
+    if len(all_results) > 1:
+        headers = all_results[0].get_headers(
+            just_metrics=True, mode=config.volumetric.mode, **families)
+        generate_combined_barcode(all_results, base, mode=config.volumetric.mode,
+                                  metrics_to_visualize=selection_mask(headers, []))
+        print(f"Wrote {base}*.png   ({len(all_results)} rows, one per file)")
+    else:
+        # One row has no contrast: the barcode normalises each column ACROSS rows, so a
+        # single-row image is uniformly mid-scale and says nothing.
+        print("Only one result; skipping the barcode (it normalises across rows)")
+
+    print("\n=== spread across the analysed files ===")
+    print(summarise("largest object volume (um^3)", [r["largest_um3"] for r in rows]))
     print(summarise("fraction of analysed volume", [r["pct_volume"] for r in rows]))
     print(summarise("island anisotropy", [r["anisotropy"] for r in rows]))
     print(summarise("structural correlation (um)", [r["corr_um"] for r in rows]))
@@ -168,8 +218,14 @@ def main() -> int:
         print("\n=== mask preservation through resample + crop ===")
         worst = 0.0
         for row in rows:
-            on_disk = int((tifffile.imread(row["mask_path"]) > 0).sum())
-            delta = abs(row["largest_voxels"] - on_disk) / on_disk
+            disk_mask = tifffile.imread(row["mask_path"])
+            # Compare like with like. The pipeline figure is the LARGEST object, so the
+            # on-disk figure must be the largest object too -- against a multi-object
+            # field's total it reports ~95% "loss" on a mask that survived perfectly,
+            # because one cell of forty is indeed 1/40th of the foreground.
+            labels, counts = np.unique(disk_mask[disk_mask > 0], return_counts=True)
+            on_disk = int(counts.max()) if labels.size > 1 else int(counts.sum())
+            delta = abs(row["largest_voxels"] - on_disk) / on_disk if on_disk else np.nan
             worst = max(worst, delta)
             flag = "OK" if delta < 1e-9 else f"DIFF {delta:.3%}"
             print(f"  {row['file']:16s} pipeline {int(row['largest_voxels']):>9,d} "

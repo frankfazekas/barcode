@@ -724,7 +724,7 @@ def mesh_nucleus(
     ``mesh_solidity`` is free and always computed.
 
     ``mask_zyx`` must be on an isotropic grid -- which is what
-    ``analysis.volumetric.resample.prepare_nucleus`` produces -- because ``maxrad``
+    ``analysis.volumetric.resample.prepare_volume`` produces -- because ``maxrad``
     is a single radius in voxels and would otherwise mean a different physical
     distance along each axis.
     """

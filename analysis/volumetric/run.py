@@ -315,21 +315,26 @@ def _prepare_geometry(
             masks = np.repeat(masks, n_timepoints, axis=0)
         return stack.data, masks, (z_um, xy_um, xy_um), {"isotropic": "skipped"}, mask_paths
 
-    # prepare_nucleus crops to the bounding box of whatever mask it is handed, so give
-    # it the union: every timepoint then lands on an identical grid.
-    # Note it takes spacing as (x, y, z) while the arrays are (Z, Y, X).
-    from analysis.volumetric.resample import prepare_nucleus
+    # The analysed field is the ACQUIRED field of view. Cropping to the mask's bounding
+    # box would give each file its own denominator for every "fraction of volume"
+    # metric, so an object shrinking and the box tightening around it would be
+    # indistinguishable -- and on a per-file run all 15 boxes really are different.
+    # An explicit z range is the only intended way to analyse less than the full field,
+    # and it is applied to the stack before this point.
+    # Note prepare_volume takes spacing as (x, y, z) while the arrays are (Z, Y, X).
+    from analysis.volumetric.resample import prepare_volume
 
     union_mask = masks.any(axis=0).astype(np.uint8)
 
     volumes, info = [], {}
     for t in range(n_timepoints):
-        images_iso, union_iso, spacing_iso, info = prepare_nucleus(
+        images_iso, union_iso, spacing_iso, info = prepare_volume(
             images={"image": stack.data[t]},
             image_spacings={"image": (xy_um, xy_um, z_um)},
             mask=union_mask,
             mask_spacing=(mask_spacing, mask_spacing, mask_spacing),
             crop_padding=config.crop_padding_vox,
+            crop_to_mask=getattr(config, "crop_to_mask", False),
         )
         volumes.append(images_iso["image"])
 
@@ -337,7 +342,7 @@ def _prepare_geometry(
     spacing_zyx = (spacing_iso[2], spacing_iso[1], spacing_iso[0])
 
     # Put the per-frame masks on that same cropped grid. When the masks were already
-    # isotropic prepare_nucleus only cropped, so the bounding box indexes the masks'
+    # isotropic prepare_volume only resampled, so the bounding box indexes the masks'
     # own grid and slicing is exact. Otherwise they must be resampled the same way the
     # union was, with nearest-neighbour -- which maps each output voxel to exactly one
     # input voxel and so carries instance labels across unchanged, where any

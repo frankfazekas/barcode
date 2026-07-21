@@ -703,6 +703,7 @@ class VolumetricConfigGUI:
     z_end: tk.DoubleVar = field(init=False)
     z_range_units: tk.StringVar = field(init=False)
     make_isotropic: tk.BooleanVar = field(init=False)
+    crop_to_mask: tk.BooleanVar = field(init=False)
     crop_padding_vox: tk.IntVar = field(init=False)
     enable_component_stats: tk.BooleanVar = field(init=False)
     t_start: tk.DoubleVar = field(init=False)
@@ -770,6 +771,7 @@ class VolumetricConfigGUI:
         self.z_end = tk.DoubleVar(value=self._core_config.z_end)
         self.z_range_units = tk.StringVar(value=self._core_config.z_range_units)
         self.make_isotropic = tk.BooleanVar(value=self._core_config.make_isotropic)
+        self.crop_to_mask = tk.BooleanVar(value=self._core_config.crop_to_mask)
         self.crop_padding_vox = tk.IntVar(value=self._core_config.crop_padding_vox)
         self.enable_component_stats = tk.BooleanVar(value=self._core_config.enable_component_stats)
         self.t_start = tk.DoubleVar(value=self._core_config.t_start)
@@ -840,6 +842,7 @@ class VolumetricConfigGUI:
             z_end=self.z_end.get(),
             z_range_units=self.z_range_units.get(),
             make_isotropic=self.make_isotropic.get(),
+            crop_to_mask=self.crop_to_mask.get(),
             crop_padding_vox=self.crop_padding_vox.get(),
             enable_component_stats=self.enable_component_stats.get(),
             t_start=self.t_start.get(),
@@ -910,6 +913,7 @@ class VolumetricConfigGUI:
         self.z_end.set(new_config.z_end)
         self.z_range_units.set(new_config.z_range_units)
         self.make_isotropic.set(new_config.make_isotropic)
+        self.crop_to_mask.set(new_config.crop_to_mask)
         self.crop_padding_vox.set(new_config.crop_padding_vox)
         self.enable_component_stats.set(new_config.enable_component_stats)
         self.t_start.set(new_config.t_start)

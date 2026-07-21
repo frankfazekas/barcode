@@ -231,8 +231,15 @@ class VolumetricConfig(BaseConfig):
     z_end: float = 0
     z_range_units: str = "acquired"
 
-    # Resample image + mask onto one isotropic grid, then crop to the mask bbox.
+    # Resample image + mask onto one isotropic grid.
     make_isotropic: bool = True
+
+    # Crop the analysed volume to the mask's bounding box. OFF, and it should stay off:
+    # every "fraction of volume" metric is a fraction of the analysed box, so cropping
+    # per file gives each file its own denominator and an object shrinking becomes
+    # indistinguishable from the box tightening around it. Use z_start/z_end to analyse
+    # less than the full field. Kept only for reproducing older cropped runs.
+    crop_to_mask: bool = False
     crop_padding_vox: int = 2
 
     # Per-connected-component size distribution (count, SD, skewness, median). Off by

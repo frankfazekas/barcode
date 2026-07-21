@@ -55,7 +55,8 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np
-import tifffile
+
+from scripts._staging import mask_z_to_isotropic, read_tiff_any, write_volume
 
 BASE_URL = "https://data.celltrackingchallenge.net/training-datasets"
 
@@ -202,26 +203,6 @@ def _volume_masks(directory: str) -> Dict[str, str]:
     return masks
 
 
-def _write_volume(path: str, volume: np.ndarray, dataset: Dataset) -> None:
-    """Write a ZYX volume that states its own geometry.
-
-    This is the point of the whole script: the reader is built to trust the file and
-    refuse to guess, so the staged file is made worth trusting.
-    """
-    tifffile.imwrite(
-        path,
-        volume,
-        imagej=True,
-        resolution=(1.0 / dataset.xy_um, 1.0 / dataset.xy_um),
-        metadata={
-            "axes": "ZYX",
-            "spacing": dataset.z_um,
-            "unit": "um",
-            "finterval": dataset.dt_s,
-        },
-    )
-
-
 def stage_sequence(dataset: Dataset, extracted: str, sequence: str, root: str) -> Optional[str]:
     """Stage one sequence into its own dataset folder. Returns the folder, or None."""
     source = os.path.join(extracted, sequence)
@@ -262,41 +243,19 @@ def stage_sequence(dataset: Dataset, extracted: str, sequence: str, root: str) -
     for entry in frames:
         index = os.path.splitext(entry)[0][1:]          # "t000" -> "000"
         stem = f"{dataset.name}_{sequence}_{index}"
-        _write_volume(os.path.join(data_dir, f"{stem}.tif"),
-                      _as_zyx(_read_volume_any(os.path.join(source, entry)), entry),
-                      dataset)
+        volume = _as_zyx(read_tiff_any(os.path.join(source, entry)), entry)
+        write_volume(os.path.join(data_dir, f"{stem}.tif"), volume,
+                     dataset.xy_um, dataset.z_um, dataset.dt_s)
         if masks:
-            _write_volume(os.path.join(mask_out, f"{stem}_SegMask.tif"),
-                          _as_zyx(_read_volume_any(masks[index]), masks[index]),
-                          dataset)
+            # Staged isotropic at xy so mask_spacing_um can stay at its default.
+            mask = mask_z_to_isotropic(
+                _as_zyx(read_tiff_any(masks[index]), masks[index]),
+                dataset.z_um, dataset.xy_um)
+            write_volume(os.path.join(mask_out, f"{stem}_SegMask.tif"), mask,
+                         dataset.xy_um, dataset.xy_um, dataset.dt_s)
 
     write_readme(dataset, sequence, folder, len(frames), bool(masks), mask_dir)
     return folder
-
-
-def _read_volume_any(path: str) -> np.ndarray:
-    """Read a CTC TIFF, including the LZW-compressed ones.
-
-    CTC compresses with LZW, which ``tifffile`` can only decode via ``imagecodecs`` --
-    a package that is not in requirements.txt and that pip cannot add without dragging
-    numpy past the ``numpy==2.0.1`` pin, breaking scipy. Pillow is already present (via
-    scikit-image) and decodes LZW natively, so the fallback costs nothing and the
-    analysis env stays exactly as pinned.
-
-    Nothing downstream inherits the problem: staged copies are written uncompressed.
-    """
-    try:
-        return np.asarray(tifffile.imread(path))
-    except ValueError as error:
-        if "imagecodecs" not in str(error):
-            raise
-    from PIL import Image, ImageSequence
-
-    with Image.open(path) as image:
-        pages = [np.asarray(page) for page in ImageSequence.Iterator(image)]
-    if not pages:
-        raise ValueError(f"{path}: no readable pages")
-    return np.stack(pages) if len(pages) > 1 else pages[0]
 
 
 def _as_zyx(array: np.ndarray, label: str) -> np.ndarray:
@@ -336,14 +295,20 @@ the volumetric reader reads them the same way it reads the Jurkat stacks.
     data/   {frames} timepoints, {name}_{sequence}_NNN.tif
     masks/  {mask_note}
 
-Masks sit on the SAME anisotropic grid as the image, so mask_spacing_um must be set to
-the z step ({z}). Left at 0 it means "isotropic at xy" and the z-extent check will
-reject the pair -- loudly, which is the intended behaviour, not a bug.
+CTC masks ship on the image's own ANISOTROPIC grid, which BARCODE cannot describe:
+mask_spacing_um is one scalar meaning "isotropic at this spacing", and prepare_volume
+resamples the image onto whatever grid it names. Setting it to the z step therefore
+does not describe the mask -- it resamples everything to {z} um cubes and discards the
+xy resolution ({xy} um), which still yields perfectly plausible-looking numbers.
+
+Staging resampled the masks instead, to isotropic at the xy step -- the same footing as
+the Jurkat masks. So LEAVE mask_spacing_um AT 0 (its default); do not pass
+--mask-spacing. Mask z slices were multiplied by {z}/{xy} accordingly.
 
 Run it:
 
     python scripts/run_volumetric_timelapse_barcode.py "{data_path}" \\
-        --seg-root "{mask_path}" --mask-spacing {z} \\
+        --seg-root "{mask_path}" \\
         --frame-interval {dt} --component-stats --mesh
 
 Filenames were chosen so BARCODE's DEFAULTS apply: timelapse_regex groups
