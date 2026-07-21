@@ -271,9 +271,21 @@ def _vertex_shape_operators(
     d10t, d10b = diff_dots(n1, n0)
     rhs = np.stack([d21t, d21b, d02t, d02b, d10t, d10b], axis=1)  # (n_faces, 6)
 
-    with np.errstate(invalid="ignore", divide="ignore"):
-        # pinv of (n, 6, 3) is (n, 3, 6); contract it against the (n, 6) right-hand side.
-        solution = np.einsum("ijk,ik->ij", np.linalg.pinv(matrices), rhs)
+    # `pinv` is called on the whole stack at once, and LAPACK's SVD raises
+    # "SVD did not converge" for the entire batch if ANY single matrix holds a NaN or inf.
+    # A degenerate face -- zero area, or a vertex shared by no other face, both of which a
+    # real segmentation-derived mesh produces -- is enough, so one bad triangle took out
+    # the whole curvature family for that mesh with an exception the caller reports as a
+    # meshing failure. Solve the finite ones and mark the rest NaN, which the
+    # classification below already treats as UNCLASSIFIED and excludes from both the
+    # numerator and the denominator of every area-weighted ratio.
+    finite = np.isfinite(matrices).all(axis=(1, 2)) & np.isfinite(rhs).all(axis=1)
+    solution = np.full((matrices.shape[0], 3), np.nan, dtype=np.float64)
+    if finite.any():
+        with np.errstate(invalid="ignore", divide="ignore"):
+            # pinv of (n, 6, 3) is (n, 3, 6); contract it against the (n, 6) right-hand side.
+            solution[finite] = np.einsum(
+                "ijk,ik->ij", np.linalg.pinv(matrices[finite]), rhs[finite])
     ku, kuv, kv = solution[:, 0], solution[:, 1], solution[:, 2]
 
     # Project each face's tensor into its three corners' frames and accumulate.
@@ -402,15 +414,23 @@ def area_weighted_mean_curvature(
     reference: np.ndarray,
     areas: np.ndarray,
     excluded: np.ndarray,
+    outlier_limit: float = 0.0,
 ) -> float:
     """Area-weighted mean of ``values`` -- ``mean_curvature_over_mesh.m``.
 
     ``reference`` is the mean curvature that decides which faces are outliers, so that
-    the same face set is used for the min, max and mean averages. ``excluded`` masks the
-    bottom/top faces out.
+    the same face set is used for the min, max and mean averages -- the outlier decision
+    is made once, on the mean curvature, and reused. ``excluded`` masks out any faces the
+    caller has already rejected.
+
+    ``outlier_limit`` is the magnitude beyond which a face's mean curvature is treated as
+    a badly conditioned triangle rather than real structure, in 1/um; MATLAB uses 2.0.
+    ``0`` or a non-finite value keeps every face, which is this package's default.
     """
-    low, high = _OUTLIER_BOUNDS
-    good = (reference > low) & (reference < high) & ~np.asarray(excluded, dtype=bool)
+    limit = float(outlier_limit)
+    good = ~np.asarray(excluded, dtype=bool)
+    if np.isfinite(limit) and limit > 0:
+        good = good & (reference > -limit) & (reference < limit)
     total = float(areas[good].sum())
     if total == 0:
         return np.nan
@@ -491,6 +511,8 @@ def analyze_curvature(
     vertices_um: np.ndarray,
     faces: np.ndarray,
     z_axis: int = 0,
+    exclude_caps: bool = False,
+    outlier_limit: float = 0.0,
 ) -> CurvatureResults:
     """Curvatures and the shape metrics derived from them, for one mesh.
 
@@ -498,6 +520,24 @@ def analyze_curvature(
     :func:`analysis.volumetric.mesh.mesh_nucleus` returns them. ``z_axis`` names the
     vertex column holding z -- 0 for this package's (z, y, x) order, 2 for MATLAB's
     (y, x, z).
+
+    Two face exclusions exist, and both are **off by default**. The MATLAB original
+    applies both unconditionally; measuring the whole surface is the more defensible
+    default for an object that sits entirely inside the imaged volume, which is the
+    normal case here, and discarding surface should be something the user asks for.
+
+    ``exclude_caps`` drops faces in the lowest and highest z bin
+    (``mean_curvature_over_mesh.m``'s companion ``identify_bottom_top_faces.m``). It is
+    worth turning on only when the segmentation is genuinely clipped by the ends of the
+    stack, where the surface is an artefact of the acquisition rather than the object.
+
+    ``outlier_limit`` drops faces whose mean curvature exceeds it in magnitude, in
+    1/um. The MATLAB value is 2.0, i.e. a radius of curvature below 0.5 um, which on a
+    normally-sampled mesh means a badly conditioned triangle rather than real structure.
+    ``0`` (the default) keeps every face.
+
+    Turning both on reproduces the MATLAB behaviour and the bit-for-bit parity recorded
+    in the module docstring; either one off is a deliberate departure from it.
     """
     vertices = np.asarray(vertices_um, dtype=np.float64)
     faces = np.asarray(faces)[:, :3]
@@ -517,15 +557,24 @@ def analyze_curvature(
 
     areas = face_areas(vertices, faces)
     centroids = face_centroids(vertices, faces)
-    bottom_top, fraction_bt = identify_bottom_top_faces(centroids[:, z_axis])
+    if exclude_caps:
+        bottom_top, fraction_bt = identify_bottom_top_faces(centroids[:, z_axis])
+    else:
+        # Nothing excluded, and the reported fraction says so rather than being left at
+        # the value a suppressed rule would have produced.
+        bottom_top = np.zeros(faces.shape[0], dtype=bool)
+        fraction_bt = 0.0
 
     classes = classify_concavity(k_min_f, k_max_f)
     invagination, concave = invagination_ratios(classes, areas, bottom_top)
 
     return CurvatureResults(
-        mean_curvature=area_weighted_mean_curvature(k_mean_f, k_mean_f, areas, bottom_top),
-        min_curvature=area_weighted_mean_curvature(k_min_f, k_mean_f, areas, bottom_top),
-        max_curvature=area_weighted_mean_curvature(k_max_f, k_mean_f, areas, bottom_top),
+        mean_curvature=area_weighted_mean_curvature(
+            k_mean_f, k_mean_f, areas, bottom_top, outlier_limit),
+        min_curvature=area_weighted_mean_curvature(
+            k_min_f, k_mean_f, areas, bottom_top, outlier_limit),
+        max_curvature=area_weighted_mean_curvature(
+            k_max_f, k_mean_f, areas, bottom_top, outlier_limit),
         invagination_ratio=invagination,
         concave_ratio=concave,
         fraction_faces_bottom_top=fraction_bt,

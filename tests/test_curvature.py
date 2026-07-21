@@ -193,11 +193,45 @@ def test_bottom_top_handles_a_flat_mesh():
     assert not mask.any() and fraction == 0.0
 
 
-def test_area_weighted_mean_excludes_outliers_and_bottom_top():
+def test_area_weighted_mean_excludes_outliers_only_when_a_limit_is_given():
+    """The outlier band is opt-in: 0 keeps every face, a positive limit trims.
+
+    Both directions are pinned because the default changed. Face exclusion used to be
+    unconditional; measuring the whole surface is now the default and MATLAB's behaviour
+    is reached by asking for it, so a silent return to always-trimming would be as much a
+    regression as a silent failure to trim.
+    """
     values = np.array([1.0, 1.0, 99.0, 1.0])     # 99 is outside the +/-2 band
     areas = np.array([1.0, 1.0, 1.0, 5.0])
     excluded = np.array([False, False, False, True])
-    assert area_weighted_mean_curvature(values, values, areas, excluded) == pytest.approx(1.0)
+
+    # limit 2.0 -> the 99 is dropped, leaving two unit faces
+    assert area_weighted_mean_curvature(
+        values, values, areas, excluded, 2.0) == pytest.approx(1.0)
+
+    # limit 0 (the default) -> the 99 is kept: (1 + 1 + 99) / 3
+    assert area_weighted_mean_curvature(
+        values, values, areas, excluded) == pytest.approx(101.0 / 3.0)
+    assert area_weighted_mean_curvature(
+        values, values, areas, excluded, 0.0) == pytest.approx(101.0 / 3.0)
+
+
+def test_analyze_curvature_excludes_no_faces_by_default():
+    """Caps are kept unless asked for, and the reported fraction says so."""
+    v, f = _icosphere(subdivisions=3, radius=3.0)
+
+    default = analyze_curvature(v, f)
+    assert default.fraction_faces_bottom_top == 0.0
+    assert not default.bottom_top_faces.any()
+
+    matlab = analyze_curvature(v, f, exclude_caps=True, outlier_limit=2.0)
+    assert matlab.fraction_faces_bottom_top > 0.0
+    assert matlab.bottom_top_faces.any()
+
+    # A sphere is smooth enough that neither rule changes <H> materially, so the switch
+    # is visible in what was excluded rather than in the mean.
+    assert default.mean_curvature == pytest.approx(1.0 / 3.0, rel=0.02)
+    assert matlab.mean_curvature == pytest.approx(1.0 / 3.0, rel=0.02)
 
 
 def test_area_weighted_mean_is_nan_when_everything_is_excluded():

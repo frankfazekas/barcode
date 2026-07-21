@@ -320,3 +320,88 @@ def test_a_mesh_too_flat_to_bin_excludes_nothing():
 
     mask, fraction = identify_bottom_top_faces(np.array([0.0, 0.02, 0.05, 0.08]))
     assert not mask.any() and fraction == 0.0
+
+
+# ------------------------------------------------------- mesh: closed surfaces
+
+
+def test_the_pipeline_mesher_closes_an_object_touching_a_face():
+    """`mesh_field` padded; `mesh.generate_mesh` -- the path the pipeline uses -- did not.
+
+    `crop_to_mask` is False by default so the mask spans the acquired field, and a nucleus
+    clipped by the top or bottom of the stack is the expected case, so this is the normal
+    situation rather than an edge case. An open surface has no translation-invariant
+    volume: `mesh_volume` is a signed tetrahedron sum from the origin, so a hole at height
+    z contributes about A_hole*z/3, of the same order as the object itself in field
+    coordinates. It also makes the winding sign unreliable, which `curvature` uses to
+    decide whether to flip every face.
+    """
+    from analysis.volumetric.mesh import mesh_nucleus
+
+    mask = np.zeros((24, 40, 40), bool)
+    mask[:, 12:28, 12:28] = True          # spans the full depth: touches both z faces
+
+    geometry = mesh_nucleus(mask, (0.1, 0.1, 0.1), maxrad=2.0).geometry
+    assert not geometry.has_holes, "a border-touching object must still mesh closed"
+    assert geometry.outward, "a closed outward surface must have positive signed volume"
+    assert geometry.volume_um3 > 0
+
+
+def test_padding_leaves_an_interior_object_unchanged():
+    """The pad must be free for meshes that already closed, or it rewrites past results."""
+    from analysis.volumetric.mesh import generate_mesh
+
+    mask = np.zeros((30, 30, 30), np.uint8)
+    zz, yy, xx = np.ogrid[:30, :30, :30]
+    mask[((zz - 15) ** 2 + (yy - 15) ** 2 + (xx - 15) ** 2) <= 81] = 1  # nowhere near a face
+
+    vertices, faces = generate_mesh(mask, maxrad=2.0)
+    # Vertices come back in the caller's frame, so they still sit around the ball's centre
+    # rather than shifted by the pad.
+    assert 10.0 < float(vertices[:, 0].mean()) < 20.0
+    assert faces.shape[0] > 0
+
+
+# ------------------------------------------------------- time-lapse: even sampling
+
+
+def test_a_series_with_a_missing_timepoint_is_refused():
+    """One dropped acquisition silently became a 2*dt step hidden inside the T axis.
+
+    Speed divides by a single frame interval and the flow solver takes a contiguous
+    window, so a gap mis-scales both with nothing in the output to reveal it.
+    """
+    import pytest
+
+    from analysis.volumetric.timelapse import SeriesGroup, read_series
+
+    group = SeriesGroup(series="Cell1",
+                        paths=["/d/Cell1_1.tif", "/d/Cell1_2.tif", "/d/Cell1_4.tif"],
+                        frames=[1, 2, 4])
+    with pytest.raises(ValueError, match=r"missing timepoint\(s\) \[3\]"):
+        read_series(group)
+
+
+# ------------------------------------------------------- mask/image z registration
+
+
+def test_the_mask_is_mapped_to_the_image_by_physical_depth():
+    """Endpoint anchoring imposed (M-1)/(N-1) instead of the true z_step/mask_spacing.
+
+    On the working geometry -- 250 mask planes at 0.065 um against 54 image slices at
+    0.3 um -- that is 4.698 against 4.615, a 1.8% stretch that drifts to about one whole
+    image slice by the top of the stack, worst exactly where a nuclear mask tapers.
+    """
+    from analysis.volumetric.segmentation import match_mask_to_image_grid
+
+    mask = np.arange(250).reshape(250, 1, 1)      # each plane labelled by its own index
+    matched = match_mask_to_image_grid(mask, 54, 0.3, 0.065)
+
+    assert matched.shape[0] == 54
+    # Image slice i sits at i * 0.3 um, i.e. mask plane i * 0.3/0.065.
+    for i in (0, 13, 27, 40, 53):
+        assert matched[i, 0, 0] == round(i * 0.3 / 0.065)
+
+    # Without the spacings it falls back to the old endpoint mapping, which disagrees.
+    legacy = match_mask_to_image_grid(mask, 54)
+    assert legacy[53, 0, 0] == 249 and matched[53, 0, 0] == 245

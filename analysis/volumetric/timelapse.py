@@ -85,8 +85,17 @@ def group_timelapse(
         key = (os.path.dirname(os.path.abspath(path)), match.group("series"))
         buckets.setdefault(key, []).append((frame, path))
 
+    # Series order is natural, not lexicographic. Frames WITHIN a series were always
+    # ordered numerically (the bucket holds (frame:int, path) tuples), but the series
+    # themselves sorted as strings, so a folder of Cell1..Cell15 produced rows ordered
+    # Cell1, Cell10, Cell11, ..., Cell2. Each row is labelled by path so nothing is
+    # mislabelled, but the barcode's vertical axis is then out of order for no reason,
+    # and `core.pipeline` already natural-sorts the ungrouped path -- this makes the two
+    # agree.
+    from analysis.volumetric.ordering import natural_key
+
     groups = []
-    for key in sorted(buckets):
+    for key in sorted(buckets, key=lambda k: (natural_key(k[0]), natural_key(k[1]))):
         directory, series = key
         entries = sorted(buckets[key])
         frames = [f for f, _ in entries]
@@ -121,6 +130,27 @@ def read_series(
     """
     if not group.paths:
         raise ValueError(f"Series {group.series!r} has no files.")
+
+    # The frame numbers must be consecutive. Everything downstream treats the T axis as
+    # evenly sampled: `resolve_frame_interval` yields ONE dt for the whole series, and
+    # the flow solver takes a contiguous 6*t_sigma+1 window whose own comment states
+    # "the window is contiguous, so one frame is one exposure". A series missing a
+    # timepoint -- one failed acquisition in fifteen -- stacked into an array with a 2*dt
+    # step hidden at one index, so every flow window spanning it under-reported speed and
+    # the temporal derivative was taken over unevenly spaced samples. Nothing in the
+    # output could reveal it. `group_timelapse` rejects duplicate frames for the same
+    # reason; a gap is the other half of that check.
+    frames = list(group.frames)
+    expected = list(range(frames[0], frames[0] + len(frames)))
+    if frames != expected:
+        missing = sorted(set(expected) - set(frames))
+        raise ValueError(
+            f"Series {group.series!r} is missing timepoint(s) {missing}: it holds frames "
+            f"{frames[0]}..{frames[-1]} but only {len(frames)} of "
+            f"{frames[-1] - frames[0] + 1} files. The time axis is assumed evenly "
+            f"sampled, so a gap silently mis-scales Speed and the flow window. Supply "
+            f"the missing file(s), or analyse the runs either side as separate series."
+        )
 
     volumes, reference = [], None
     for path in group.paths:

@@ -193,6 +193,7 @@ class Measurement:
     phantom: str
     maxrad: float
     voxels: int
+    smoothing: Optional[int] = None
     measured: Dict[str, float] = field(default_factory=dict)
     truth: Dict[str, float] = field(default_factory=dict)
     failed: str = ""
@@ -204,13 +205,22 @@ class Measurement:
         return (m - t) / t
 
 
-def measure(phantom: Phantom, maxrad: float = 5.0,
-            curvature: bool = True) -> Measurement:
+def measure(phantom: Phantom, maxrad: float = 5.0, curvature: bool = True,
+            smoothing: Optional[int] = None) -> Measurement:
+    """``maxrad`` is the triangle-size bound: cgalsurf's radbound, in voxels.
+
+    ``smoothing`` is the other half of the shrinkage. Laplacian-style smoothing pulls a
+    convex surface inward, so it biases volume down independently of how coarsely the
+    surface was triangulated -- which is why reducing maxrad alone cannot reach zero
+    error. Left at None it keeps the pipeline default (10 iterations).
+    """
     spacing = (phantom.spacing_um,) * 3
     out = Measurement(phantom=phantom.name, maxrad=maxrad,
                       voxels=int(phantom.mask.sum()), truth=dict(phantom.truth))
+    extra = {} if smoothing is None else {"smoothing_iterations": smoothing}
+    out.smoothing = smoothing
     try:
-        mesh = mesh_nucleus(phantom.mask, spacing, maxrad=maxrad, solidity=True)
+        mesh = mesh_nucleus(phantom.mask, spacing, maxrad=maxrad, solidity=True, **extra)
     except (MeshingError, Exception) as error:          # meshing is a native backend
         out.failed = f"{type(error).__name__}: {error}"
         return out
@@ -255,13 +265,14 @@ KEYS = ("volume_um3", "voxel_volume_um3", "surface_area_um2", "sphericity",
 def _report(title: str, results: List[Measurement], keys=KEYS) -> None:
     present = [k for k in keys if any(k in r.truth and k in r.measured for r in results)]
     print(f"\n{title}")
-    print(f"{'phantom':<34}{'maxrad':>7}{'voxels':>9}"
+    print(f"{'phantom':<26}{'maxrad':>7}{'smooth':>7}{'voxels':>9}"
           + "".join(f"{k.split('_um')[0][:13]:>14}" for k in present))
-    print("-" * (50 + 14 * len(present)))
+    print("-" * (49 + 14 * len(present)))
     for r in results:
         # maxrad in the row, not just the CSV: a sweep over it prints otherwise
         # identical phantom names, and the reader cannot tell the rows apart.
-        stem = f"{r.phantom:<34}{r.maxrad:>7g}{r.voxels:>9,}"
+        smooth = "dflt" if r.smoothing is None else str(r.smoothing)
+        stem = f"{r.phantom:<26}{r.maxrad:>7g}{smooth:>7}{r.voxels:>9,}"
         if r.failed:
             print(f"{stem}   FAILED {r.failed[:60]}")
             continue
@@ -278,7 +289,16 @@ def sweep_resolution(spacing: float, maxrad: float) -> List[Measurement]:
 
 
 def sweep_maxrad(radius: float, spacing: float) -> List[Measurement]:
-    return [measure(sphere(radius, spacing), m) for m in (1, 2, 3, 5, 8)]
+    """Finer triangles, then no smoothing: the two causes of the shrinkage, separated.
+
+    maxrad below 1 buys progressively less, because at that point the surface is
+    triangulated finely enough that the remaining bias is the smoothing pass, not the
+    triangulation. The last rows turn smoothing off to show what is left.
+    """
+    out = [measure(sphere(radius, spacing), m) for m in (0.5, 0.75, 1, 2, 3, 5, 8)]
+    out += [measure(sphere(radius, spacing), m, smoothing=s)
+            for m in (1, 2, 5) for s in (0, 3)]
+    return out
 
 
 def sweep_anisotropy(radius: float, spacing: float, maxrad: float) -> List[Measurement]:
@@ -340,12 +360,12 @@ def main() -> int:
     path = os.path.join(args.out, "phantom_accuracy.csv")
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["phantom", "maxrad", "voxels", "metric",
+        writer.writerow(["phantom", "maxrad", "smoothing", "voxels", "metric",
                          "truth", "measured", "relative_error", "failed"])
         for r in everything:
             for key in KEYS:
                 if key in r.truth and (key in r.measured or r.failed):
-                    writer.writerow([r.phantom, r.maxrad, r.voxels, key,
+                    writer.writerow([r.phantom, r.maxrad, r.smoothing, r.voxels, key,
                                      f"{r.truth.get(key, ''):.6g}" if r.truth.get(key) else "",
                                      f"{r.measured.get(key, float('nan')):.6g}",
                                      f"{r.error(key):.6g}", r.failed])

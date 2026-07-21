@@ -123,7 +123,15 @@ def mask_z_to_isotropic(mask: np.ndarray, z_um: float, xy_um: float) -> np.ndarr
     """
     if z_um <= 0 or xy_um <= 0:
         raise ValueError(f"spacing must be positive, got z={z_um} xy={xy_um}")
-    slices = max(1, int(round(mask.shape[0] * (z_um / xy_um))))
+    # Node-aligned, matching `resample._reference_shape_for_spacing`: a stack of n planes
+    # spans (n-1) steps, not n. This used to be `round(n * z/xy)`, which is larger by
+    # about (z/xy - 1) planes while `linspace` below still spans the same source range --
+    # so the staged mask was declared isotropic at xy_um while physically standing
+    # (z/xy - 1)/n taller. Small at low anisotropy, but this helper exists for exactly the
+    # datasets where that is not the case: a 10-plane stack at 11x came out 110 planes
+    # instead of 100, i.e. 10% too tall in z, carrying straight into mesh volume, height
+    # and sphericity.
+    slices = max(1, int(np.floor((mask.shape[0] - 1) * (z_um / xy_um) + 1)))
     index = np.clip(
         np.round(np.linspace(0, mask.shape[0] - 1, slices)).astype(int),
         0, mask.shape[0] - 1,

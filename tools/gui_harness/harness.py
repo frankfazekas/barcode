@@ -4,10 +4,11 @@ Starts the real app exactly as ``main.py`` does -- same pages, same widgets -- p
 background thread listening on 127.0.0.1:8765. Send it Python source (see ``ctl.py``);
 it is exec'd on the Tk main thread via ``root.after`` and the result comes back as a
 repr. Widgets are invoked directly, so there is no mouse, no keyboard, and no focus
-steal: the window can sit off-screen for the whole session.
+steal, and the window is invisible to the user the whole session (see _hide -- it is
+transparent and on-screen, NOT parked off-screen, which does not work).
 
-    python tools/gui_harness/harness.py            # then use ctl.py from another shell
-    python tools/gui_harness/harness.py --onscreen # leave it where a human can watch
+    python tools/gui_harness/harness.py           # then use ctl.py from another shell
+    python tools/gui_harness/harness.py --visible # leave it where a human can watch
 
 See README.md in this folder for the full recipe.
 """
@@ -39,6 +40,13 @@ root = setup_main_window()
 root.geometry("1050x1500+60+30")
 
 
+def hwnd():
+    """This window's HWND. Pass it to bgshot.grab(hwnd=...) so a capture cannot land on
+    the user's own main.py, which carries an identical window title."""
+    import win32gui
+    return win32gui.GetParent(root.winfo_id()) or root.winfo_id()
+
+
 def _hide():
     """Make the window invisible to the user WITHOUT moving it off-screen.
 
@@ -55,15 +63,14 @@ def _hide():
     """
     import win32gui, win32con
     root.attributes("-alpha", 0.0)
-    hwnd = int(root.frame(), 16) if isinstance(root.frame(), str) else root.winfo_id()
-    hwnd = win32gui.GetParent(root.winfo_id()) or root.winfo_id()
-    ex = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+    h = hwnd()
+    ex = win32gui.GetWindowLong(h, win32con.GWL_EXSTYLE)
     win32gui.SetWindowLong(
-        hwnd, win32con.GWL_EXSTYLE,
+        h, win32con.GWL_EXSTYLE,
         ex | win32con.WS_EX_LAYERED | win32con.WS_EX_TRANSPARENT
         | win32con.WS_EX_NOACTIVATE | win32con.WS_EX_TOOLWINDOW,
     )
-    win32gui.SetWindowPos(hwnd, win32con.HWND_BOTTOM, 0, 0, 0, 0,
+    win32gui.SetWindowPos(h, win32con.HWND_BOTTOM, 0, 0, 0, 0,
                           win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
 
 

@@ -46,13 +46,32 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
         if unit == Units.NONE:
             return header
         return f"{header}\n({unit})"
+    # Mode and family membership are decided ONCE, from the rows themselves, and then used
+    # for every call below. Two bugs lived here:
+    #
+    #  * `include_mesh` was threaded into the limits pass but not into the render pass, so
+    #    `num_metrics`/`norms`/`headers` described 37 columns while `filtered_data` held
+    #    25, and the render loop indexed past the end of its own array.
+    #  * only the mesh family was considered at all, and no mode -- so the other seven
+    #    optional families were dropped from the picture and every volumetric comparison
+    #    was labelled with 2D area names. `generate_combined_barcode` was rewritten to
+    #    detect families from the results; this is the same detection.
+    from core.results import OPTIONAL_FAMILIES
+
+    flat = [r for rs in results_list for r in rs]
+    families = {
+        f.switch: any(
+            getattr(r, f.attribute, None) is not None
+            and getattr(r, f.attribute).is_populated() for r in flat)
+        for f in OPTIONAL_FAMILIES
+    }
+    modes = {getattr(r, "source_mode", None) for r in flat}
+    mode = modes.pop() if len(modes) == 1 else None
+    layout = dict(just_metrics=True, mode=mode, **families)
+
     limits_list = []
-    include_mesh = any(
-        getattr(r, "mesh", None) is not None and r.mesh.is_populated()
-        for rs in results_list for r in rs
-    )
     for results in results_list:
-        data_arrays = [result.to_array(just_metrics=True, include_mesh=include_mesh) for result in results]
+        data_arrays = [result.to_array(**layout) for result in results]
 
         if not data_arrays:
             return
@@ -63,9 +82,9 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
             else data_arrays[0].reshape(1, -1)
         )
 
-        headers = ChannelResults.get_headers(just_metrics=True, include_mesh=include_mesh)
-        metrics = ChannelResults.get_metrics(just_metrics=True, include_mesh=include_mesh)
-        units = results[0].get_units(just_metrics=True, include_mesh=include_mesh)
+        headers = ChannelResults.get_headers(**layout)
+        metrics = ChannelResults.get_metrics(**layout)
+        units = results[0].get_units(**layout)
         num_metrics = len(metrics)
 
         limits_list.append(get_data_limits(data, metrics, units))
@@ -82,7 +101,8 @@ def generate_comparison_barcodes(results_list: List[List[ChannelResults]], figpa
         unique_channels = np.unique([result.channel for result in results])
         unique_channels = unique_channels[~np.isnan(unique_channels)]
         channels = np.array([result.channel for result in results])
-        data_arrays = [result.to_array(just_metrics=True) for result in results]
+        # Same layout as the limits pass above -- see the comment there.
+        data_arrays = [result.to_array(**layout) for result in results]
         data = (np.vstack(data_arrays) if len(data_arrays) > 1
             else data_arrays[0].reshape(1, -1))
         
@@ -191,7 +211,11 @@ def generate_combined_barcode(
     n_metrics = len(ChannelResults.get_metrics(
         just_metrics=True, mode=mode, **family_switches))
 
-    if metrics_to_visualize is None:
+    # An EMPTY mask means "nothing was selected", which is the dataclass default for
+    # AggregationConfig.metrics_list and what a YAML that never set it loads as. It is not
+    # None, so it used to fall into the length check below and raise -- turning "the
+    # caller expressed no preference" into a hard failure. Show everything, as for None.
+    if not metrics_to_visualize:
         metrics_to_visualize = [True] * n_metrics
     elif len(metrics_to_visualize) != n_metrics:
         # itertools.compress stops at the shorter sequence, so a mask built against a

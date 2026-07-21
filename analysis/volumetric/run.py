@@ -145,6 +145,31 @@ def _mean_of(values) -> float:
 
 
 _channel_warning_shown = False
+_flow_warning_shown = False
+
+
+def warn_if_flow_unsupported(config: BarcodeConfig) -> None:
+    """Say so when Optical Flow is ticked in a mode that cannot compute it.
+
+    xyz walks z with no time axis, so there is no displacement to measure and
+    ``run_slicewise_analysis`` never looks at ``config.modules.optical_flow``. The CLI
+    rejects the combination outright (``scripts/run_barcode.py`` checks
+    ``mode.supports_flow``) but the GUI has no equivalent gate, so the branch was simply
+    dropped: no flow columns, no error, no explanation. Warn instead of raising, so a
+    long batch is not killed by a checkbox. Said once per run.
+    """
+    global _flow_warning_shown
+    if _flow_warning_shown or not getattr(config.modules, "optical_flow", False):
+        return
+    if config.volumetric.mode.supports_flow:
+        return
+    _flow_warning_shown = True
+    print(
+        f"Note: Optical Flow is not available in {config.volumetric.mode.key} mode "
+        f"(it has no time axis), so that branch is being skipped. Use xyzt for flow "
+        f"metrics, or untick Optical Flow to silence this.",
+        flush=True,
+    )
 
 
 def warn_if_channels_dropped(config: BarcodeConfig) -> None:
@@ -358,14 +383,24 @@ def resolve_frame_interval(stack: VolumeStack, config: VolumetricConfig) -> floa
     # prevent, and Speed was then wrong by exactly the factor it was meant to flag.
     from_file = float(stack.exposure_time_s or 0.0)
     have_file_value = bool(getattr(stack, "timing_from_file", False)) and from_file > 0
-    source = "from the file's ImageJ finterval tag" if have_file_value else "(defaulted; the file states no timing)"
+    # The trust flag has to gate the VALUE, not just the wording. This used to compute
+    # have_file_value, use it to pick the message, and then `return from_file or 1.0`
+    # regardless -- so a stack carrying an untrusted finterval was announced as
+    # "(defaulted; the file states no timing)" while Speed was silently divided by that
+    # finterval anyway. `read_series` copies exposure_time_s from file 0 while setting
+    # timing_from_file=False precisely so nothing downstream trusts it, and this trusted
+    # it. On the Jurkat series finterval reads 1, so the number happened to match the
+    # claim; on a file whose finterval holds a z dwell of 0.2 s, Speed came out 5x wrong.
+    interval = from_file if have_file_value else 1.0
+    source = ("from the file's ImageJ finterval tag" if have_file_value
+              else "(defaulted; the file states no timing this branch trusts)")
     print(
-        f"  flow: no frame interval configured; using {from_file or 1.0:g} s {source}. "
+        f"  flow: no frame interval configured; using {interval:g} s {source}. "
         f"If that is not the true spacing between timepoints, set Frame Interval — "
         f"Speed scales inversely with it.",
         flush=True,
     )
-    return from_file or 1.0
+    return interval
 
 
 def _load_masks(
@@ -488,12 +523,18 @@ def _prepare_geometry(
     if not config.make_isotropic:
         # Bring the masks down onto the image's own grid by nearest-neighbour index
         # mapping. Exact for a boolean mask and far cheaper than upsampling the image.
+        # Shares `match_mask_to_image_grid` rather than repeating the index arithmetic:
+        # this copy used the endpoint-anchored `linspace` mapping, which imposes a pitch
+        # of (M-1)/(N-1) instead of the true z_step/mask_spacing and drifts by about one
+        # image slice over a 54/250 pair.
         if masks.shape[1] != stack.data.shape[1]:
-            idx = np.clip(
-                np.round(np.linspace(0, masks.shape[1] - 1, stack.data.shape[1])).astype(int),
-                0, masks.shape[1] - 1,
-            )
-            masks = masks[:, idx]
+            from analysis.volumetric.segmentation import match_mask_to_image_grid
+
+            masks = np.stack([
+                match_mask_to_image_grid(
+                    m, stack.data.shape[1], z_um, mask_spacing)
+                for m in masks
+            ])
         if masks.shape[0] == 1 and n_timepoints > 1:
             masks = np.repeat(masks, n_timepoints, axis=0)
         return stack.data, masks, (z_um, xy_um, xy_um), {"isotropic": "skipped"}, mask_paths
@@ -523,12 +564,23 @@ def _prepare_geometry(
     # puts them all on the mask's grid, so calling it per timepoint resampled the same
     # union mask identically T times (15x on this dataset, a 250^3 nearest-neighbour pass
     # each) and threw away all but the last. The results are unchanged.
+    # A mask with the image's own shape sits on the image's own grid, so its spacing IS
+    # the image spacing -- which is anisotropic. `mask_spacing_um` is a single scalar
+    # meaning "isotropic at this spacing" and cannot express that: passing the z step
+    # relabels xy as the z step (inflating every in-plane length by z/xy), and passing 0
+    # relabels z as the xy step (shrinking the analysed depth). Same shape means same
+    # grid, so neither guess is needed.
+    if masks.shape[1:] == stack.data.shape[1:]:
+        mask_spacing_xyz = (xy_um, xy_um, z_um)
+    else:
+        mask_spacing_xyz = (mask_spacing, mask_spacing, mask_spacing)
+
     keys = [f"t{t}" for t in range(n_timepoints)]
     images_iso, union_iso, spacing_iso, info = prepare_volume(
         images={key: stack.data[t] for t, key in enumerate(keys)},
         image_spacings={key: (xy_um, xy_um, z_um) for key in keys},
         mask=union_mask,
-        mask_spacing=(mask_spacing, mask_spacing, mask_spacing),
+        mask_spacing=mask_spacing_xyz,
         crop_padding=config.crop_padding_vox,
         crop_to_mask=getattr(config, "crop_to_mask", False),
     )
@@ -555,7 +607,7 @@ def _prepare_geometry(
         import SimpleITK as sitk
 
         target = (spacing_iso[0], spacing_iso[1], spacing_iso[2])
-        source = (mask_spacing, mask_spacing, mask_spacing)
+        source = mask_spacing_xyz      # same grid rule as the union above
         reference_shape = union_iso.shape
         # Where that reference grid starts, in physical coordinates. Zero unless the
         # volume was cropped, in which case the crop's corner -- the resampler works in
@@ -675,6 +727,19 @@ def run_volumetric_analysis(
                     masks, spacing_zyx, frame_indices, vcfg
                 )
                 results.mesh = summarise_meshes(detail.meshes)
+                # An open surface makes mesh volume, sphericity and the sign of every
+                # curvature unreliable, and `mesh_has_holes` was computed but never
+                # printed or written anywhere the pipeline looks. Say it out loud and
+                # raise flag digit 7, so the row carries the caveat its numbers need.
+                open_meshes = [m for m in detail.meshes if m.geometry.has_holes]
+                if open_meshes:
+                    results.mesh_open_surface_flag = 1
+                    print(
+                        f"  WARNING: {len(open_meshes)} of {len(detail.meshes)} mesh(es) "
+                        f"have an open boundary (flag 7). Mesh Volume, Sphericity and "
+                        f"the curvature signs are unreliable for this row.",
+                        flush=True,
+                    )
                 if vcfg.mesh_export_obj:
                     _export_meshes(filepath, detail.meshes)
             except MeshingError as exc:
@@ -697,7 +762,8 @@ def run_volumetric_analysis(
         else:
             per_frame, frame_details = [], []
             for frame_idx in frame_indices:
-                frame_result, frame_detail = packing_topology(masks[frame_idx], vcfg)
+                frame_result, frame_detail = packing_topology(
+                    masks[frame_idx], vcfg, spacing_zyx)
                 per_frame.append(frame_result)
                 frame_details.append(frame_detail)
             results.packing = summarise_packing(frame_details, per_frame)
@@ -750,7 +816,19 @@ def run_volumetric_timelapse(
     warn_if_channels_dropped(config)
 
     vcfg = config.volumetric
-    groups, unmatched = group_timelapse(filepaths, vcfg.timelapse_regex)
+    # Grouping sits outside the per-series try below, so its ValueError (duplicate frame
+    # numbers, and now a gap) aborted the entire batch rather than the one folder that
+    # caused it -- a 40-dataset run lost to one stray file. Report and return instead:
+    # the failure is a property of the file list, so there are no other series to rescue,
+    # but the caller's batch loop survives.
+    try:
+        groups, unmatched = group_timelapse(filepaths, vcfg.timelapse_regex)
+    except ValueError as exc:
+        print(f"Time-lapse grouping failed: {exc}", flush=True)
+        with open(fail_file_loc, "a", encoding="utf-8") as log_file:
+            log_file.write(traceback.format_exc())
+            log_file.write(f"Time-lapse grouping, Exception: {exc}\n")
+        return []
 
     if unmatched:
         print(

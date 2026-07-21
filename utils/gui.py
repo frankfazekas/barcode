@@ -15,22 +15,64 @@ from utils import groupAvg, find_analysis_frames
 def os_right_click(parent):
     return "<Button-2>" if platform.system() == "Darwin" else "<Button-3>"
 
+# At most one help popup exists at a time, tracked here rather than per-icon.
+#
+# Each <Enter> used to build a popup and bind <Leave> to a closure over *that* popup.
+# Any <Enter> that did not get a matching <Leave> therefore orphaned its label: the next
+# <Leave> destroyed only the newest one and the earlier boxes stayed on screen forever,
+# with nothing else able to dismiss them. Tk skips the <Leave> whenever the pointer
+# leaves by some route other than crossing the icon's edge -- switching tabs, scrolling
+# the pane out from under the cursor, or moving fast enough to coalesce the motion
+# events -- which is exactly when the strays appeared.
+_active_popup = {"widget": None}
+
+
+def _dismiss_popup(event=None):
+    popup = _active_popup["widget"]
+    _active_popup["widget"] = None
+    if popup is not None:
+        try:
+            popup.destroy()
+        except tk.TclError:
+            pass  # its parent tab was already torn down
+
+
+def _bind_popup_dismissal(widget):
+    """Dismiss on click or scroll anywhere in the window, once per toplevel.
+
+    A toplevel is in every descendant's bindtags, so binding here catches clicks and
+    wheel events on any child. add='+' so existing handlers on the window still run.
+    """
+    top = widget.winfo_toplevel()
+    if getattr(top, "_barcode_popup_dismiss_bound", False):
+        return
+    top._barcode_popup_dismiss_bound = True
+    for sequence in (
+        "<Button-1>", "<Button-3>", "<MouseWheel>", "<Button-4>", "<Button-5>",
+        # Switching tabs only *unmaps* the old frame, so neither <Leave> nor <Destroy>
+        # fires and the popup sits on the hidden tab waiting to reappear with it.
+        "<<NotebookTabChanged>>",
+    ):
+        top.bind(sequence, _dismiss_popup, add="+")
+
+
 def create_popup(parent, description, row, title_label):
     """Helper to create a popup window describing the feature and place the icon."""
     info_icon = tk.Label(parent, text="ℹ️", font=("Arial", 12), bg=parent.winfo_toplevel().cget("bg"), fg="blue", relief="flat", borderwidth=0)
     info_icon.grid(row=row, column=0, sticky="w", padx=(title_label.winfo_reqwidth() + 30, 0))
 
-    def show_popup(event):
-        # Create popup
+    def show_popup(event=None):
+        _dismiss_popup()  # never stack a second box on top of an existing one
         popup = tk.Label(parent, text=description, bg="#202020", fg="white", relief="flat", borderwidth=4, wraplength=600)
         popup.place(x=info_icon.winfo_rootx() - parent.winfo_rootx() + info_icon.winfo_width() + 10, y=info_icon.winfo_rooty() - parent.winfo_rooty() - 20)
         popup.tkraise()
-
-        def hide_popup(event):
-            popup.destroy()  # Destroy popup
-        info_icon.bind("<Leave>", hide_popup)
+        _active_popup["widget"] = popup
 
     info_icon.bind("<Enter>", show_popup)
+    info_icon.bind("<Leave>", _dismiss_popup)
+    # A popup outlives its icon if the tab is destroyed mid-hover.
+    info_icon.bind("<Destroy>", _dismiss_popup)
+    _bind_popup_dismissal(parent)
 
 def create_option_section(parent, row, var, title, description):
     """Helper to create option sections with a checkbox, description, and a popup icon."""

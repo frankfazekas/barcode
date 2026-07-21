@@ -57,7 +57,11 @@ def test_separates_distinct_series():
     paths = [f"/d/Cell{c}_{f}.tif" for c in (1, 2, 12) for f in (1, 2)]
     groups, unmatched = group_timelapse(paths, DEFAULT_TIMELAPSE_REGEX)
     assert unmatched == []
-    assert [g.series for g in groups] == ["Cell1", "Cell12", "Cell2"]
+    # Natural order, not lexicographic. Frames within a series were always numeric, but
+    # the series themselves sorted as strings, so this used to read Cell1, Cell12, Cell2
+    # -- and since one series is one barcode row, the picture came out in an order no
+    # reader would expect. core.pipeline already natural-sorts the ungrouped path.
+    assert [g.series for g in groups] == ["Cell1", "Cell2", "Cell12"]
     assert all(len(g) == 2 for g in groups)
 
 

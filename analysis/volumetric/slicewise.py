@@ -38,6 +38,7 @@ from analysis.volumetric.reader import (
     VolumeStack, apply_t_range, apply_z_range, read_volume)
 from analysis.volumetric.segmentation import load_mask_on_image_grid
 from core import BarcodeConfig, ChannelResults, IntensityResults
+from core.results import BinarizationResults
 from core.modes import get_mode
 from utils.setup import create_channel_output_dir, create_output_directories
 
@@ -116,6 +117,90 @@ def _masked_intensity_over_z(volume, masks, id_config) -> IntensityResults:
         median_skew_diff=trend(median_skew),
         mode_skew_diff=trend(mode_skew),
         saturation_flag=int(all(flags)) if flags else 0,
+    )
+
+
+def _masked_binarization_over_z(volume, masks, bin_config, um_pixel_ratio):
+    """Depth-profile structural metrics with a segmentation supplying the binarization.
+
+    The mirror of :func:`_masked_intensity_over_z`, and it replaces handing
+    ``masks[occupied]`` to the 2D ``analyze_binarization``. That shortcut had three
+    faults, all silent:
+
+    * ``analyze_binarization`` routes through ``utils.find_analysis_frames``, whose
+      ``step_size /= 5`` yields a float and then ``TypeError`` from ``range`` as soon as
+      the count is at or below ``frame_step`` (10 by default). An object spanning eight
+      slices, or any narrow z range, hit it -- and the caller's ``except`` turned that
+      into all eighteen structural columns NaN under a run that reported success. The
+      intensity path three functions up already documents this and avoids it with
+      ``select_frame_indices``; this branch never got the same treatment.
+    * Handing the mask in as the image made ``Island Correlation Length`` the
+      autocorrelation of a BINARY field rather than of the raw voxels -- roughly the
+      object radius for every file, and not comparable with the same column from any
+      other mode. ``volumetric/binarization.py`` states the rule ("autocorrelation always
+      runs on the raw voxels") and ``perslice`` follows it; only this path did not.
+    * ``invert_binarization`` was applied twice, once by ``load_segmentation`` and again
+      by the 2D config.
+
+    ``perslice._binarization_for_slice`` already does the right thing on all three
+    counts, so the per-slice work is delegated to it and only the reduction lives here,
+    matching how the intensity path is built.
+    """
+    from analysis.volumetric.perslice import _binarization_for_slice
+    from analysis.volumetric.run import select_frame_indices
+    from utils import average_largest
+
+    occupied = np.flatnonzero(masks.any(axis=(1, 2)))
+    if occupied.size == 0:
+        raise ValueError("the segmentation is empty on every analysed slice")
+
+    indices = select_frame_indices(int(occupied.size), bin_config.frame_step)
+    n_eval = max(int(np.ceil(bin_config.percentage_frames_evaluated * len(indices))), 1)
+
+    per_slice = []
+    for i in indices:
+        z = int(occupied[i])
+        per_slice.append(_binarization_for_slice(
+            volume[z].astype(np.float64), bin_config, um_pixel_ratio, masks[z]))
+
+    def column(name):
+        return [getattr(r, name) for r in per_slice]
+
+    def ratio(name):
+        """Last-over-first, the ratio the 2D branch reports for the change columns."""
+        values = np.asarray(column(name), dtype=np.float64)
+        finite = values[np.isfinite(values)]
+        if finite.size < 2:
+            return np.nan
+        first = float(np.nanmean(finite[:n_eval]))
+        return float(np.nanmean(finite[-n_eval:]) / first) if first else np.nan
+
+    def mean(name):
+        values = np.asarray(column(name), dtype=np.float64)
+        finite = values[np.isfinite(values)]
+        return float(finite.mean()) if finite.size else np.nan
+
+    return BinarizationResults(
+        connectivity=mean("connectivity"),
+        max_island_size=average_largest(column("max_island_size")),
+        max_void_size=average_largest(column("max_void_size")),
+        max_island_percent_change=ratio("max_island_size"),
+        max_void_percent_change=ratio("max_void_size"),
+        island_size_initial=mean("island_size_initial"),
+        island_size_initial2=mean("island_size_initial2"),
+        island_anisotropy=mean("island_anisotropy"),
+        mean_island_size=mean("mean_island_size"),
+        total_island_size=mean("total_island_size"),
+        mean_island_separation=mean("mean_island_separation"),
+        island_correlation_length=mean("island_correlation_length"),
+        max_island_size_quantity=average_largest(column("max_island_size_quantity")),
+        max_void_size_quantity=average_largest(column("max_void_size_quantity")),
+        island_size_initial_quantity=mean("island_size_initial_quantity"),
+        island_size_initial2_quantity=mean("island_size_initial2_quantity"),
+        mean_island_size_quantity=mean("mean_island_size_quantity"),
+        total_island_size_quantity=mean("total_island_size_quantity"),
+        structural_correlation_flag=int(any(
+            r.structural_correlation_flag for r in per_slice)),
     )
 
 
@@ -229,19 +314,14 @@ def run_slicewise_analysis(
                 # and the nanmean over slices pulled well off the true profile. They are
                 # dropped instead -- a slice with no segmented object has no structure to
                 # measure, which is not the same as being entirely filled by one.
-                source = volume
                 bin_config = config.image_binarization_parameters
                 if masks is not None:
-                    from dataclasses import replace as _replace_cfg
-                    occupied = masks.any(axis=(1, 2))
-                    if not occupied.any():
-                        raise ValueError(
-                            "the segmentation is empty on every analysed slice")
-                    source = masks[occupied].astype(np.float64)
-                    bin_config = _replace_cfg(bin_config, threshold_offset=0.0)
-                _, row.binarization = analyze_binarization(
-                    source, output_dir, bin_config, reader_config, config.writer,
-                )
+                    row.binarization = _masked_binarization_over_z(
+                        volume, masks, bin_config, stack.xy_step_um)
+                else:
+                    _, row.binarization = analyze_binarization(
+                        volume, output_dir, bin_config, reader_config, config.writer,
+                    )
             except Exception as exc:
                 print(f"  t={t}: binarization failed ({type(exc).__name__}: {exc})", flush=True)
 
@@ -290,8 +370,9 @@ def run_slicewise_pipeline(
         print(filepath)
         count += 1
 
-    from analysis.volumetric.run import warn_if_channels_dropped
+    from analysis.volumetric.run import warn_if_channels_dropped, warn_if_flow_unsupported
     warn_if_channels_dropped(config)
+    warn_if_flow_unsupported(config)
 
     try:
         results, detail = run_slicewise_analysis(

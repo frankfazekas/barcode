@@ -119,7 +119,7 @@ class WriterConfigGUI:
         self.generate_barcode.set(new_config.generate_barcode)
         self.save_rds.set(new_config.save_rds)
         self.save_visualizations.set(new_config.save_visualizations)
-        self.hidden_barcode_metrics.set(new_config.hidden_barcode_metrics)
+        self.hidden_barcode_metrics = list(new_config.hidden_barcode_metrics)
 
 @dataclass
 class ChannelConfigGUI:
@@ -285,29 +285,30 @@ class PreviewConfigGUI:
     
     @property
     def sample_preview(self) -> np.ndarray:
+        # Always (frames, Y, X, channels) -- the layout every preview tab indexes as
+        # frames[n, :, :, channel]. See utils/preview_shapes.py for why the old inline
+        # min(file.shape) test could not get (T, Z, Y, X) or a flat (Y, X) TIFF right.
+        from utils.preview_shapes import as_preview_stack, nd2_as_preview_stack
+
         if self._sample_preview is None or self._sample_file.get() != self.sample_file.get():
             filepath = self.sample_file.get()
-            if filepath.endswith(('.avi', '.mp4')):
-                frames = []
-                container = av.open(filepath)
-                for frame in container.decode(video=0):
-                    frames.append(frame.to_ndarray(format='gray'))
-                file = np.array(frames)
-                file = np.expand_dims(file, axis = 3) if len(file.shape) == 3 else file
-            elif filepath.endswith(('.tif', '.tiff')):
-                file = iio.imread(filepath)
-                file = np.expand_dims(file, axis = 3) if len(file.shape) == 3 else file
-                if file.shape[3] != min(file.shape):
-                    file = np.swapaxes(np.swapaxes(file, 1, 2), 2, 3)
-            elif filepath.endswith('.nd2'):
-                with nd2.ND2File(filepath) as ndfile:
-                    if (len(ndfile.sizes) < 5 and (not 'Z' in ndfile.sizes) and 
-                        'T' in ndfile.sizes and len(ndfile.shape) > 2 and ndfile.sizes['T'] > 5):
-                        file = ndfile.asarray()
-                        file = np.expand_dims(file, axis = 1) if len(file.shape) == 3 else file
-                        file = np.swapaxes(np.swapaxes(file, 1, 2), 2, 3)
-            else:
-                file = np.ones((3, 256, 256, 1))
+            try:
+                if filepath.endswith(('.avi', '.mp4')):
+                    container = av.open(filepath)
+                    frames = [f.to_ndarray(format='gray') for f in container.decode(video=0)]
+                    file = as_preview_stack(np.array(frames))
+                elif filepath.endswith(('.tif', '.tiff')):
+                    file = as_preview_stack(iio.imread(filepath))
+                elif filepath.endswith('.nd2'):
+                    with nd2.ND2File(filepath) as ndfile:
+                        file = nd2_as_preview_stack(ndfile)
+                else:
+                    file = np.ones((3, 256, 256, 1))
+            except Exception as e:
+                # A preview must never take the window down. The tabs render their
+                # "Upload file to see ..." placeholder when the stack is unusable.
+                print(f"[Preview] could not read {filepath}: {type(e).__name__}: {e}")
+                file = np.zeros((1, 256, 256, 1))
             self._sample_preview = file
             self._sample_file.set(filepath)
         return self._sample_preview
@@ -375,8 +376,8 @@ class AggregationConfigGUI:
         self.generate_comparison_barcodes.set(new_config.generate_comparison_barcodes)
         self.separate_channels.set(new_config.separate_channels)
         self.sort_parameter.set(new_config.sort_parameter)
-        self.csv_paths_list.set(new_config.csv_paths_list)
-        self.metrics_list.set(new_config.metrics_list)
+        self.csv_paths_list = list(new_config.csv_paths_list)
+        self.metrics_list = list(new_config.metrics_list)
 
 @dataclass
 class ComparisonConfigGUI:
@@ -682,7 +683,7 @@ class VisualizationConfigGUI:
         self.video_framerate.set(new_config.video_framerate)
         self._file_path.set(new_config._file_path)
         self._frames = None
-        self._indices.set(new_config._indices)
+        self._indices = list(new_config._indices)
 
 @dataclass
 class VolumetricConfigGUI:
@@ -748,12 +749,15 @@ class VolumetricConfigGUI:
     frame_interval_s: tk.DoubleVar = field(init=False)
     mesh_enabled: tk.BooleanVar = field(init=False)
     mesh_maxrad: tk.DoubleVar = field(init=False)
+    mesh_isovalue: tk.DoubleVar = field(init=False)
     mesh_area_frac: tk.DoubleVar = field(init=False)
     mesh_smoothing_iterations: tk.IntVar = field(init=False)
     mesh_smoothing_alpha: tk.DoubleVar = field(init=False)
     mesh_smoothing_beta: tk.DoubleVar = field(init=False)
     mesh_matlab_compat: tk.BooleanVar = field(init=False)
     mesh_curvature: tk.BooleanVar = field(init=False)
+    curvature_exclude_caps: tk.BooleanVar = field(init=False)
+    curvature_outlier_limit: tk.DoubleVar = field(init=False)
     mesh_iso2mesh_bin: tk.StringVar = field(init=False)
     mesh_export_obj: tk.BooleanVar = field(init=False)
 
@@ -817,12 +821,15 @@ class VolumetricConfigGUI:
         self.frame_interval_s = tk.DoubleVar(value=self._core_config.frame_interval_s)
         self.mesh_enabled = tk.BooleanVar(value=self._core_config.mesh_enabled)
         self.mesh_maxrad = tk.DoubleVar(value=self._core_config.mesh_maxrad)
+        self.mesh_isovalue = tk.DoubleVar(value=self._core_config.mesh_isovalue)
         self.mesh_area_frac = tk.DoubleVar(value=self._core_config.mesh_area_frac)
         self.mesh_smoothing_iterations = tk.IntVar(value=self._core_config.mesh_smoothing_iterations)
         self.mesh_smoothing_alpha = tk.DoubleVar(value=self._core_config.mesh_smoothing_alpha)
         self.mesh_smoothing_beta = tk.DoubleVar(value=self._core_config.mesh_smoothing_beta)
         self.mesh_matlab_compat = tk.BooleanVar(value=self._core_config.mesh_matlab_compat)
         self.mesh_curvature = tk.BooleanVar(value=self._core_config.mesh_curvature)
+        self.curvature_exclude_caps = tk.BooleanVar(value=self._core_config.curvature_exclude_caps)
+        self.curvature_outlier_limit = tk.DoubleVar(value=self._core_config.curvature_outlier_limit)
         self.mesh_iso2mesh_bin = tk.StringVar(value=self._core_config.mesh_iso2mesh_bin)
         self.mesh_export_obj = tk.BooleanVar(value=self._core_config.mesh_export_obj)
 
@@ -889,12 +896,15 @@ class VolumetricConfigGUI:
             frame_interval_s=self.frame_interval_s.get(),
             mesh_enabled=self.mesh_enabled.get(),
             mesh_maxrad=self.mesh_maxrad.get(),
+            mesh_isovalue=self.mesh_isovalue.get(),
             mesh_area_frac=self.mesh_area_frac.get(),
             mesh_smoothing_iterations=self.mesh_smoothing_iterations.get(),
             mesh_smoothing_alpha=self.mesh_smoothing_alpha.get(),
             mesh_smoothing_beta=self.mesh_smoothing_beta.get(),
             mesh_matlab_compat=self.mesh_matlab_compat.get(),
             mesh_curvature=self.mesh_curvature.get(),
+            curvature_exclude_caps=self.curvature_exclude_caps.get(),
+            curvature_outlier_limit=self.curvature_outlier_limit.get(),
             mesh_iso2mesh_bin=self.mesh_iso2mesh_bin.get(),
             mesh_export_obj=self.mesh_export_obj.get(),
         )
@@ -961,12 +971,15 @@ class VolumetricConfigGUI:
         self.frame_interval_s.set(new_config.frame_interval_s)
         self.mesh_enabled.set(new_config.mesh_enabled)
         self.mesh_maxrad.set(new_config.mesh_maxrad)
+        self.mesh_isovalue.set(new_config.mesh_isovalue)
         self.mesh_area_frac.set(new_config.mesh_area_frac)
         self.mesh_smoothing_iterations.set(new_config.mesh_smoothing_iterations)
         self.mesh_smoothing_alpha.set(new_config.mesh_smoothing_alpha)
         self.mesh_smoothing_beta.set(new_config.mesh_smoothing_beta)
         self.mesh_matlab_compat.set(new_config.mesh_matlab_compat)
         self.mesh_curvature.set(new_config.mesh_curvature)
+        self.curvature_exclude_caps.set(new_config.curvature_exclude_caps)
+        self.curvature_outlier_limit.set(new_config.curvature_outlier_limit)
         self.mesh_iso2mesh_bin.set(new_config.mesh_iso2mesh_bin)
         self.mesh_export_obj.set(new_config.mesh_export_obj)
 

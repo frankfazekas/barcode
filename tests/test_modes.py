@@ -136,11 +136,22 @@ def test_xyt_guard_blocks_a_declared_zstack_but_allows_undeclared_axes(tmp_path)
     tifffile.imwrite(str(plain), np.zeros((8, 16, 16), np.uint16))
     guard_declared_axes(get_mode(XYT), str(plain))  # must not raise
 
+    # A declared Z-with-no-T warns but must NOT raise: Fiji writes an ordinary 2D movie
+    # as an ImageJ stack with slices=N, which reads back as ZYX, so raising here rejected
+    # legitimate 2D input on the reference-validated path.
     stack = tmp_path / "stack.tif"
     tifffile.imwrite(str(stack), np.zeros((8, 16, 16), np.uint16), imagej=True,
                      metadata={"axes": "ZYX", "spacing": 0.3, "unit": "micron"})
-    with pytest.raises(ValueError, match="Z-stack, not a time series"):
-        guard_declared_axes(get_mode(XYT), str(stack))
+    guard_declared_axes(get_mode(XYT), str(stack))
+
+
+def test_guard_warns_about_a_declared_z_stack_in_xyt(tmp_path, capsys):
+    stack = tmp_path / "stack.tif"
+    tifffile.imwrite(str(stack), np.zeros((8, 16, 16), np.uint16), imagej=True,
+                     metadata={"axes": "ZYX", "spacing": 0.3, "unit": "micron"})
+    guard_declared_axes(get_mode(XYT), str(stack))
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "8 Z slice(s)" in out
 
 
 def test_guard_ignores_non_tiff_and_unreadable_files(tmp_path):

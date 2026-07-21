@@ -336,8 +336,35 @@ def _xy_spacing_from_tags(page, unit_name=None) -> Optional[float]:
     return um_per_unit / px_per_unit
 
 
+TIFF_SUFFIXES = (".tif", ".tiff")
+
+
+def require_tiff(path: str) -> None:
+    """Reject non-TIFF input up front, with a message that says what to do.
+
+    ``utils.setup.find_files`` accepts ``.nd2``/``.mp4``/``.avi`` as well, so a folder of
+    ND2s is happily discovered and then handed to ``tifffile``, which fails per file with
+    "not a TIFF file" -- true, but it does not tell you that the volumetric modes are
+    TIFF-only or how to proceed. The 2D branch does read ND2 (via the ``nd2`` package in
+    ``utils.reader``); this module has never had an equivalent path.
+    """
+    suffix = os.path.splitext(path)[1].lower()
+    if suffix in TIFF_SUFFIXES:
+        return
+    extra = ""
+    if suffix == ".nd2":
+        extra = (" The 2D (xyt) mode reads ND2 directly; for xyz/xyzt, export the stack "
+                 "to an ImageJ TIFF first (Fiji: File > Save As > Tiff) so the z spacing "
+                 "is carried over in the metadata.")
+    raise ValueError(
+        f"The volumetric modes read TIFF only, but got '{suffix or 'no extension'}': "
+        f"{os.path.basename(path)}.{extra}"
+    )
+
+
 def read_axes(path: str) -> Tuple[str, Tuple[int, ...]]:
     """Return the declared axis order and shape without loading pixel data."""
+    require_tiff(path)
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
         return series.axes, tuple(int(v) for v in series.shape)
@@ -363,6 +390,7 @@ def read_volume(
     so it also rescues the ``IQS`` "undetermined axis" files this module otherwise
     refuses. The distinction the module keeps is between guessing and being told.
     """
+    require_tiff(path)
     with tifffile.TiffFile(path) as tf:
         series = tf.series[0]
         axes = series.axes
@@ -427,11 +455,17 @@ def read_volume(
 
     z_um = z_step_um if z_step_um is not None else z_declared
     xy_um = xy_step_um if xy_step_um is not None else tag_xy
+    # `timing_from_file` must describe the FILE, so it is decided from the file's own tag
+    # before the caller's override is folded in. Deriving it from the merged value made a
+    # caller-supplied exposure_time_s report as "from the file's ImageJ finterval tag",
+    # which is the one claim the flag exists to make honestly. Latent today -- no call
+    # site passes it -- but the flag is load-bearing for Speed.
+    timing_from_file_tag = ij.get("finterval") is not None
     exposure = exposure_time_s if exposure_time_s is not None else ij.get("finterval")
-    # Whether the timing came from anywhere real. Without this the fallback below is
+    # Whether the timing came from THE FILE. Without this the fallback below is
     # indistinguishable from a genuine 1 s interval, and the message that exists to warn
     # about exactly that could never fire.
-    timing_from_file = exposure is not None
+    timing_from_file = timing_from_file_tag
 
     if z_um is None:
         print(

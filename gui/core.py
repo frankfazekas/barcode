@@ -106,6 +106,14 @@ def generate_gui_wrapper(config_class):
         tk_type = get_tk_var_type(field.type)
         if "np.ndarray" in tk_type:
             lines.append(f"        self.{field.name} = None")
+        elif "List" in tk_type:
+            # A list field is a plain list here, not a tk variable -- __post_init__ and
+            # the `config` property both already treat it that way. update_gui alone
+            # emitted `.set()`, which `list` does not have, so loading ANY Settings.yaml
+            # raised AttributeError on the first list field (WriterConfig gained
+            # hidden_barcode_metrics, so this fired for every mode including 2D).
+            # Loading a reference YAML is the documented reproduction workflow.
+            lines.append(f"        self.{field.name} = list(new_config.{field.name})")
         else:
             lines.append(f"        self.{field.name}.set(new_config.{field.name})")
 

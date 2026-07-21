@@ -1,3 +1,5 @@
+import os
+import re
 import tkinter as tk
 from tkinter import ttk, filedialog
 
@@ -26,17 +28,40 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    create_option_section(
+    # There is deliberately no "Enable Volumetric" checkbox here. There used to be one,
+    # bound to cv.enabled, back when core/pipeline.py gated on that flag. Commit 7b972d9
+    # ("xyz along with xyzt mode") replaced the gate with mode.key, because one boolean
+    # cannot express three modes -- but the checkbox stayed, silently doing nothing in a
+    # fresh session while still *looking* live (an old Settings.yaml with enabled: true
+    # migrates to xyzt in core/config.py, which is why it seemed to work). cv.enabled is
+    # now load-bearing only for that migration; Mode on Execution Settings is the switch.
+    mode_note = tk.Label(
         frame,
-        row_idx,
-        cv.enabled,
-        "Enable Volumetric (3D) Analysis",
-        "Treat inputs as Z-stacks and compute true 3D metrics (volumes, 26-connectivity "
-        "islands, 3D correlation lengths) instead of analysing them as 2D time series. "
-        "When off, BARCODE behaves exactly as before. Note that a Z-stack read by the "
-        "standard 2D pipeline is silently interpreted as a time series.",
+        text="Set Mode to xyz or xyzt on the Execution Settings tab to use these options.",
+        fg="gray25",
+        wraplength=640,
+        justify="left",
     )
-    row_idx += 2
+    mode_note.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 5))
+    row_idx += 1
+
+    mode_state = tk.Label(frame, fg="gray25")
+    mode_state.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 5))
+
+    def _show_mode(*_args):
+        from core.modes import MODES
+
+        key = cv.analysis_mode.get()
+        mode = MODES.get(key)
+        if mode is None or key == "xyt":
+            mode_state.config(
+                text=f"Current mode: {key} — these settings are not used.", fg="#b45309")
+        else:
+            mode_state.config(text=f"Current mode: {key} — these settings apply.", fg="#15803d")
+
+    cv.analysis_mode.trace_add("write", _show_mode)
+    _show_mode()
+    row_idx += 1
 
     tk.Label(frame, text="Voxel Size", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)
@@ -262,6 +287,30 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
+    create_option_section(
+        frame,
+        row_idx,
+        cv.enable_intensity_magnitude,
+        "Total & Mean Intensity",
+        "Add total intensity, mean intensity, intensity SD and intensity per unit volume. "
+        "These say HOW MUCH signal there is, where the intensity branch describes the "
+        "SHAPE of the distribution and is blind to a uniform brightening. Sensitive to "
+        "exposure and gain, so only compare acquisitions taken with identical settings.",
+    )
+    row_idx += 2
+
+    create_option_section(
+        frame,
+        row_idx,
+        cv.record_range_columns,
+        "Record Analysed Range",
+        "Add the z and t extents this row's numbers were computed over. Flag digit 5 "
+        "already says THAT a range was restricted; these say WHICH, so a CSV separated "
+        "from its Settings.yaml still describes itself. Indices are into the acquired "
+        "data, before any isotropic resampling.",
+    )
+    row_idx += 2
+
     contact_label = tk.Label(frame, text="Minimum Contact [voxels]")
     contact_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
@@ -332,6 +381,65 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "correctly forms its own 'Cell1_centrin' series rather than joining Cell1.",
         row_idx, tl_regex_label,
     )
+    row_idx += 1
+
+    # Nobody should have to read a regex to find out whether their files will group
+    # correctly. Show the actual answer for the folder that is actually selected, and
+    # re-run it whenever the pattern or the folder changes.
+    tl_match_label = tk.Label(frame, fg="gray25", wraplength=640, justify="left")
+    tl_match_label.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 6))
+
+    def _describe_series(*_args):
+        from analysis.volumetric.timelapse import group_timelapse
+
+        directory = input_config.dir_path.get()
+        if not directory or not os.path.isdir(directory):
+            tl_match_label.config(
+                text="Select a folder under Process Directory to preview the grouping.",
+                fg="gray45")
+            return
+        try:
+            pattern = cv.timelapse_regex.get()
+        except tk.TclError:
+            return
+        paths = [
+            os.path.join(root_dir, f)
+            for root_dir, _, files in os.walk(directory)
+            for f in files
+            if f.lower().endswith((".tif", ".tiff", ".nd2")) and not f.startswith("._")
+        ]
+        if not paths:
+            tl_match_label.config(text="No image files found in that folder.", fg="gray45")
+            return
+        try:
+            groups, unmatched = group_timelapse(paths, pattern)
+        except re.error as exc:
+            tl_match_label.config(text=f"Not a valid pattern: {exc}", fg="#b91c1c")
+            return
+
+        if not groups:
+            tl_match_label.config(
+                text=f"This pattern matches none of the {len(paths)} files — every file "
+                     f"would be analysed on its own, and change metrics would be NaN.",
+                fg="#b91c1c")
+            return
+
+        shown = ", ".join(
+            f"{g.series} ({len(g.paths)} frames)" for g in groups[:3]
+        )
+        if len(groups) > 3:
+            shown += f", +{len(groups) - 3} more"
+        text = f"Groups {len(paths)} files into {len(groups)} series: {shown}."
+        colour = "#15803d"
+        if unmatched:
+            text += f"  {len(unmatched)} file(s) match nothing and would be skipped."
+            colour = "#b45309"
+        tl_match_label.config(text=text, fg=colour)
+
+    cv.timelapse_regex.trace_add("write", _describe_series)
+    input_config.dir_path.trace_add("write", _describe_series)
+    input_config.mode.trace_add("write", _describe_series)
+    _describe_series()
     row_idx += 1
 
     tk.Label(frame, text="Segmentation", font=header).grid(
@@ -492,6 +600,13 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     ttk.Spinbox(
         frame, from_=1, to=10000, increment=1, textvariable=cv.bin_size, width=7
     ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Number of bins in the voxel-intensity histogram the distribution metrics are "
+        "measured from. More bins resolve finer structure but make each bin noisier; "
+        "300 matches the 2D branch.",
+        row_idx, bins_label,
+    )
     row_idx += 1
 
     create_option_section(
@@ -727,6 +842,13 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame, from_=0.0, to=1.0, increment=0.01,
         textvariable=cv.mesh_smoothing_alpha, width=7
     ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Laplacian smoothing weight alpha: how far each vertex moves toward its "
+        "neighbours on every pass. Higher smooths faster but shrinks the surface more. "
+        "See Smoothing Beta for the paired term.",
+        row_idx, alpha_label,
+    )
     row_idx += 1
 
     beta_label = tk.Label(frame, text="Smoothing Beta")

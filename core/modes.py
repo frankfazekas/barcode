@@ -133,13 +133,19 @@ MODE_KEYS = tuple(MODES)
 
 
 def guard_declared_axes(mode: AnalysisMode, filepath: str) -> None:
-    """Reject a file whose declared axes plainly contradict the chosen mode.
+    """Warn when a file's declared axes contradict the chosen mode.
 
     Deliberately narrow. Most planar TIFFs declare no meaningful axis at all -- a plain
     multipage movie comes back as ``QYX`` -- so demanding a ``T`` axis for xyt would
-    reject ordinary 2D data, including the published reference set. What *is*
-    unambiguous is a file that declares ``Z`` and no ``T``: analysing that as a time
-    series is the silent misreading modes exist to prevent, so it raises.
+    flag ordinary 2D data, including the published reference set. Only ``Z`` without
+    ``T`` is called out, because analysing that as a time series is the silent misreading
+    modes exist to prevent.
+
+    It *warns* rather than raises. This used to raise, which turned out to reject
+    legitimate input: Fiji saves a 2D movie as an ImageJ stack with ``slices=N``, which
+    reads back as ``ZYX``, so the declared axes cannot separate "a Z-stack in the wrong
+    mode" from "an ordinary 2D movie saved the usual way". A hard error on the
+    reference-validated 2D path is the worse failure of the two.
 
     Anything unreadable or undeclared passes through untouched; this is a guard against
     a known wrong answer, not a general gatekeeper.
@@ -151,17 +157,32 @@ def guard_declared_axes(mode: AnalysisMode, filepath: str) -> None:
 
         with tifffile.TiffFile(filepath) as handle:
             axes = handle.series[0].axes
+            shape = tuple(int(v) for v in handle.series[0].shape)
     except Exception:
         return
 
     if "Z" in axes and "T" not in axes:
         import os
 
-        raise ValueError(
-            f"{os.path.basename(filepath)} declares axes {axes!r} — it is a Z-stack, "
-            f"not a time series. Mode 'xyt' would analyse its {axes.count('Z') and 'z'} "
+        # A WARNING, not an exception. Fiji writes an ordinary saved stack with
+        # `slices=N` rather than `frames=N`, and tifffile reports that as ZYX -- so a
+        # perfectly normal 2D time series exported from Fiji declares Z and no T, and
+        # raising here refused data that analysed fine before the modes existed,
+        # potentially including the published reference set. The misreading this guards
+        # against is real, but it is not distinguishable from that case by the axes alone,
+        # so the honest response is to say so loudly and let the run proceed.
+        # The EXTENT along Z, from the shape -- `axes.count("Z")` counts the letter in the
+        # axis string, which is 1 for any z-stack, and the message it produced was
+        # nonsense for that reason.
+        n_slices = shape[axes.index("Z")] if len(shape) == len(axes) else "?"
+        print(
+            f"WARNING: {os.path.basename(filepath)} declares axes {axes!r} — "
+            f"{n_slices} Z slice(s) and no T axis. Mode 'xyt' will analyse those "
             f"slices as timepoints and report optical flow between focal planes as a "
-            f"velocity. Choose 'xyz' for 2D metrics over depth, or 'xyzt' for true 3D."
+            f"velocity. If this is a Z-stack rather than a time series, choose 'xyz' for "
+            f"2D metrics over depth or 'xyzt' for true 3D. (Fiji writes ordinary 2D "
+            f"movies this way too, in which case this is expected.)",
+            flush=True,
         )
 
 

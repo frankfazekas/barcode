@@ -31,6 +31,7 @@ from analysis.volumetric.intensity import analyze_intensity_3d
 from analysis.volumetric.mesh import MeshingError, mesh_series
 from analysis.volumetric.run import (
     _prepare_geometry, resolve_frame_interval, summarise_components, summarise_meshes)
+from analysis.volumetric.reader import apply_t_range, apply_z_range
 from analysis.volumetric.timelapse import group_timelapse, read_series
 from core import BarcodeConfig, ChannelResults
 from scripts._cli import default_output_dir
@@ -133,6 +134,14 @@ def main() -> int:
         print(f"\n{group.describe()}")
         stack = read_series(group, channel=config.channels.selected_channel,
                             axes_override=getattr(vcfg, "axes_override", "") or None)
+        # The same two restrictions run_volumetric_analysis applies before
+        # _prepare_geometry. This script calls _prepare_geometry directly and skipped
+        # them, so --z-start/--z-end were accepted, echoed into the config and then had
+        # no effect whatsoever: the full acquired depth was analysed, the provenance flag
+        # never fired, and nothing in the output distinguished a restricted run from an
+        # unrestricted one.
+        stack = apply_t_range(stack, vcfg)
+        stack = apply_z_range(stack, vcfg)
         volumes, masks, spacing, info, mask_paths = _prepare_geometry(stack, vcfg)
         print(f"  grid {volumes.shape[1:]} @ {tuple(round(s, 4) for s in spacing)} um"
               f"{'  (common crop box)' if info.get('common_crop') else ''}")

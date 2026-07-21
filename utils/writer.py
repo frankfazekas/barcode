@@ -17,6 +17,42 @@ R = TypeVar("R", bound=ResultsBase)
 ExtraColumns: TypeAlias = Dict[str, List[str]]
 
 
+def _common_source_mode(results: List[ChannelResults]):
+    """The AnalysisMode every row was read back under, or None if they disagree.
+
+    Aggregation pools CSVs the caller chose, and nothing stops those being a 2D run and a
+    volumetric one. Mixing them is already meaningless -- the same column is an area in
+    one and a volume in the other -- so return None and let the writer fall back to the
+    legacy layout rather than silently stamping one mode's schema onto the other's rows.
+    """
+    modes = {getattr(r, "source_mode", None) for r in results}
+    if len(modes) != 1:
+        if len(modes) > 1:
+            names = sorted(m.key if m else "unknown" for m in modes)
+            print(
+                f"Warning: aggregating results from more than one analysis mode "
+                f"({', '.join(names)}). Size columns do not mean the same thing across "
+                f"modes -- an area in one is a volume in another.",
+                flush=True,
+            )
+        return None
+    return modes.pop()
+
+
+def _families_present(results: List[ChannelResults]) -> Dict[str, bool]:
+    """Which optional families these rows actually carry, by the same test the writer uses."""
+    from core.results import OPTIONAL_FAMILIES
+
+    return {
+        f.switch: any(
+            getattr(r, f.attribute, None) is not None
+            and getattr(r, f.attribute).is_populated()
+            for r in results
+        )
+        for f in OPTIONAL_FAMILIES
+    }
+
+
 def results_to_csv(
     results: List[R],
     output_filepath: str,
@@ -154,9 +190,18 @@ def generate_aggregate_csv(
     if sort_metric:
         sort_channel_results_by_metric(all_results, sort_metric)
 
+    mode = _common_source_mode(all_results)
+
     if not (len(csv_files) == 1 and csv_files[0] == output_csv):
-        # Write aggregate CSV using the clean writer
-        quantified = results_to_csv(all_results, output_csv, just_metrics=False)
+        # Write aggregate CSV using the clean writer, under the SCHEMA THE ROWS CAME IN.
+        # Without `mode` the writer falls back to the 2D layout, so aggregating xyzt CSVs
+        # produced a header saying "Maximum Island Area" (um^2 in the physical variant)
+        # over values that are um^3 volumes, and an xyz aggregate regained seven
+        # Speed/Divergence/Curl columns that mode never computes. It also let every
+        # optional family through unfiltered, giving a header no mode can produce -- which
+        # then failed the reader's own `headers in accepted_headers` assert, so the
+        # aggregate could not be read back at all.
+        quantified = results_to_csv(all_results, output_csv, just_metrics=False, mode=mode)
     else:
         quantified = bool(np.isnan(all_results[0].binarization.get_data()[2]) and (not 
                       np.isnan(all_results[0].binarization.get_physical_data()[2])))
@@ -164,11 +209,30 @@ def generate_aggregate_csv(
     # Generate barcode if requested
     if gen_barcode:
         barcode_path = output_csv.replace(".csv", " Barcode")
+        # A mask built positionally against the mode-less 25 metrics cannot match the
+        # column count the renderer derives from the families these results actually
+        # carry, and the renderer refuses a mask of the wrong length -- so aggregating
+        # volumetric CSVs raised ValueError out of an un-caught call, losing the barcode
+        # after the CSV had already been written. Drop a mask that does not fit and show
+        # everything, saying so, rather than failing: the mask only trims the picture.
+        shown = metrics_to_visualize or None
+        if shown is not None:
+            expected = len(ChannelResults.get_metrics(
+                just_metrics=True, mode=mode, **_families_present(all_results)))
+            if len(shown) != expected:
+                print(
+                    f"Note: the saved barcode metric selection has {len(shown)} entries "
+                    f"but these results carry {expected} metrics, so it does not apply "
+                    f"to them; showing all columns.",
+                    flush=True,
+                )
+                shown = None
         generate_combined_barcode(
-            all_results, barcode_path, 
+            all_results, barcode_path,
             separate_channels=separate_channels,
             physical_units = quantified,
-            metrics_to_visualize= metrics_to_visualize,
+            metrics_to_visualize= shown,
+            mode=mode,
         )
 
 def compare_multiple_csvs(
@@ -224,13 +288,29 @@ def create_metric_comparison(
     if not (csv_file and output_file):
         return
     results = read_csv_to_channel_results(csv_file)
-    metrics = ChannelResults.get_metrics()
+    # Built for the mode and families these rows carry. With the mode-less list a
+    # volumetric metric name simply was not in `metrics`, and the lookups below index
+    # [0] into the empty match -- so comparing any 3D metric died with a bare IndexError
+    # naming nothing.
+    mode = _common_source_mode(results)
+    families = _families_present(results)
+    metrics = ChannelResults.get_metrics(mode=mode, **families)
     file_metric = metrics[0]
-    first_metric = [metric for metric in metrics if metric.value == first_metric][0]
-    second_metric = [metric for metric in metrics if metric.value == second_metric][0]
-    files = [result.get_dict_data()[file_metric] for result in results]
-    param1 = [result.get_dict_data()[first_metric] for result in results]
-    param2 = [result.get_dict_data()[second_metric] for result in results]
+
+    def find(name):
+        match = [metric for metric in metrics if metric.value == name]
+        if not match:
+            raise ValueError(
+                f"{name!r} is not a metric of this CSV. It carries: "
+                f"{', '.join(m.value for m in metrics[1:])}."
+            )
+        return match[0]
+
+    first_metric, second_metric = find(first_metric), find(second_metric)
+    dict_data = [result.get_dict_data(mode=mode, **families) for result in results]
+    files = [row[file_metric] for row in dict_data]
+    param1 = [row[first_metric] for row in dict_data]
+    param2 = [row[second_metric] for row in dict_data]
     headers = ["File", first_metric.value, second_metric.value]
     with open(output_file, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)

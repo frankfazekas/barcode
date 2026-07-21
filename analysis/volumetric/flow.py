@@ -338,6 +338,15 @@ def analyze_optical_flow_3d(
         detail.divergences.append(_nanmean(np.where(valid, divergence, np.nan)))
         detail.curls.append(_nanmean(np.where(valid, curl, np.nan)))
 
+        # `raw_field`, deliberately -- and unlike divergence and curl two lines up, there
+        # is no masked reduction afterwards either. It reads as an oversight next to them,
+        # so to be explicit: zeroing the ~50% of voxels the reliability cut rejects would
+        # make C(r) measure the hole pattern, and on a coherent field it collapses the
+        # correlation length to NaN and raises flag 4 on data that has none of the problem
+        # that flag reports. `test_reliability_masking_does_not_corrupt_the_spatial_
+        # operators` pins exactly this. The cost is that with `flow_use_mask` on, the
+        # correlation length still describes the whole analysed field rather than the
+        # object -- a real limitation, but the alternative measures the mask.
         radii, radial = velocity_correlation_3d(raw_field, (dz, dy, dx))
         if radii.size:
             # The outermost radial bin is the likeliest to be empty, and an empty bin

@@ -58,21 +58,38 @@ class InputConfig(BaseConfig):
     length_units: str = "μm"
     time_units: str = "s"
 
+    def _apply_units(self):
+        """Re-derive every unit label from the chosen length and time units.
+
+        This used to set only LENGTH, AREA and SPEED. The volumetric work added six more
+        unit strings, all with "μm" or "s" baked in, and none of them were updated -- so a
+        run with length_units="nm" produced a CSV declaring "Maximum Island Area" in nm^2
+        alongside "Mesh Volume" in μm^3 and "Mean Curvature <H>" in 1/μm, and a run with
+        time_units="min" labelled Speed μm/min while Divergence still said 1/s. The
+        numbers were right and the labels were not, which for metrics whose whole point is
+        being physical is the same class of error the mode system exists to prevent.
+        """
+        from core.metrics import Units
+
+        length, time = self.length_units, self.time_units
+        Units.LENGTH = length
+        Units.AREA = f"{length}^2"
+        Units.VOLUME = f"{length}^3"
+        Units.SPEED = f"{length}/{time}"
+        Units.CURVATURE = f"1/{length}"
+        Units.RATE = f"1/{time}"
+        Units.INTENSITY_PER_AREA = f"a.u./{length}^2"
+        Units.INTENSITY_PER_VOLUME = f"a.u./{length}^3"
+
     @property
     def length(self):
-        from core.metrics import Units
-        Units.LENGTH = self.length_units
-        Units.AREA = f"{self.length_units}^2"
-        Units.SPEED = f"{self.length_units}/{self.time_units}"
+        self._apply_units()
         _length = {"nm": 1e-3, "μm": 1, "mm": 1e3}
         return _length[self.length_units]
     
     @property
     def time(self):
-        from core.metrics import Units
-        Units.LENGTH = self.length_units
-        Units.AREA = f"{self.length_units}^2"
-        Units.SPEED = f"{self.length_units}/{self.time_units}"
+        self._apply_units()
         _time = {"s": 1, "min": 60, "hr":3600}
         return _time[self.time_units]
 
@@ -415,6 +432,15 @@ class VolumetricConfig(BaseConfig):
     # defaults are the MATLAB pipeline's (config/defaults/nucleus_defaults.m).
     mesh_enabled: bool = False
     mesh_maxrad: float = 5.0            # cgalsurf radbound, in isotropic voxels
+    # Where the meshing isosurface sits inside a 0/1 mask. The boundary between the last
+    # foreground voxel and the first background one is 0.5 -- what a binary mask means --
+    # but exactly 0.5 is degenerate for cgalsurf, so this sits just off it. See
+    # analysis/volumetric/mesh.py:DEFAULT_ISOVALUE for the measurements behind both
+    # choices. Was 0.99 (from the MATLAB original), which pulled the surface onto the
+    # outermost foreground voxel CENTRES and shrank every object by ~0.7 voxels on each
+    # side: -9% of the volume of a 32-voxel sphere, -67% of a 4-voxel one. Set it to
+    # 0.99 to reproduce mesh numbers from before this default changed, or MATLAB's.
+    mesh_isovalue: float = 0.52
     mesh_area_frac: float = 0.2         # face-area filter -> decimation ratio
     mesh_smoothing_iterations: int = 10
     mesh_smoothing_alpha: float = 0.1
@@ -425,6 +451,22 @@ class VolumetricConfig(BaseConfig):
     # Principal curvatures over the mesh (analysis/volumetric/curvature.py) and the
     # invagination metrics built on them. Cheap relative to the meshing itself.
     mesh_curvature: bool = True
+    # Face exclusions in the curvature branch, both OFF by default -- curvature is
+    # measured over the whole surface unless you ask otherwise.
+    #
+    # curvature_exclude_caps drops faces in the lowest and highest z bin. Worth turning
+    # on only when the segmentation is genuinely clipped by the ends of the stack, where
+    # that surface is an artefact of the acquisition rather than the object; for an
+    # object sitting entirely inside the imaged volume it discards real surface.
+    #
+    # curvature_outlier_limit drops faces whose mean curvature exceeds it in magnitude,
+    # in 1/um -- a radius of curvature below 1/limit. MATLAB uses 2.0, i.e. 0.5 um, which
+    # on a normally-sampled mesh means a degenerate triangle. 0 keeps every face.
+    #
+    # Setting both (True, 2.0) reproduces the MATLAB behaviour and the bit-for-bit parity
+    # recorded in analysis/volumetric/curvature.py.
+    curvature_exclude_caps: bool = False
+    curvature_outlier_limit: float = 0.0
     # An iso2mesh bin/ directory to stage the CGAL executables from. Empty means let
     # pyiso2mesh find or download them.
     mesh_iso2mesh_bin: str = ""

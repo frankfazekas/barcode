@@ -197,4 +197,10 @@ def is_saturated(values, bins: int, noise_threshold: float) -> bool:
     if array.size == 0:
         return False
     counts, edges = histogram(array, bins, noise_threshold)
+    # `histogram` drops bins below the noise threshold, and on a nearly-empty or
+    # single-valued selection that can leave nothing at all -- `edges[-1]` then raised
+    # IndexError out of what is only a flag lookup, losing the whole magnitude family.
+    # No bins means no mode, which is not the same as saturated.
+    if len(edges) == 0:
+        return False
     return bool(frame_mode(array, bins, noise_threshold) == edges[-1])

@@ -57,35 +57,111 @@ def create_execution_frame(parent, config: BarcodeConfigGUI, input_config: Input
     )
     row_idx += 1
 
+    # The dropdown used to offer the bare keys "xyt / xyz / xyzt", which say nothing about
+    # what they do -- AnalysisMode.label existed but was never shown anywhere. The
+    # combobox now displays "key - label" while cvol.analysis_mode still holds the bare
+    # key that core/modes.py, the YAML, and the CLI all expect.
+    _display = {k: f"{k}  -  {m.label}" for k, m in MODES.items()}
+    _to_key = {v: k for k, v in _display.items()}
+
     mode_label = tk.Label(frame, text="Mode")
     mode_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+
+    mode_display_var = tk.StringVar(
+        value=_display.get(cvol.analysis_mode.get(), _display["xyt"]))
     mode_menu = ttk.Combobox(
         frame,
-        textvariable=cvol.analysis_mode,
-        values=list(MODES),
-        width=8,
+        textvariable=mode_display_var,
+        values=list(_display.values()),
+        width=34,
         state="readonly",
     )
-    mode_menu.grid(row=row_idx, column=1, sticky="w", padx=5, pady=5)
+    mode_menu.grid(row=row_idx, column=1, columnspan=2, sticky="w", padx=5, pady=5)
 
-    mode_description = tk.Label(frame, text="", wraplength=520, justify="left", fg="#555555")
-    mode_description.grid(row=row_idx + 1, column=0, columnspan=3, sticky="w", padx=(25, 5))
-
-    def describe_mode(*_args):
-        mode = MODES.get(cvol.analysis_mode.get())
-        mode_description.config(text=mode.description if mode else "")
-
-    cvol.analysis_mode.trace_add("write", describe_mode)
-    describe_mode()
     create_popup(
         frame,
-        "xyt analyses planar images over time (the original BARCODE behaviour). "
-        "xyz analyses each z-slice as a 2D image with depth as the progression axis. "
-        "xyzt analyses whole volumes over time. Each mode writes only the metrics it "
-        "supports, so the columns differ between modes.",
+        "Which axis of your file means what. Each mode writes only the metrics it can "
+        "support, so the CSV columns differ between modes. The table below maps the data "
+        "you have onto the mode that reads it correctly.",
         row_idx, mode_label,
     )
-    row_idx += 2
+    row_idx += 1
+
+    mode_description = tk.Label(frame, text="", wraplength=560, justify="left", fg="#555555")
+    mode_description.grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(25, 5))
+    row_idx += 1
+
+    # "What do I have?" -> mode. These are the four situations users actually arrive
+    # with; note that two of them are the same mode, separated only by whether the
+    # timepoints live in one file or in one file each.
+    tk.Label(frame, text="Which mode do I want?", font=("TkDefaultFont", 13, "bold")).grid(
+        row=row_idx, column=0, columnspan=3, sticky="w", padx=(25, 5), pady=(12, 2)
+    )
+    row_idx += 1
+
+    CHOICES = [
+        ("A flat movie: one plane, many timepoints",
+         "xyt", "Areas per frame; flow is a real velocity."),
+        ("One z-stack, and I want per-slice 2D metrics down through it",
+         "xyz", "Each slice measured as its own 2D image; Change = variation with depth."),
+        ("One z-stack, and I want to measure it as a solid object",
+         "xyzt", "True 3D volume, meshing, curvature. Change metrics are NaN (1 timepoint)."),
+        ("A z-stack at every timepoint (a 3D movie)",
+         "xyzt", "As above, plus 3D flow and real Change metrics over time."),
+    ]
+
+    choice_rows = []
+    for text, key, effect in CHOICES:
+        bullet = tk.Label(frame, text="•", fg="gray45")
+        bullet.grid(row=row_idx, column=0, sticky="nw", padx=(30, 0))
+        what = tk.Label(frame, text=text, justify="left", wraplength=330, anchor="w")
+        what.grid(row=row_idx, column=0, sticky="w", padx=(45, 5))
+        arrow = tk.Label(frame, text=f"→  {key}", fg="#1d4ed8", font=("TkDefaultFont", 12, "bold"))
+        arrow.grid(row=row_idx, column=1, sticky="w", padx=5)
+        note = tk.Label(frame, text=effect, fg="gray40", justify="left",
+                        wraplength=300, anchor="w", font=("TkDefaultFont", 11))
+        note.grid(row=row_idx, column=2, sticky="w", padx=5)
+        choice_rows.append((key, bullet, what, arrow, note))
+        row_idx += 1
+
+    # The last two rows are one mode; what separates them is the Time-Lapse setting, and
+    # getting that wrong is the quiet failure (every Change metric silently NaN).
+    tk.Label(
+        frame,
+        text="The last two are the same mode. If each timepoint is a separate file, also "
+             "tick “Group Files Into Time Series” on the Volumetric tab — otherwise every "
+             "volume is analysed alone and all Change metrics come out NaN. A single file "
+             "that already holds all timepoints needs nothing extra.",
+        fg="#b45309", wraplength=560, justify="left", font=("TkDefaultFont", 11),
+    ).grid(row=row_idx, column=0, columnspan=3, sticky="w", padx=(45, 5), pady=(2, 6))
+    row_idx += 1
+
+    def describe_mode(*_args):
+        key = cvol.analysis_mode.get()
+        mode = MODES.get(key)
+        mode_description.config(text=mode.description if mode else "")
+        # Keep the dropdown's text in step when the key is changed from elsewhere
+        # (loading a YAML, or the volumetric tab).
+        wanted = _display.get(key)
+        if wanted and mode_display_var.get() != wanted:
+            mode_display_var.set(wanted)
+        # Highlight whichever guidance rows point at the active mode.
+        for row_key, bullet, what, arrow, note in choice_rows:
+            on = row_key == key
+            what.config(fg="black" if on else "gray55")
+            arrow.config(fg="#1d4ed8" if on else "gray60")
+            note.config(fg="gray40" if on else "gray65")
+            bullet.config(fg="#1d4ed8" if on else "gray70")
+
+    def on_display_changed(*_args):
+        key = _to_key.get(mode_display_var.get())
+        if key and cvol.analysis_mode.get() != key:
+            cvol.analysis_mode.set(key)
+
+    mode_display_var.trace_add("write", on_display_changed)
+    cvol.analysis_mode.trace_add("write", describe_mode)
+    describe_mode()
+    row_idx += 1
 
     tk.Label(frame, text="Select Data", font=header).grid(
         row=row_idx, column=0, columnspan=3, sticky="w", padx=(5, 5), pady=(10, 5)

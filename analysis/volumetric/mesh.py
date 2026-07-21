@@ -48,6 +48,14 @@ fallback: it would silently produce meshes that are not comparable to the MATLAB
 
 Agreement with MATLAB, and where it comes from
 ----------------------------------------------
+**This table describes ``mesh_isovalue=0.99``, which is no longer the default.** MATLAB
+extracts its surface at 0.99, and reproducing MATLAB means reproducing that choice --
+including its ~0.7-voxel inward bias (see :data:`DEFAULT_ISOVALUE`). The default is now
+0.5, which is geometrically correct and therefore differs from MATLAB by roughly the
+size of that bias: about 12% in volume on a 16-voxel-radius object, more on smaller ones.
+Set ``mesh_isovalue = 0.99`` to reproduce the numbers below, or any mesh output produced
+before the default changed.
+
 Checked against ``Jurkats_live_Control_04142022_results.mat``, meshing the same
 ``Cell_N_SegMask.tif`` the MATLAB run used (cells 1, 11, 12; frames 1, 2, 8):
 
@@ -105,6 +113,41 @@ from skimage.measure import label, regionprops_table
 
 # Spacings this close together count as isotropic (um).
 _ISOTROPY_TOLERANCE_UM = 1e-9
+
+
+# Where the surface is placed inside a 0/1 mask. 0.5 is the boundary between the last
+# foreground voxel and the first background one, which is what a binary mask means.
+#
+# This was 0.99 (matching the MATLAB original), and that is not a cosmetic difference.
+# At 0.99 the surface is pulled onto the centres of the outermost FOREGROUND voxels, so
+# the mesh sits roughly 0.7 voxels inside the object on every side. Because that inset is
+# a constant in voxels, the volume error scales as ~3 x inset / radius -- it is small for
+# a big object and severe for a small one, which is what made it hard to notice:
+#
+#     sphere radius (vox)      32      16       8       4
+#     mesh volume at 0.99   -9.0%  -25.1%  -37.1%  -67.3%
+#     mesh volume at 0.52   -0.1%   -0.3%   -0.6%       -     (maxrad 1)
+#
+# Measured by ``scripts/validate_phantoms.py`` against closed forms. The voxel-counted
+# volume was unaffected throughout and agrees with the Allen Institute's independent
+# per-cell measurements to ~1.5%, which is how the discrepancy was localised to meshing.
+#
+# Why 0.52 and not exactly 0.5. 0.5 is the geometrically right answer but is DEGENERATE
+# for cgalsurf: on a 0/1 field that level passes exactly through voxel-face midpoints, so
+# the surface is ambiguous and the mesher's arbitrary interior seed decides the outcome.
+# Three congruent objects that mesh to identical volumes at 0.99 scatter by 20% at 0.5,
+# and 0.505 swung between 0% and 46% on repeat runs of the same input. The instability
+# decays with distance from 0.5; 0.52 is the nearest value that is reproducible across
+# runs while still costing only ~0.3% in accuracy:
+#
+#     isovalue              0.5   0.501   0.505    0.51    0.52    0.55
+#     spread, congruent   19.6%    9.2%   0-46%    1.2%    0.0%    0.0%
+#     sphere r=16 error   +0.1%   +0.0%   +0.0%   -0.1%   -0.3%   -0.9%
+#
+# 0.99 remains selectable via ``VolumetricConfig.mesh_isovalue`` for reproducing earlier
+# runs; every mesh number produced before this change used it, as does MATLAB.
+DEFAULT_ISOVALUE = 0.52
+LEGACY_ISOVALUE = 0.99
 
 
 class MeshingError(RuntimeError):
@@ -428,11 +471,15 @@ def generate_mesh(
     beta: float = 0.5,
     matlab_compat: bool = False,
     verbose: bool = False,
+    isovalue: float = DEFAULT_ISOVALUE,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Port of ``generate_mesh.m``. Returns ``(vertices_voxels, faces_1based)``.
 
     ``mask`` is a boolean/0-1 volume on an **isotropic** grid; ``maxrad`` is
     ``cgalsurf``'s ``radbound`` in voxels.
+
+    ``isovalue`` is where the surface is placed within the 0/1 mask, and it matters more
+    than anything else here. See :data:`DEFAULT_ISOVALUE`.
 
     The area filter deserves a note. Both variants compute the same thing in spirit --
     the fraction of faces that are not part of the small spurious node clusters
@@ -453,12 +500,36 @@ def generate_mesh(
     if not binary.any():
         raise MeshingError("Cannot mesh an empty mask.")
 
-    # 1) Surface extraction. Isovalue 0.99 on a 0/1 volume, radbound = maxrad.
+    # One voxel of background on every side before the surface is extracted. ``v2s`` does
+    # not close the surface at the array boundary, so an object touching a face came out
+    # OPEN -- and that is the normal case here, not an exception: `crop_to_mask` defaults
+    # to False so the mask spans the acquired field, nuclei clipped by the top or bottom
+    # of the stack are expected (`curvature.identify_bottom_top_faces` exists only for
+    # them), and `resample._resample_array_to_reference` extrapolates the last acquired
+    # plane into the isotropic overhang, so a mask that is foreground on the last acquired
+    # slice is foreground on the literal last index.
+    #
+    # An open surface has no translation-invariant volume: `mesh_volume` is a signed
+    # tetrahedron sum from the coordinate origin, so a hole at height z contributes about
+    # +/-A_hole*z/3 -- with full-field vertices, of the same order as the nucleus itself.
+    # Surface area is short by the missing cap, sphericity and equivalent radius inherit
+    # both, and `outward = signed >= 0` becomes unreliable, which `curvature` uses to
+    # decide winding -- so a badly clipped object can have every curvature sign inverted.
+    #
+    # `mesh_field.iter_objects` already pads for exactly this reason; the single-object
+    # path did not. Padding unconditionally is safe rather than conditional-on-touching:
+    # an extra background layer where background already exists cannot move the
+    # isosurface, so meshes that were already closed are bit-for-bit unchanged. The pad
+    # is subtracted back off the vertices below, leaving the caller's coordinate frame
+    # exactly as it was.
+    binary = np.pad(binary, 1, mode="constant", constant_values=0)
+
+    # 1) Surface extraction at ``isovalue``, radbound = maxrad.
     #    v2s returns faces as (M, 4): three 1-based node indices plus a region id.
     vertices, faces_raw = _backend(
-        v2s, "v2s", binary, 0.99, float(maxrad), verbose=verbose
+        v2s, "v2s", binary, float(isovalue), float(maxrad), verbose=verbose
     )[:2]
-    vertices = np.asarray(vertices, dtype=np.float64)[:, :3]
+    vertices = np.asarray(vertices, dtype=np.float64)[:, :3] - 1.0
     faces_raw = np.asarray(faces_raw)
     if faces_raw.size == 0:
         raise MeshingError("v2s produced no faces; is the mask a single voxel?")
@@ -722,6 +793,7 @@ def mesh_nucleus(
     verbose: bool = False,
     frame_index: int = 0,
     solidity: bool = True,
+    isovalue: float = DEFAULT_ISOVALUE,
 ) -> NucleusMesh:
     """Mesh one segmented nucleus and measure it.
 
@@ -746,6 +818,7 @@ def mesh_nucleus(
     binary = largest_component(mask_zyx)
     vertices_vox, faces = generate_mesh(
         binary,
+        isovalue=isovalue,
         maxrad=maxrad,
         area_frac=area_frac,
         smoothing_iterations=smoothing_iterations,
@@ -810,6 +883,7 @@ def mesh_series(
             masks[index],
             spacing_zyx_um,
             maxrad=config.mesh_maxrad,
+            isovalue=getattr(config, "mesh_isovalue", DEFAULT_ISOVALUE),
             area_frac=config.mesh_area_frac,
             smoothing_iterations=config.mesh_smoothing_iterations,
             alpha=config.mesh_smoothing_alpha,
@@ -827,6 +901,11 @@ def mesh_series(
         from analysis.volumetric.curvature import analyze_curvature
 
         for mesh in meshes:
-            mesh.curvature = analyze_curvature(mesh.vertices_um, mesh.faces)
+            mesh.curvature = analyze_curvature(
+                mesh.vertices_um,
+                mesh.faces,
+                exclude_caps=bool(getattr(config, "curvature_exclude_caps", False)),
+                outlier_limit=float(getattr(config, "curvature_outlier_limit", 0.0)),
+            )
 
     return meshes

@@ -63,6 +63,13 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
         help="microns between z slices, overriding the file's ImageJ 'spacing'",
     )
     group.add_argument(
+        "--mask-spacing", type=float, default=0, metavar="UM",
+        help="voxel spacing of the segmentation, isotropic. 0 means 'isotropic at the "
+             "image xy step', which is right for masks exported on a finer isotropic "
+             "grid but WRONG for a mask on the acquired grid -- pass the image's z step "
+             "for those, or the mask is resampled to the wrong physical depth",
+    )
+    group.add_argument(
         "--frame-interval", type=float, default=0, metavar="SECONDS",
         help="seconds between timepoints. Only Speed and Speed Change depend on it, but "
              "they are wrong by exactly this factor if it is left unset: ImageJ's "
@@ -136,6 +143,7 @@ def apply_common(config: BarcodeConfig, args) -> BarcodeConfig:
     v.axes_override = getattr(args, "axes", "") or ""
     v.xy_step_um = getattr(args, "xy_step", 0) or v.xy_step_um
     v.z_step_um = getattr(args, "z_step", 0) or v.z_step_um
+    v.mask_spacing_um = getattr(args, "mask_spacing", 0) or v.mask_spacing_um
     v.enable_component_stats = getattr(args, "component_stats", False)
     v.enable_curvature_range = getattr(args, "curvature_range", False)
     v.enable_slice_profile = getattr(args, "slice_profile", False)

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -822,6 +822,21 @@ class ChannelResults(ResultsBase):
     # metric describes a truncated object when this fires, which is not recoverable
     # from the numbers themselves.
     fov_clip_flag: int = 0
+    # 1 when a mesh came back with an open boundary. `mesh_has_holes` has always been
+    # computed, but it only ever reached `MeshGeometry.describe()`, which nothing in the
+    # pipeline prints -- so an open surface, which makes mesh volume, sphericity and the
+    # sign of every curvature unreliable, was completely invisible in a GUI or batch run.
+    # A flag rather than a column: it describes whether the mesh row can be trusted, not
+    # a property of the object, and it costs no schema change.
+    mesh_open_surface_flag: int = 0
+    # The AnalysisMode this row was read back from, when it came from a CSV. Aggregation
+    # and comparison re-write results they did not compute, and they had no way to know
+    # which mode produced them, so they fell back to the 2D layout: a volumetric
+    # aggregate came out headed "Maximum Island Area" (um^2) over values that are um^3
+    # volumes. The reader already identifies the layout to parse the row; recording it
+    # costs nothing and lets the writers ask. None means "not read from a CSV", which is
+    # every freshly computed result -- those callers pass the mode explicitly.
+    source_mode: Optional[AnalysisMode] = None
 
     binarization: BinarizationResults = field(default_factory=BinarizationResults)
     intensity: IntensityResults = field(default_factory=IntensityResults)
@@ -907,6 +922,8 @@ class ChannelResults(ResultsBase):
             flag_lst.append("5")
         if self.fov_clip_flag == 1:
             flag_lst.append("6")
+        if self.mesh_open_surface_flag == 1:
+            flag_lst.append("7")
         return ";".join(flag_lst) if flag_lst else "0"
 
     def _rows(self, just_metrics, mode, enabled, with_flow, physical):

@@ -76,11 +76,19 @@ def _binarization_for_slice(frame, bin_config, um_pixel_ratio,
             # Match the binning the threshold path applies, so the two are comparable.
             from utils import groupAvg
             binary = (groupAvg(binary.astype(float), binning) >= 0.5).astype(int)
+        # NOT inverted here. There are two separate invert_binarization settings --
+        # VolumetricConfig's and BinarizationConfig's, each with its own GUI checkbox --
+        # and `segmentation.load_segmentation` has already applied the volumetric one to
+        # this mask. Applying the 2D one as well meant both ticked cancelled out and only
+        # the 2D one ticked inverted a mask the volumetric config said to leave alone;
+        # either way the user got the opposite of what the tab showed, silently.
+        # Threshold-derived binaries below have had no inversion yet, so they still need
+        # the 2D setting.
     else:
         binary = binarize(frame, bin_config.threshold_offset, binning,
                           bin_config.minimum_island_size)
-    if bin_config.invert_binarization:
-        binary = invert_frame(binary)
+        if bin_config.invert_binarization:
+            binary = invert_frame(binary)
 
     (largest, second, total, mean_area,
      separation, anisotropy) = find_island_properties(binary, bin_config)

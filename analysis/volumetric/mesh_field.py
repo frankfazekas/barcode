@@ -55,6 +55,7 @@ import numpy as np
 from scipy import ndimage
 
 from analysis.volumetric.mesh import (
+    DEFAULT_ISOVALUE,
     MeshGeometry,
     MeshingError,
     convex_hull_voxel_count,
@@ -209,6 +210,7 @@ def mesh_field(
     frame_index: int = 0,
     iso2mesh_bin: str = "",
     verbose: bool = False,
+    isovalue: float = DEFAULT_ISOVALUE,
 ) -> FieldMeshes:
     """Mesh every labelled object in one field.
 
@@ -259,7 +261,7 @@ def mesh_field(
             vertices_vox, faces = generate_mesh(
                 sub, maxrad=maxrad, area_frac=area_frac,
                 smoothing_iterations=smoothing_iterations,
-                alpha=alpha, beta=beta, verbose=verbose,
+                alpha=alpha, beta=beta, verbose=verbose, isovalue=isovalue,
             )
             # Back into field coordinates, then into microns, so every object shares one
             # frame of reference and the field can be rendered as a single scene.

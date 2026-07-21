@@ -68,6 +68,17 @@ def contact_graph(
     gap — a segmentation that left a one-voxel membrane between cells — still register as
     neighbours. ``min_contact_voxels`` then discards pairs whose shared area is too small
     to be a real interface.
+
+    **What dilation does to the face-adjacency rule.** The module docstring's promise that
+    edge- and corner-only touches are not neighbours holds only at ``dilation_vox=0``.
+    With the shipped default of 1, two labels meeting along an edge each grow one voxel
+    into the shared diagonal and afterwards share a real 6-connected face running the
+    whole length of that edge — ~30 voxels for a 30-voxel-tall cell, far above the default
+    ``min_contact_voxels=5``, which cannot filter it because it measures the DILATED
+    interface. That is defensible when the dilation is there to bridge a segmented
+    membrane, and wrong when it is not, so it is stated here rather than left for a reader
+    to infer from a docstring that says the opposite. Set ``dilation_vox=0`` for strict
+    face adjacency; the tests cover that setting.
     """
     labels = np.asarray(labels)
     if dilation_vox and dilation_vox > 0:
@@ -149,11 +160,18 @@ def contact_numbers(
     return degrees
 
 
-def packing_topology(labels: np.ndarray, config) -> Tuple["PackingResults", VolumetricPackingDetail]:
+def packing_topology(
+    labels: np.ndarray, config, spacing_zyx_um=None
+) -> Tuple["PackingResults", VolumetricPackingDetail]:
     """Contact-number statistics for a labelled volume.
 
     Returns NaN with a stated reason rather than a misleading number when the topology is
     undefined: fewer than two objects, or every object touching the array border.
+
+    ``spacing_zyx_um`` is only used to emit the anisotropy warning ``contact_graph``
+    promises. That warning did not exist: ``contact_graph`` said "the caller is warned in
+    ``packing_topology``" and this function took no spacing at all, so a reader of that
+    comment believed a safeguard was in place that was never written.
     """
     from core.results import PackingResults
 
@@ -162,6 +180,21 @@ def packing_topology(labels: np.ndarray, config) -> Tuple["PackingResults", Volu
     minimum = getattr(config, "packing_min_contact_voxels", 5)
     exclude_border = getattr(config, "packing_exclude_border_objects", True)
     border_mode = getattr(config, "packing_border_mode", "xy")
+
+    if spacing_zyx_um is not None:
+        spacing = np.asarray(spacing_zyx_um, dtype=np.float64)
+        if spacing.size == 3 and spacing.min() > 0:
+            anisotropy = float(spacing.max() / spacing.min())
+            if anisotropy > 1.01:
+                print(
+                    f"  packing: the labels are on a {anisotropy:.1f}x anisotropic grid. "
+                    f"Contact is counted in VOXEL faces and bridged by a voxel dilation, "
+                    f"so the same physical interface passes or fails "
+                    f"min_contact_voxels={minimum} depending on its orientation, and "
+                    f"contact number and hexagonal fraction are grid-dependent. Enable "
+                    f"Resample to Isotropic Voxels for comparable numbers.",
+                    flush=True,
+                )
 
     degrees = contact_numbers(labels, dilation, minimum)
     detail = VolumetricPackingDetail(

@@ -348,6 +348,9 @@ def _build_from_layout(filename, flags, data, layout):
         filepath=filename,
         channel=channel,
         total_flags=flags,
+        # Carry the layout forward so aggregation and comparison, which re-write results
+        # they did not compute, can write them back under the schema they were read in.
+        source_mode=mode,
         binarization=BinarizationResults(
             connectivity=binar[0],
             max_island_percent_change=binar[3],
@@ -369,14 +372,35 @@ def _build_from_layout(filename, flags, data, layout):
             divergence=flow[5], curl=flow[6],
         )
 
-    # Each family's dataclass fields are in the same order as its get_data(), so the
-    # values can be zipped straight back on without naming them here -- which means a
-    # family gaining a field needs no change in the reader.
+    # Most families' dataclass fields are in the same order as their get_data(), so the
+    # values zip straight back on without naming them here -- a family gaining a field
+    # then needs no change in the reader.
+    #
+    # A family with a DERIVED column does not have that property. MeshResults writes
+    # Concavity (= 1 - solidity) from `_CSV_FIELDS` with no backing field, so its block is
+    # 12 wide against 11 fields; zip truncates silently and shifts every column from
+    # Concavity onward, which read Mean Curvature <H> back as 1 - Solidity -- a positive
+    # dimensionless number in a column declared 1/um, where the real value is signed.
+    # `from_values` is the class's own inverse of `get_data`, so prefer it wherever it
+    # exists, and require an exact width match on the generic path so the next family to
+    # grow a derived column fails loudly instead of silently re-labelling itself.
     for family in OPTIONAL_FAMILIES:
         block = family_values.get(family.attribute)
         if not block:
             continue
-        fields = list(family.results_cls.__dataclass_fields__)
+        results_cls = family.results_cls
+        from_values = getattr(results_cls, "from_values", None)
+        if from_values is not None:
+            setattr(result, family.attribute, from_values(block))
+            continue
+        fields = list(results_cls.__dataclass_fields__)
+        if len(fields) != len(block):
+            raise ValueError(
+                f"{results_cls.__name__} writes {len(block)} CSV columns but has "
+                f"{len(fields)} fields, so reading them back by position would shift "
+                f"every column after the mismatch. Give the class a `from_values` "
+                f"classmethod naming its CSV order, as MeshResults does."
+            )
         setattr(result, family.attribute,
-                family.results_cls(**dict(zip(fields, block))))
+                results_cls(**dict(zip(fields, block))))
     return result

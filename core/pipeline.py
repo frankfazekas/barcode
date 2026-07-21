@@ -64,15 +64,23 @@ def save_analysis_results(
     if all_results:
         try:
             results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units, mode=mode)
-        except:
-            counter = 2
-            while True:
+        except OSError:
+            # Retrying under a new name only helps when the DESTINATION is the problem --
+            # the previous summary still open in Excel is the usual one. A bare `except`
+            # around `while True` also caught errors that have nothing to do with the
+            # path, and since the retry changes nothing but the filename it then span
+            # forever: an assertion inside results_to_csv (the header/units checks, which
+            # volumetric results can legitimately trip) hung the run with no output and
+            # no message. Bound the attempts and let anything else propagate.
+            for counter in range(2, 12):
                 csv_path = os.path.join(base_path, f"{base_name} Summary {counter}.csv")
                 try:
                     results_to_csv(all_results, csv_path, just_metrics=False, physical_units=physical_units, mode=mode)
                     break
-                except:
-                    counter += 1
+                except OSError:
+                    continue
+            else:
+                raise
     else:
         print("Warning: No results to write - all files may have failed processing")
 

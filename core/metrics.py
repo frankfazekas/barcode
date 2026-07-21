@@ -243,8 +243,23 @@ def get_data_limits(
 
     limits = []
 
+    def _all_nan(_data: np.ndarray) -> bool:
+        """True when a column holds no finite value at all.
+
+        A family is emitted whenever ANY of its values is finite, but the colour scale is
+        built per COLUMN -- so meshing with `mesh_curvature` off emits the three curvature
+        columns entirely NaN. `nanmin`/`nanmax` then return NaN, the `_limits[0] ==
+        _limits[1]` repair below never fires (NaN != NaN), and `Normalize(vmin=nan,
+        vmax=nan)` reaches the colorbar. That renders as a garbage column with a
+        meaningless scale, and because `save_analysis_results` wraps barcode generation in
+        a bare except, a hard failure there is swallowed into the fail log.
+        """
+        return not np.any(np.isfinite(np.asarray(_data, dtype=float)))
+
     def dynamic_limits(_data: np.ndarray, threshold: float) -> List[float]:
         """Calculate dynamic limits based on the data and a threshold."""
+        if _all_nan(_data):
+            return [0.0, 1.0]
         _limits = [np.nanmin(_data), np.nanmax(_data)]
         if threshold < _limits[0]:
             _limits[0] = threshold
@@ -282,11 +297,14 @@ def get_data_limits(
                 # same reason -- compaction is negative -- and scaling it about 0 keeps
                 # the barcode identical to when these columns carried a blank unit.
                 limits.append(dynamic_limits(data[:, i], 0))
+            elif _all_nan(data[:, i]):
+                limits.append([0.0, 1.0])
             else:
                 limits.append([0, np.nanmax(data[:, i])])
         elif unit == Units.NONE:
             if metric == Metrics.ISLAND_ANISOTROPY:
-                limits.append([1, np.nanmax(data[:, i])])
+                limits.append([1.0, 2.0] if _all_nan(data[:, i])
+                              else [1, np.nanmax(data[:, i])])
             else:
                 limits.append(dynamic_limits(data[:, i], 0))
         else:

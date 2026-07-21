@@ -286,3 +286,62 @@ def test_object_identity_is_in_the_contract():
     assert config.object_partition == "auto"
     assert config.per_object_rows is False
     assert config.mask_format == "auto"
+
+
+def test_every_optional_family_survives_a_csv_round_trip(tmp_path):
+    """Read-back must reproduce what was written, for ALL eight families.
+
+    The reader rebuilt each family by zipping its CSV block onto
+    ``__dataclass_fields__``. That works only while the two are the same length, and
+    MeshResults writes a DERIVED column -- Concavity = 1 - Solidity -- so its block is 12
+    wide against 11 fields. ``zip`` truncated in silence and shifted every column from
+    Concavity onward, which read Mean Curvature <H> back as 1 - Solidity: a positive
+    dimensionless number in a column declared 1/um, where the real value is signed.
+
+    Only mesh was affected, and only mesh has a derived column -- which is exactly why a
+    test over one family could not have caught it. This covers all of them, and asserts
+    the width invariant directly so the next derived column fails loudly.
+    """
+    from core.modes import get_mode
+    from core.results import OPTIONAL_FAMILIES
+    from utils.reader import read_csv_to_channel_results
+    from utils.writer import results_to_csv
+
+    mode = get_mode("xyzt")
+    result = ChannelResults(filepath="cell.tif", channel=0)
+    result.binarization.max_island_size = 0.25
+
+    # Distinct, non-symmetric values so any shift shows up as a mismatch rather than
+    # coincidentally agreeing.
+    for family in OPTIONAL_FAMILIES:
+        populated = family.results_cls()
+        for offset, name in enumerate(populated.__dataclass_fields__):
+            setattr(populated, name, -1.5 + offset * 0.37)
+        setattr(result, family.attribute, populated)
+
+    path = str(tmp_path / "Summary.csv")
+    switches = {f.switch: True for f in OPTIONAL_FAMILIES}
+    results_to_csv([result, result], path, just_metrics=False, mode=mode, **switches)
+    back = read_csv_to_channel_results(path)[0]
+
+    for family in OPTIONAL_FAMILIES:
+        written = getattr(result, family.attribute)
+        read = getattr(back, family.attribute)
+        for name in written.__dataclass_fields__:
+            assert getattr(read, name) == pytest.approx(getattr(written, name)), (
+                f"{family.results_cls.__name__}.{name} did not survive the round trip"
+            )
+
+
+def test_a_family_with_a_derived_column_must_define_from_values():
+    """The invariant that makes the generic read-back path safe."""
+    from core.results import OPTIONAL_FAMILIES
+
+    for family in OPTIONAL_FAMILIES:
+        widths = len(family.results_cls.get_metrics())
+        fields = len(family.results_cls.__dataclass_fields__)
+        if widths != fields:
+            assert hasattr(family.results_cls, "from_values"), (
+                f"{family.results_cls.__name__} writes {widths} columns for {fields} "
+                f"fields, so it needs a from_values naming its CSV order"
+            )

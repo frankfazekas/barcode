@@ -82,6 +82,19 @@ def coerce_to_zyx(array: np.ndarray, label: str) -> np.ndarray:
     """
     array = np.asarray(array)
     if array.ndim == 3:
+        # ...unless it is a single RGB(A) PLANE, which is (Y, X, 3) and would otherwise be
+        # returned verbatim as a "(Z, Y, X) volume" with Z=Y and X=3 -- then rejected far
+        # downstream by the xy-shape check, with a message about fields of view that says
+        # nothing about the real problem. A 2-D RGB PNG is exactly what `mask_io` loads,
+        # so the collapse branch below was unreachable for the format most likely to need
+        # it. A genuine 3-voxel-deep z-stack is indistinguishable by shape alone, so only
+        # collapse when the channels really are identical, which is what makes it an RGB
+        # encoding of one plane rather than three distinct slices.
+        if array.shape[-1] in (3, 4) and array.shape[0] != array.shape[-1]:
+            rgb = array[..., :3]
+            if (np.array_equal(rgb[..., 0], rgb[..., 1])
+                    and np.array_equal(rgb[..., 0], rgb[..., 2])):
+                return rgb[..., 0][None]
         return array
     squeezed = np.squeeze(array)
     if squeezed.ndim == 3:
@@ -172,7 +185,12 @@ def load_segmentation(
     return mask, path, mask_spacing
 
 
-def match_mask_to_image_grid(mask_zyx: np.ndarray, n_image_slices: int) -> np.ndarray:
+def match_mask_to_image_grid(
+    mask_zyx: np.ndarray,
+    n_image_slices: int,
+    image_z_step_um: float = 0.0,
+    mask_z_step_um: float = 0.0,
+) -> np.ndarray:
     """Resample a mask's z axis onto the image's acquired slice grid.
 
     Masks are routinely stored on a finer isotropic grid than the data was acquired on
@@ -187,13 +205,32 @@ def match_mask_to_image_grid(mask_zyx: np.ndarray, n_image_slices: int) -> np.nd
     The dtype is passed through untouched. Casting to bool here would silently undo
     ``load_segmentation``'s decision to keep instance labels, which is the difference
     between counting cells and counting one fused tissue.
+
+    The mapping is by PHYSICAL DEPTH when both spacings are known: image slice ``i`` sits
+    at ``i * image_z_step_um``, which is mask slice ``i * image_z_step_um /
+    mask_z_step_um``. This used to be ``linspace(0, M-1, N)``, which instead anchors the
+    two grids at their endpoints and so imposes a pitch of ``(M-1)/(N-1)``. Those agree
+    only when the two stacks happen to span the same node-to-node extent, and they do not:
+    on the working Jurkat data (250 mask planes at 0.065 um against 54 image slices at
+    0.3 um) the endpoint pitch is 249/53 = 4.698 against a true 4.615, a 1.8 % stretch
+    that accumulates to ~4.4 mask slices -- about one whole image slice -- by the top of
+    the stack. Every mask-gated 2D metric then sampled progressively off-register with
+    depth, worst at the ends, which is exactly where a nuclear mask tapers.
+
+    Both spacings default to 0, which falls back to the old endpoint mapping. That keeps
+    a caller that genuinely knows only the two slice counts working, and the SimpleITK
+    path in ``resample`` -- which has always worked in physical coordinates -- is
+    unaffected either way.
     """
     mask_zyx = np.asarray(mask_zyx)
     if mask_zyx.shape[0] == n_image_slices:
         return mask_zyx
+    if image_z_step_um > 0 and mask_z_step_um > 0:
+        positions = np.arange(n_image_slices) * (image_z_step_um / mask_z_step_um)
+    else:
+        positions = np.linspace(0, mask_zyx.shape[0] - 1, n_image_slices)
     index = np.clip(
-        np.round(np.linspace(0, mask_zyx.shape[0] - 1, n_image_slices)).astype(int),
-        0, mask_zyx.shape[0] - 1,
+        np.round(positions).astype(int), 0, mask_zyx.shape[0] - 1,
     )
     return mask_zyx[index]
 
@@ -209,5 +246,9 @@ def load_mask_on_image_grid(image_path, stack, config):
         image_path, stack.data.shape[1:], stack.z_step_um, stack.xy_step_um, config)
     if loaded is None:
         return None
-    mask, mask_path, _ = loaded
-    return match_mask_to_image_grid(mask, stack.n_slices), mask_path
+    mask, mask_path, mask_spacing = loaded
+    return (
+        match_mask_to_image_grid(
+            mask, stack.n_slices, stack.z_step_um, mask_spacing),
+        mask_path,
+    )

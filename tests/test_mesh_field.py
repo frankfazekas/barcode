@@ -129,7 +129,11 @@ def test_identical_objects_mesh_to_the_same_volume():
     field = mesh_field(labels, (0.2, 0.2, 0.2), min_voxels=64, curvature=False)
 
     volumes = [m.geometry.volume_um3 for m in field.meshes]
-    assert volumes == pytest.approx([volumes[0]] * len(volumes), rel=0.02)
+    # 5%, not 2%: at 2% this failed on roughly two runs in three with a measured spread of
+    # ~2.5%, which is the cgalsurf jitter the docstring above describes rather than a
+    # partitioning error. The tolerance still does its job -- leaking a neighbour's voxels
+    # in or clipping an object moves the volume by tens of percent, not by a few.
+    assert volumes == pytest.approx([volumes[0]] * len(volumes), rel=0.05)
     assert all(not m.geometry.has_holes for m in field.meshes)
 
 
@@ -154,8 +158,14 @@ def test_maxrad_must_scale_to_a_thin_objects_depth():
     coarse_ratio = coarse.meshes[0].geometry.volume_um3 / truth
     fine_ratio = fine.meshes[0].geometry.volume_um3 / truth
 
-    assert coarse_ratio < 0.60          # the default is not usable here
-    assert fine_ratio > 0.75            # scaling maxrad to the depth recovers most of it
+    # Thresholds moved when mesh_isovalue stopped being 0.99: correcting the ~0.7-voxel
+    # inward bias lifted BOTH ratios, so the old bounds (coarse < 0.60, fine > 0.75) were
+    # partly pinning that bias rather than the maxrad effect. The effect itself is what
+    # matters here and is unchanged -- a coarse maxrad still loses a large fraction of a
+    # shallow object, and scaling it to the depth still recovers most of that.
+    assert coarse_ratio < 0.85          # the default still loses a lot here
+    assert fine_ratio > 0.90            # scaling maxrad to the depth recovers most of it
+    assert fine_ratio - coarse_ratio > 0.10     # and the gap is the point of the test
     assert fine.meshes[0].geometry.n_faces > 5 * coarse.meshes[0].geometry.n_faces
 
 
