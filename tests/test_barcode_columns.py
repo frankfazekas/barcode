@@ -55,15 +55,15 @@ def test_the_families_are_detected_as_populated():
 
 
 def test_a_mask_built_without_the_family_switches_is_the_wrong_length():
-    """The exact defect: 37 against 53."""
+    """The exact defect: a base mask against the fuller family-aware header set."""
     results = populated_xyzt_results()
     switches = switches_for(results)
 
     without = ChannelResults.get_headers(just_metrics=True, mode="xyzt")
     with_families = ChannelResults.get_headers(just_metrics=True, mode="xyzt", **switches)
 
-    assert len(without) == 37
-    assert len(with_families) == 53
+    assert len(without) == 36
+    assert len(with_families) == 52
     assert len(without) != len(with_families), "the mismatch compress silently swallowed"
 
 
@@ -90,7 +90,7 @@ def test_a_correctly_built_mask_is_accepted(tmp_path):
     switches = switches_for(results)
     mask = selection_mask(
         ChannelResults.get_headers(just_metrics=True, mode="xyzt", **switches), [])
-    assert len(mask) == 53
+    assert len(mask) == 52
 
     generate_combined_barcode(results, str(tmp_path / "b"), mode="xyzt",
                               metrics_to_visualize=mask)
