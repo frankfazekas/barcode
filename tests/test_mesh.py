@@ -441,3 +441,57 @@ def test_write_obj_round_trips_counts_and_axis_order(tmp_path):
     assert len(faces) == mesh.faces.shape[0]
     # OBJ is (x, y, z); the mesh is (z, y, x), so the columns are reversed.
     assert np.allclose(np.array(vertices), mesh.vertices_um[:, ::-1])
+
+
+# --------------------------------------------------------------------------- #
+# maxrad units
+# --------------------------------------------------------------------------- #
+def test_maxrad_in_voxels_is_passed_through_unchanged():
+    """The stored meaning, and the historical one: no conversion at all."""
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    assert resolve_maxrad(5.0, "voxels", 0.108333) == 5.0
+    assert resolve_maxrad(5.0, "", 0.5) == 5.0          # unset falls back to voxels
+
+
+def test_maxrad_in_microns_converts_with_the_voxel_size():
+    """The point of the option: one physical size across different acquisitions.
+
+    0.5 um is 5 voxels on a 0.1 um grid and 2 voxels on a 0.25 um grid, so stating it
+    in microns is what keeps the triangle bound physically comparable between datasets.
+    """
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    assert resolve_maxrad(0.5, "um", 0.1) == pytest.approx(5.0)
+    assert resolve_maxrad(0.5, "um", 0.25) == pytest.approx(2.0)
+    assert resolve_maxrad(0.5, "microns", 0.1) == pytest.approx(5.0)
+
+
+def test_maxrad_in_microns_without_a_voxel_size_raises():
+    """Silently treating microns as voxels would change the mesh by whatever the
+    voxel size happens to be -- refuse instead."""
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    with pytest.raises(MeshingError, match="cannot convert"):
+        resolve_maxrad(0.5, "um", 0.0)
+
+
+def test_unknown_maxrad_units_are_rejected():
+    from analysis.volumetric.mesh import resolve_maxrad
+
+    with pytest.raises(MeshingError, match="Unknown maxrad units"):
+        resolve_maxrad(5.0, "nanometres", 0.1)
+
+
+def test_maxrad_from_config_reads_both_fields():
+    from types import SimpleNamespace
+
+    from analysis.volumetric.mesh import maxrad_from_config
+
+    assert maxrad_from_config(
+        SimpleNamespace(mesh_maxrad=2.0, mesh_maxrad_units="voxels"), 0.1) == 2.0
+    assert maxrad_from_config(
+        SimpleNamespace(mesh_maxrad=0.2, mesh_maxrad_units="um"), 0.1
+    ) == pytest.approx(2.0)
+    # A config predating the field must keep behaving as it always did.
+    assert maxrad_from_config(SimpleNamespace(mesh_maxrad=5.0), 0.1) == 5.0

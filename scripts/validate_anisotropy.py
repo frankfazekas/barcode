@@ -85,11 +85,13 @@ def decimate(source_folder: str, out_root: str, factor: int, xy_um: float, z_um:
         # exactly the round trip a mask segmented on coarse data would have gone
         # through. Nearest-neighbour throughout: these are labels.
         mask_iso = read_tiff_any(mask_path)
-        index = np.clip(
-            np.round(np.linspace(0, mask_iso.shape[0] - 1, volume.shape[0])).astype(int),
-            0, mask_iso.shape[0] - 1)
+        # Decimate by taking every factor-th plane, matching how the image above was
+        # decimated -- NOT by an endpoint-anchored linspace, whose pitch is
+        # (n-1)/(m-1) and silently rescales the object (see _staging).
+        coarse = mask_iso[::factor] if mask_iso.shape[0] >= volume.shape[0] else mask_iso
+        coarse = coarse[:volume.shape[0]] if coarse.shape[0] > volume.shape[0] else coarse
         write_volume(os.path.join(mask_out, f"{stem}_SegMask.tif"),
-                     mask_z_to_isotropic(mask_iso[index], new_z, xy_um), xy_um, xy_um)
+                     mask_z_to_isotropic(coarse, new_z, xy_um), xy_um, xy_um)
     return folder
 
 

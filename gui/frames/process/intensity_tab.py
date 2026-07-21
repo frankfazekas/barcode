@@ -5,7 +5,7 @@ import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-from utils.gui import create_popup, save_preview_image, save_preview_video, os_right_click
+from utils.gui import create_popup, save_preview_image, save_preview_video, os_right_click, label_preview_axis
 from utils.intensity_distribution import histogram, mean
 from gui.config import BarcodeConfigGUI, PreviewConfigGUI, InputConfigGUI
 
@@ -64,6 +64,7 @@ def create_intensity_frame(parent, config: BarcodeConfigGUI, preview_config: Pre
     frame_number_label.grid(
         row=row_c, column = 0, sticky="w", padx=5, pady=5
     )
+    label_preview_axis(config, frame_number_label)
 
     preview_frame = tk.Frame(frame)
     preview_frame.columnconfigure(0, weight=0)

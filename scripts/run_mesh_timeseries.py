@@ -39,6 +39,7 @@ from analysis.volumetric.mesh import (
     MeshingError,
     ensure_iso2mesh_binaries,
     mesh_nucleus,
+    resolve_maxrad,
     write_obj,
 )
 from analysis.volumetric.segmentation import coerce_to_zyx, resolve_segmentation_path
@@ -71,6 +72,7 @@ def build_config(args) -> BarcodeConfig:
 
     v.mesh_enabled = True
     v.mesh_maxrad = args.mesh_maxrad
+    v.mesh_maxrad_units = args.mesh_maxrad_units
     v.mesh_area_frac = args.mesh_area_frac
     v.mesh_smoothing_iterations = args.mesh_smooth_iters
     v.mesh_matlab_compat = args.mesh_matlab_compat
@@ -137,7 +139,14 @@ def main() -> int:
                    help="um per mask voxel in z, if the mask is on the ACQUIRED grid "
                         "rather than isotropic. Defaults to --mask-spacing (isotropic). "
                         "The mask is upsampled in z to the xy grid before meshing")
-    p.add_argument("--mesh-maxrad", type=float, default=5.0)
+    p.add_argument("--mesh-maxrad", type=float, default=5.0,
+                   help="triangle-size bound for meshing. THE control on mesh accuracy: what matters is its size relative to the object, so 5 voxels gives 0.997 of the exact surface area on a 65-voxel-radius sphere and 0.926 on a 16-voxel one. Use --mesh-maxrad-units um to state it physically instead")
+    p.add_argument("--mesh-maxrad-units", default="voxels",
+                   choices=["voxels", "um"],
+                   help="how --mesh-maxrad is read. 'voxels' is the stored "
+                        "meaning, so the same number is a different physical size "
+                        "on every dataset; 'um' converts using the isotropic voxel "
+                        "size, so one setting means one physical size everywhere")
     p.add_argument("--mesh-area-frac", type=float, default=0.2)
     p.add_argument("--mesh-smooth-iters", type=int, default=10)
     p.add_argument("--mesh-matlab-compat", action="store_true")
@@ -204,8 +213,12 @@ def main() -> int:
                         mask.astype(np.uint8), z_spacing, xy_spacing) > 0
 
                 t0 = time.time()
+                # mesh_nucleus takes voxels; convert here so --mesh-maxrad-units um
+                # means the same physical size whatever this dataset's voxel size is.
                 mesh = mesh_nucleus(mask, spacing,
-                                    maxrad=args.mesh_maxrad,
+                                    maxrad=resolve_maxrad(
+                                        args.mesh_maxrad, args.mesh_maxrad_units,
+                                        float(spacing[0])),
                                     area_frac=args.mesh_area_frac,
                                     smoothing_iterations=args.mesh_smooth_iters,
                                     matlab_compat=args.mesh_matlab_compat,

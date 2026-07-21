@@ -56,6 +56,7 @@ from scipy import ndimage
 
 from analysis.volumetric.mesh import (
     DEFAULT_ISOVALUE,
+    resolve_maxrad,
     MeshGeometry,
     MeshingError,
     convex_hull_voxel_count,
@@ -211,6 +212,7 @@ def mesh_field(
     iso2mesh_bin: str = "",
     verbose: bool = False,
     isovalue: float = DEFAULT_ISOVALUE,
+    maxrad_units: str = "voxels",
 ) -> FieldMeshes:
     """Mesh every labelled object in one field.
 
@@ -249,6 +251,10 @@ def mesh_field(
     result = FieldMeshes(frame_index=frame_index,
                          n_labels=int(np.count_nonzero(np.unique(array))))
 
+    # Resolved once: maxrad in microns must mean the same physical size for
+    # every object in the field, not be recomputed per crop.
+    maxrad_vox = resolve_maxrad(maxrad, maxrad_units, float(voxel_size))
+
     for label_id, sub, offset, skip in iter_objects(array, min_voxels, exclude_border):
         if skip == "border":
             result.skipped_border.append(label_id)
@@ -259,7 +265,7 @@ def mesh_field(
 
         try:
             vertices_vox, faces = generate_mesh(
-                sub, maxrad=maxrad, area_frac=area_frac,
+                sub, maxrad=maxrad_vox, area_frac=area_frac,
                 smoothing_iterations=smoothing_iterations,
                 alpha=alpha, beta=beta, verbose=verbose, isovalue=isovalue,
             )

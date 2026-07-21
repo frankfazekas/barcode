@@ -431,16 +431,28 @@ class VolumetricConfig(BaseConfig):
     # from TCell-3D-Morphodynamics. Needs pyiso2mesh and a segmentation mask; the
     # defaults are the MATLAB pipeline's (config/defaults/nucleus_defaults.m).
     mesh_enabled: bool = False
-    mesh_maxrad: float = 5.0            # cgalsurf radbound, in isotropic voxels
+    # Triangle-size bound for meshing (cgalsurf's radbound). This is the single biggest
+    # control on mesh accuracy, and the value that matters is maxrad RELATIVE to the
+    # object: on closed-form spheres at 0.108 um, maxrad 5 gives 0.997 of the exact
+    # surface area on a 65-voxel radius and only 0.926 on a 16-voxel one.
+    #
+    # mesh_maxrad_units says how to read mesh_maxrad:
+    #   "voxels"  as stored, in isotropic voxels -- the historical meaning, so the same
+    #             number means a different physical size on every dataset
+    #   "um"      microns, converted using the isotropic voxel size at meshing time,
+    #             so one setting means the same physical thing across acquisitions
+    # Neither adapts to object size; see analysis/volumetric/mesh.py:resolve_maxrad.
+    mesh_maxrad: float = 5.0
+    mesh_maxrad_units: str = "voxels"
     # Where the meshing isosurface sits inside a 0/1 mask. The boundary between the last
-    # foreground voxel and the first background one is 0.5 -- what a binary mask means --
-    # but exactly 0.5 is degenerate for cgalsurf, so this sits just off it. See
-    # analysis/volumetric/mesh.py:DEFAULT_ISOVALUE for the measurements behind both
-    # choices. Was 0.99 (from the MATLAB original), which pulled the surface onto the
+    # foreground voxel and the first background one is 0.5 -- what a binary mask means,
+    # and the most accurate value measured on rounded objects. See
+    # analysis/volumetric/mesh.py:DEFAULT_ISOVALUE for the one caveat (axis-aligned
+    # boxes). Was 0.99 (from the MATLAB original), which pulled the surface onto the
     # outermost foreground voxel CENTRES and shrank every object by ~0.7 voxels on each
     # side: -9% of the volume of a 32-voxel sphere, -67% of a 4-voxel one. Set it to
     # 0.99 to reproduce mesh numbers from before this default changed, or MATLAB's.
-    mesh_isovalue: float = 0.52
+    mesh_isovalue: float = 0.5
     mesh_area_frac: float = 0.2         # face-area filter -> decimation ratio
     mesh_smoothing_iterations: int = 10
     mesh_smoothing_alpha: float = 0.1

@@ -11,7 +11,7 @@ from tkinter import ttk, filedialog
 import matplotlib.pyplot as plt
 plt.style.use('utils/presentation.mplstyle')
 from utils import groupAvg
-from utils.gui import create_popup, save_preview_image, save_preview_video, os_right_click
+from utils.gui import create_popup, save_preview_image, save_preview_video, os_right_click, label_preview_axis
 from gui.config import BarcodeConfigGUI, InputConfigGUI, PreviewConfigGUI, ReaderConfigGUI, OpticalFlowConfigGUI
 FramePair: TypeAlias = Tuple[int, int]
 
@@ -111,6 +111,7 @@ def create_flow_frame(parent, config: BarcodeConfigGUI, preview_config: PreviewC
     frame_number_label.grid(
         row=row_f, column = 0, sticky="w", padx=5, pady=5
     )
+    label_preview_axis(config, frame_number_label)
 
     preview_frame = tk.Frame(frame)
     preview_frame.columnconfigure(0, weight=0)
@@ -214,6 +215,33 @@ def create_flow_frame(parent, config: BarcodeConfigGUI, preview_config: PreviewC
 
     def update_preview(*args):
         frames = all_data["frames"]
+
+        # This preview walks axis 0 of the sample stack and calls the 2D flow routine on
+        # a consecutive pair. For a z-stack axis 0 is DEPTH, so what it drew in the
+        # volumetric modes was displacement between adjacent focal planes rendered as a
+        # velocity field -- plausible-looking (a widening nucleus gives a tidy radial
+        # pattern) and completely meaningless. That is the exact misreading core/modes.py
+        # exists to prevent; the preview simply predates it. Say so instead of drawing.
+        mode_key = config.volumetric.analysis_mode.get()
+        if mode_key != "xyt":
+            preview_label.grid()
+            ax_flow.clear()
+            ax_flow.set_facecolor(bg_color)
+            ax_flow.axis("off")
+            canvas_flow.draw()
+            if mode_key == "xyz":
+                message = ("No flow preview in xyz mode.\n"
+                           "Depth is the progression axis, so there is no motion to "
+                           "measure — the run skips this branch too.")
+            else:
+                message = ("No flow preview in xyzt mode.\n"
+                           "This preview compares two neighbouring planes of one file, "
+                           "which in a z-stack means two focal planes, not two "
+                           "timepoints.\nThe run itself computes true 3D flow across "
+                           "time; set it up under 3D Optical Flow on the Volumetric tab.")
+            preview_label.config(image="", text=message, fg="#b45309", justify="left")
+            return
+        preview_label.config(fg="black", justify="center")
 
         if frames is None:
             preview_label.grid()
@@ -331,6 +359,7 @@ def create_flow_frame(parent, config: BarcodeConfigGUI, preview_config: PreviewC
     co.downsample.trace_add("write", update_preview)
     ci.dir_path.trace_add("write", update_sample_file_options)
     cp.preview_frame_number.trace_add("write", update_preview)
+    config.volumetric.analysis_mode.trace_add("write", update_preview)
 
     frame_fraction_label = tk.Label(frame, text="Fraction of Frames Evaluated (0.01–0.25)")
     frame_fraction_label.grid(row=row_f, column=0, sticky="w", padx=5, pady=5)

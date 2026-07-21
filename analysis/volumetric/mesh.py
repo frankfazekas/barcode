@@ -126,32 +126,72 @@ _ISOTROPY_TOLERANCE_UM = 1e-9
 #
 #     sphere radius (vox)      32      16       8       4
 #     mesh volume at 0.99   -9.0%  -25.1%  -37.1%  -67.3%
-#     mesh volume at 0.52   -0.1%   -0.3%   -0.6%       -     (maxrad 1)
+#     mesh volume at 0.5    -0.0%   +0.1%   -0.4%       -     (maxrad 1)
 #
 # Measured by ``scripts/validate_phantoms.py`` against closed forms. The voxel-counted
 # volume was unaffected throughout and agrees with the Allen Institute's independent
 # per-cell measurements to ~1.5%, which is how the discrepancy was localised to meshing.
 #
-# Why 0.52 and not exactly 0.5. 0.5 is the geometrically right answer but is DEGENERATE
-# for cgalsurf: on a 0/1 field that level passes exactly through voxel-face midpoints, so
-# the surface is ambiguous and the mesher's arbitrary interior seed decides the outcome.
-# Three congruent objects that mesh to identical volumes at 0.99 scatter by 20% at 0.5,
-# and 0.505 swung between 0% and 46% on repeat runs of the same input. The instability
-# decays with distance from 0.5; 0.52 is the nearest value that is reproducible across
-# runs while still costing only ~0.3% in accuracy:
+# 0.5 is the boundary between the last foreground voxel and the first background one,
+# which is what a binary mask means, and on rounded objects it is also the most accurate
+# value measured (+0.09% on a 16-voxel sphere).
 #
-#     isovalue              0.5   0.501   0.505    0.51    0.52    0.55
-#     spread, congruent   19.6%    9.2%   0-46%    1.2%    0.0%    0.0%
-#     sphere r=16 error   +0.1%   +0.0%   +0.0%   -0.1%   -0.3%   -0.9%
-#
-# 0.99 remains selectable via ``VolumetricConfig.mesh_isovalue`` for reproducing earlier
-# runs; every mesh number produced before this change used it, as does MATLAB.
-DEFAULT_ISOVALUE = 0.52
+# One caveat, recorded because it is easy to rediscover as a mystery. On a 0/1 field this
+# level passes exactly through voxel-face midpoints, so the surface is geometrically
+# ambiguous and cgalsurf's arbitrary interior seed decides it. On shapes whose faces lie
+# ON those planes -- axis-aligned cuboids, which real specimens are not -- congruent
+# objects can then mesh to visibly different volumes. If that is ever a problem for a
+# genuinely box-like specimen, nudging mesh_isovalue to 0.52 removes it for about 0.3%
+# in accuracy; it is not the default because tuning a global constant against the one
+# pathological shape is the wrong trade.
+DEFAULT_ISOVALUE = 0.5
 LEGACY_ISOVALUE = 0.99
 
 
 class MeshingError(RuntimeError):
     """Raised when a mesh cannot be produced or is unusable."""
+
+
+def resolve_maxrad(maxrad: float, units: str, voxel_size_um: float) -> float:
+    """Convert a triangle-size bound to voxels, which is what ``v2s`` wants.
+
+    ``maxrad`` bounds the triangle size, and it is the single biggest control on mesh
+    accuracy -- but it is expressed in VOXELS, so the same setting means a different
+    physical size on every dataset, and a different fraction of the object on every
+    object. Measured against closed-form spheres on a 0.108 um grid:
+
+        sphere radius (vox)      16      16      40      65
+        maxrad (vox)              5       2       5       5
+        surface area / exact  0.926   0.993   0.991   0.997
+
+    One setting, four answers, because what matters is maxrad relative to the object.
+    Stating it in microns at least makes it mean the same physical thing across datasets
+    acquired at different voxel sizes, which is why this exists.
+
+    ``units`` is "voxels" (as stored, the historical behaviour) or "um"/"microns".
+    """
+    text = str(units or "voxels").strip().lower()
+    if text in ("voxel", "voxels", "vox", ""):
+        return float(maxrad)
+    if text in ("um", "µm", "micron", "microns", "micrometer", "micrometre"):
+        if voxel_size_um <= 0:
+            raise MeshingError(
+                f"mesh_maxrad is given in microns ({maxrad}) but the voxel size is "
+                f"{voxel_size_um}; cannot convert. Set the spacing, or use voxels."
+            )
+        return float(maxrad) / float(voxel_size_um)
+    raise MeshingError(
+        f"Unknown maxrad units {units!r}; expected 'voxels' or 'um'."
+    )
+
+
+def maxrad_from_config(config, voxel_size_um: float) -> float:
+    """``config.mesh_maxrad`` in voxels, honouring ``mesh_maxrad_units``."""
+    return resolve_maxrad(
+        getattr(config, "mesh_maxrad", 5.0),
+        getattr(config, "mesh_maxrad_units", "voxels"),
+        voxel_size_um,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -878,11 +918,13 @@ def mesh_series(
 ) -> List[NucleusMesh]:
     """Mesh the analysed timepoints of a ``(T, Z, Y, X)`` mask series."""
     ensure_iso2mesh_binaries(getattr(config, "mesh_iso2mesh_bin", "") or "")
+    # The grid is isotropic by the time meshing runs, so any axis gives the voxel size.
+    maxrad_vox = maxrad_from_config(config, float(np.asarray(spacing_zyx_um)[0]))
     meshes = [
         mesh_nucleus(
             masks[index],
             spacing_zyx_um,
-            maxrad=config.mesh_maxrad,
+            maxrad=maxrad_vox,
             isovalue=getattr(config, "mesh_isovalue", DEFAULT_ISOVALUE),
             area_frac=config.mesh_area_frac,
             smoothing_iterations=config.mesh_smoothing_iterations,

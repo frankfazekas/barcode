@@ -789,6 +789,35 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     create_option_section(
         frame,
         row_idx,
+        cv.curvature_exclude_caps,
+        "Curvature: Exclude Top & Bottom Caps",
+        "Drop faces in the lowest and highest z bin before measuring curvature. Worth "
+        "turning on only when the segmentation is genuinely clipped by the ends of the "
+        "stack, where that flat surface is an artefact of the acquisition rather than "
+        "the object. For an object sitting entirely inside the imaged volume this "
+        "discards real surface. Off by default.",
+    )
+    row_idx += 2
+
+    outlier_label = tk.Label(frame, text="Curvature Outlier Limit (0 = keep all)")
+    outlier_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.0, to=100.0, increment=0.5,
+        textvariable=cv.curvature_outlier_limit, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Drop faces whose mean curvature exceeds this in magnitude. Guards the averages "
+        "against a handful of degenerate triangles, whose curvature can be enormous. 0 "
+        "keeps every face, which is the default -- curvature is measured over the whole "
+        "surface unless you ask otherwise.",
+        row_idx, outlier_label,
+    )
+    row_idx += 1
+
+    create_option_section(
+        frame,
+        row_idx,
         cv.mesh_export_obj,
         "Export Mesh as .OBJ",
         "Write the triangulated surface alongside the results so it can be opened in "
@@ -803,11 +832,37 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     ).grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
         frame,
-        "Target triangle size, as a radius in voxels. Smaller gives a finer surface and "
-        "a slower run. This is one radius for all three axes, which is why the mesh "
-        "needs an isotropic grid.",
+        "Target triangle size, as a radius. Smaller gives a finer surface and a slower "
+        "run. This is one radius for all three axes, which is why the mesh needs an "
+        "isotropic grid.",
         row_idx, maxrad_label,
     )
+    row_idx += 1
+
+    maxrad_units_label = tk.Label(frame, text="Mesh Max Radius Units")
+    maxrad_units_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Combobox(
+        frame, textvariable=cv.mesh_maxrad_units, values=["voxels", "um"],
+        width=8, state="readonly",
+    ).grid(row=row_idx, column=1, sticky="w", padx=5, pady=5)
+    create_popup(
+        frame,
+        "How to read Mesh Max Radius. 'voxels' is the historical meaning, so the same "
+        "number is a different physical size on every dataset; 'um' converts using the "
+        "isotropic voxel size at meshing time, so one setting means the same physical "
+        "thing across acquisitions. Neither adapts to object size.",
+        row_idx, maxrad_units_label,
+    )
+
+    # The radius caption used to hardcode "[voxels]" while mesh_maxrad_units was
+    # settable from YAML, so a run configured in microns showed a label saying voxels.
+    def _label_maxrad_units(*_args):
+        unit = cv.mesh_maxrad_units.get()
+        maxrad_label.config(
+            text=f"Mesh Max Radius [{'microns' if unit == 'um' else 'voxels'}]")
+
+    cv.mesh_maxrad_units.trace_add("write", _label_maxrad_units)
+    _label_maxrad_units()
     row_idx += 1
 
     area_frac_label = tk.Label(frame, text="Mesh Area Fraction")
@@ -818,6 +873,23 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     create_popup(
         frame, "Fraction of the target area kept when simplifying the surface.",
         row_idx, area_frac_label,
+    )
+    row_idx += 1
+
+    isovalue_label = tk.Label(frame, text="Mesh Isovalue")
+    isovalue_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
+    ttk.Spinbox(
+        frame, from_=0.01, to=0.99, increment=0.01, textvariable=cv.mesh_isovalue, width=7
+    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    create_popup(
+        frame,
+        "Where the isosurface sits inside a 0/1 mask. 0.5 is the boundary between the "
+        "last foreground voxel and the first background one -- what a binary mask means, "
+        "and the most accurate value on rounded objects. The old default 0.99 (from the "
+        "MATLAB original) pulled the surface onto the outermost voxel CENTRES and shrank "
+        "every object by ~0.7 voxels per side: -9% of the volume of a 32-voxel sphere, "
+        "-67% of a 4-voxel one. Set 0.99 only to reproduce pre-change or MATLAB numbers.",
+        row_idx, isovalue_label,
     )
     row_idx += 1
 

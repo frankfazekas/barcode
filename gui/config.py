@@ -749,6 +749,7 @@ class VolumetricConfigGUI:
     frame_interval_s: tk.DoubleVar = field(init=False)
     mesh_enabled: tk.BooleanVar = field(init=False)
     mesh_maxrad: tk.DoubleVar = field(init=False)
+    mesh_maxrad_units: tk.StringVar = field(init=False)
     mesh_isovalue: tk.DoubleVar = field(init=False)
     mesh_area_frac: tk.DoubleVar = field(init=False)
     mesh_smoothing_iterations: tk.IntVar = field(init=False)
@@ -821,6 +822,7 @@ class VolumetricConfigGUI:
         self.frame_interval_s = tk.DoubleVar(value=self._core_config.frame_interval_s)
         self.mesh_enabled = tk.BooleanVar(value=self._core_config.mesh_enabled)
         self.mesh_maxrad = tk.DoubleVar(value=self._core_config.mesh_maxrad)
+        self.mesh_maxrad_units = tk.StringVar(value=self._core_config.mesh_maxrad_units)
         self.mesh_isovalue = tk.DoubleVar(value=self._core_config.mesh_isovalue)
         self.mesh_area_frac = tk.DoubleVar(value=self._core_config.mesh_area_frac)
         self.mesh_smoothing_iterations = tk.IntVar(value=self._core_config.mesh_smoothing_iterations)
@@ -896,6 +898,7 @@ class VolumetricConfigGUI:
             frame_interval_s=self.frame_interval_s.get(),
             mesh_enabled=self.mesh_enabled.get(),
             mesh_maxrad=self.mesh_maxrad.get(),
+            mesh_maxrad_units=self.mesh_maxrad_units.get(),
             mesh_isovalue=self.mesh_isovalue.get(),
             mesh_area_frac=self.mesh_area_frac.get(),
             mesh_smoothing_iterations=self.mesh_smoothing_iterations.get(),
@@ -971,6 +974,7 @@ class VolumetricConfigGUI:
         self.frame_interval_s.set(new_config.frame_interval_s)
         self.mesh_enabled.set(new_config.mesh_enabled)
         self.mesh_maxrad.set(new_config.mesh_maxrad)
+        self.mesh_maxrad_units.set(new_config.mesh_maxrad_units)
         self.mesh_isovalue.set(new_config.mesh_isovalue)
         self.mesh_area_frac.set(new_config.mesh_area_frac)
         self.mesh_smoothing_iterations.set(new_config.mesh_smoothing_iterations)

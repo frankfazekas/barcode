@@ -89,7 +89,13 @@ def create_processing_worker(
             print(traceback.format_exc())
             messagebox.showerror("Error during processing", str(e))
 
-        finally:
+        else:
+            # `else`, not `finally`. In a `finally` this fired unconditionally: right
+            # after the error dialog on a crash, and after "No file or directory has been
+            # selected" on the early returns above -- so a run that did nothing at all
+            # still reported that it "finished successfully". `else` skips both, because
+            # it runs only when the try block completes without raising *and* without
+            # returning early.
             messagebox.showinfo(
                 "Processing Complete", "Analysis has finished successfully."
             )
@@ -108,8 +114,11 @@ def create_process_page(parent, switch_page):
     def on_run():
         setup_log_window(parent)
 
-        # force the value manually to see if that fixes it
-        gui_input_config.mode.set("dir")
+        # (Removed a leftover `gui_input_config.mode.set("dir")` debug line here. The
+        # worker picks the path with `dir_path if dir_path else file_path` and never
+        # reads `mode`, so forcing it changed no behaviour -- it only flipped the radio
+        # button to "Process Directory" and greyed the file box after every run, which
+        # read as a bug.)
 
         # Convert GUI configs to pure data configs
         config = gui_config.config

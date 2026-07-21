@@ -42,6 +42,7 @@ import numpy as np
 
 from analysis.volumetric.curvature import analyze_curvature
 from analysis.volumetric.mesh import MeshingError, mesh_nucleus
+from scripts._staging import mask_z_to_isotropic
 
 DEFAULT_OUT = r"L:\FF\Hackathon\full_datasets\_validation"
 
@@ -175,10 +176,12 @@ def anisotropic_sphere(radius_vox: float, anisotropy: float,
     mask = base.mask
     step = max(1, int(round(anisotropy)))
     coarse = mask[::step]                                  # acquire every step-th slice
-    index = np.clip(np.round(np.linspace(0, coarse.shape[0] - 1,
-                                         coarse.shape[0] * step)).astype(int),
-                    0, coarse.shape[0] - 1)
-    restored = coarse[index]                               # ... and put it back
+    # Restore through the SAME helper staging uses, not a copy of its index arithmetic.
+    # The copy that used to live here carried the endpoint-anchored `linspace` mapping,
+    # whose pitch is (m-1)/(c-1) rather than the intended step -- at 4x that inflates the
+    # voxel count by ~7.5% on its own, which is most of what this sweep used to report as
+    # an anisotropy effect. Calling the real helper means the test cannot drift from it.
+    restored = mask_z_to_isotropic(coarse, spacing_um * step, spacing_um)
     return Phantom(
         name=f"sphere r={radius_vox:g}vox @ {step}x anisotropy",
         mask=restored, spacing_um=spacing_um, truth=base.truth,

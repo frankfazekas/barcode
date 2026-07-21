@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 plt.style.use('utils/presentation.mplstyle')
 from gui.config import PreviewConfigGUI, InputConfigGUI, BarcodeConfigGUI
 from utils.binarization import binarize, invert_frame
-from utils.gui import create_popup, create_option_section, save_preview_image, save_preview_video, os_right_click
+from utils.gui import create_popup, create_option_section, save_preview_image, save_preview_video, os_right_click, label_preview_axis
 
 def create_processing_worker(parent, config: BarcodeConfigGUI, preview_config: PreviewConfigGUI):
     def worker():
@@ -164,6 +164,7 @@ def create_binarization_frame(
     frame_number_label.grid(
         row=row_b, column = 0, sticky="w", padx=5, pady=5
     )
+    label_preview_axis(config, frame_number_label)
 
     preview_frame = tk.Frame(frame)
     preview_frame.columnconfigure(0, weight=0)

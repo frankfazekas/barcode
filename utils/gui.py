@@ -74,6 +74,24 @@ def create_popup(parent, description, row, title_label):
     info_icon.bind("<Destroy>", _dismiss_popup)
     _bind_popup_dismissal(parent)
 
+def label_preview_axis(config, frame_number_label):
+    """Keep the preview slider's caption honest about which axis it steps along.
+
+    The sample stack is indexed on axis 0, which is time only in xyt. In xyz and xyzt
+    that axis is depth (or depth and time flattened together), so "Preview Frame Number"
+    named the wrong thing for exactly the data the volumetric modes exist to handle --
+    and a z index that calls itself a frame is how a z-stack gets mistaken for a movie in
+    the first place. Re-runs whenever the mode changes.
+    """
+    def _apply(*_args):
+        volumetric = config.volumetric.analysis_mode.get() != "xyt"
+        frame_number_label.config(
+            text="Preview Z-Slice Number:" if volumetric else "Preview Frame Number:")
+
+    config.volumetric.analysis_mode.trace_add("write", _apply)
+    _apply()
+
+
 def create_option_section(parent, row, var, title, description):
     """Helper to create option sections with a checkbox, description, and a popup icon."""
     tk.Checkbutton(parent, variable=var).grid(row=row, column=0, sticky="w", padx=5)

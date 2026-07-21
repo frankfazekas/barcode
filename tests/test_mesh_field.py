@@ -116,16 +116,33 @@ def test_mesh_field_returns_one_mesh_per_object():
     assert not field.failed
 
 
+def _touching_spheres(shape=(30, 70, 70), radius=8):
+    """Three congruent spheres in contact, plus one cut by the x edge.
+
+    Rounded rather than the cuboids used elsewhere in this file, because the default
+    isovalue of 0.5 sits exactly on voxel-face planes: a cuboid's faces lie ON those
+    planes, so the surface is geometrically ambiguous there and congruent boxes can mesh
+    to visibly different volumes. That is a property of meshing a box at that level, not
+    of the partitioning this test is about, and it would otherwise show up here as a
+    failure of the wrong thing.
+    """
+    labels = np.zeros(shape, dtype=np.uint16)
+    zz, yy, xx = np.indices(shape)
+    for label, (cy, cx) in enumerate(((22, 22), (22, 39), (39, 22)), start=1):
+        labels[((zz - 15) ** 2 + (yy - cy) ** 2 + (xx - cx) ** 2) <= radius ** 2] = label
+    labels[((zz - 15) ** 2 + (yy - 55) ** 2 + (xx - 4) ** 2) <= radius ** 2] = 4
+    return labels
+
+
 @needs_iso2mesh
 def test_identical_objects_mesh_to_the_same_volume():
     """The three blobs are congruent, so a partitioning bug would show as a big gap.
 
     Not exact equality: cgalsurf is not bit-reproducible even on identical input (see
-    mesh.py's module docstring), and on these deliberately tiny ~96-face meshes that
-    jitter reaches a few tenths of a percent. A partitioning error -- leaking a
-    neighbour's voxels in, or clipping the object -- would be tens of percent.
+    mesh.py's module docstring). A partitioning error -- leaking a neighbour's voxels in,
+    or clipping the object -- would be tens of percent, which this still catches.
     """
-    labels = _touching_blobs()
+    labels = _touching_spheres()
     field = mesh_field(labels, (0.2, 0.2, 0.2), min_voxels=64, curvature=False)
 
     volumes = [m.geometry.volume_um3 for m in field.meshes]
