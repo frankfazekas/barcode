@@ -224,6 +224,12 @@ def generate_combined_barcode(
     # A static z-stack has no flow; drop its seven columns from the picture. No-op in 2D.
     family_switches["include_flow"] = flow_is_populated(results, mode)
 
+    # Flat schemas (e.g. ObjectResults) cannot be probed by the per-family attribute scan
+    # above, so they report their own gated families. Lets an object barcode drop the
+    # in-mask intensity columns a membrane-marker run never measured.
+    if hasattr(results_cls, "family_switches_for"):
+        family_switches.update(results_cls.family_switches_for(results))
+
     n_metrics = len(results_cls.get_metrics(
         just_metrics=True, mode=mode, **family_switches))
 

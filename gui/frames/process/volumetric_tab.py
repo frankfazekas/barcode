@@ -728,7 +728,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 2
 
-    create_option_section(
+    _w_curvrange = create_option_section(
         frame,
         row_idx,
         cv.enable_curvature_range,
@@ -736,8 +736,9 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         "Add the extremes of the curvature field. Mean Curvature <H> averages the two "
         "principal curvatures together, so a saddle -- sharply curved both ways -- "
         "averages towards zero and reads as flat. These keep the most concave and most "
-        "convex parts of the surface apart. Needs the mesh family, so it also needs a "
-        "segmentation.",
+        "convex parts of the surface apart. Builds on the mesh curvature, so it needs "
+        "both Build Surface Mesh and Measure Surface Curvature on (in Surface Meshing "
+        "below).",
     )
     row_idx += 2
 
@@ -980,10 +981,11 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     # that rare case; it does not belong beside the everyday curvature controls.
     outlier_label = tk.Label(frame, text="Curvature Outlier Limit (0 = keep all)")
     outlier_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
-    ttk.Spinbox(
+    outlier_spin = ttk.Spinbox(
         frame, from_=0.0, to=100.0, increment=0.5,
         textvariable=cv.curvature_outlier_limit, width=7
-    ).grid(row=row_idx, column=1, padx=5, pady=5)
+    )
+    outlier_spin.grid(row=row_idx, column=1, padx=5, pady=5)
     create_popup(
         frame,
         "Drop faces whose mean curvature exceeds this in magnitude. Guards the averages "
@@ -1130,7 +1132,23 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
                 elif cls == "Label" and str(w.cget("text")).strip() not in ("ℹ️", "ℹ"):
                     w.config(fg="black" if on else "gray60")
 
+        # A further level: the Curvature Outlier Limit only does anything when curvature
+        # is actually being measured. It sits in the loop above (so it greys with the
+        # whole section when meshing is off), then is overridden here to also grey when
+        # meshing is on but "Measure Surface Curvature" is not -- because it configures a
+        # computation that then does not run.
+        curvature_live = on and bool(cv.mesh_curvature.get())
+        outlier_spin.config(state="normal" if curvature_live else "disabled")
+        outlier_label.config(fg="black" if curvature_live else "gray60")
+
+        # "Minimum & Maximum Curvature" (Optional Metrics, above) builds on the same mesh
+        # curvature, so it produces nothing unless curvature is being measured. Grey it on
+        # the same rule -- it lives in another section but its dependency is here.
+        _w_curvrange[0].config(state="normal" if curvature_live else "disabled")
+        _w_curvrange[1].config(fg="black" if curvature_live else "gray60")
+
     cv.mesh_enabled.trace_add("write", _apply_mesh_dependency)
+    cv.mesh_curvature.trace_add("write", _apply_mesh_dependency)
     _apply_mesh_dependency()
 
     # Two controls deliberately absent from this section:

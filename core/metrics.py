@@ -340,8 +340,17 @@ def get_data_limits(
     return limits
 
 
+# QC / fidelity metrics that belong in the CSV but are never drawn on a barcode. The
+# barcode normalises each column across rows, so a value whose only meaningful reading is
+# "≈1 = the mesh is trustworthy" would be stretched into an apparent signal -- a flat check
+# masquerading as biology. These are excluded from every barcode regardless of the user's
+# hidden list; the CSV keeps them, which is where a fidelity check is actually read.
+ALWAYS_HIDDEN_BARCODE_METRICS = frozenset({Metrics.MESH_VOLUME_RATIO.value})
+
+
 def selection_mask(headers: List[str], hidden: List[str] = None) -> List[bool]:
-    """Boolean mask over ``headers``, False for anything named in ``hidden``.
+    """Boolean mask over ``headers``, False for anything named in ``hidden`` -- plus the
+    QC-only metrics in ``ALWAYS_HIDDEN_BARCODE_METRICS``, which are never barcode columns.
 
     Feeds ``visualization.barcode.generate_combined_barcode``'s ``metrics_to_visualize``.
     Matching is by metric *name*, not position, so a mode that adds or drops a family
@@ -351,7 +360,7 @@ def selection_mask(headers: List[str], hidden: List[str] = None) -> List[bool]:
     Unknown names in ``hidden`` are ignored rather than raising: a selection saved for
     one mode is often reused for another where some metrics do not exist.
     """
-    if not hidden:
-        return [True] * len(headers)
-    hidden_set = {h.strip() for h in hidden if h and h.strip()}
+    hidden_set = set(ALWAYS_HIDDEN_BARCODE_METRICS)
+    if hidden:
+        hidden_set |= {h.strip() for h in hidden if h and h.strip()}
     return [header not in hidden_set for header in headers]

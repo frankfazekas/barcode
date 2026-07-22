@@ -61,55 +61,73 @@ class ObjectResults:
     mean_curvature: float = np.nan
 
     # ---- the surface the writer and the barcode renderer expect -------------------
+    #
+    # The in-mask intensity family is GATED behind ``include_mask_intensity`` (default
+    # off). "Intensity inside the mask" only means something when the fluorophore labels
+    # what fills the object -- chromatin in a nucleus, say. For a membrane marker (the
+    # Drosophila case) the mask IS the cell and the signal is its boundary, so those seven
+    # columns measure noise dressed up as a readout. Off by default, on when the caller
+    # opts in; the switch rides the same ``--mask-intensity`` flag that computes them, so a
+    # run that never computed them never shows them either.
+
+    _MASK_INTENSITY_METRICS = [
+        Metrics.MASK_INTENSITY_MFI,
+        Metrics.MASK_INTENSITY_SD,
+        Metrics.MASK_INTENSITY_CV,
+        Metrics.MASK_INTENSITY_SKEW,
+        Metrics.MASK_INTENSITY_ENTROPY,
+        Metrics.MASK_INTENSITY_ENTROPY_NORM,
+        Metrics.MASK_INTENSITY_BRIGHT_FRACTION,
+    ]
 
     @classmethod
-    def get_metrics(cls, mode=None, **_) -> List[Metrics]:
-        return [
+    def get_metrics(cls, mode=None, include_mask_intensity: bool = False, **_) -> List[Metrics]:
+        metrics = [
             Metrics.OBJECT_VOLUME,
             Metrics.OBJECT_ANISOTROPY,
             Metrics.OBJECT_CONTACT_NUMBER,
-            Metrics.MASK_INTENSITY_MFI,
-            Metrics.MASK_INTENSITY_SD,
-            Metrics.MASK_INTENSITY_CV,
-            Metrics.MASK_INTENSITY_SKEW,
-            Metrics.MASK_INTENSITY_ENTROPY,
-            Metrics.MASK_INTENSITY_ENTROPY_NORM,
-            Metrics.MASK_INTENSITY_BRIGHT_FRACTION,
+        ]
+        if include_mask_intensity:
+            metrics += list(cls._MASK_INTENSITY_METRICS)
+        metrics += [
             Metrics.MESH_SURFACE_AREA,
             Metrics.MESH_SPHERICITY,
             Metrics.MESH_SOLIDITY,
             Metrics.MESH_ASPECT_RATIO,
             Metrics.CURVATURE_MEAN,
         ]
+        return metrics
 
     @classmethod
-    def get_units(cls, mode=None, **_) -> List[Units]:
-        return [
-            Units.VOLUME, Units.NONE, Units.NONE,
-            Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
-            Units.NONE, Units.NONE, Units.NONE,
-            Units.AREA, Units.NONE, Units.NONE, Units.NONE,
-            Units.CURVATURE,
-        ]
+    def get_units(cls, mode=None, include_mask_intensity: bool = False, **_) -> List[Units]:
+        units = [Units.VOLUME, Units.NONE, Units.NONE]
+        if include_mask_intensity:
+            units += [Units.INTENSITY, Units.INTENSITY, Units.NONE, Units.NONE,
+                      Units.NONE, Units.NONE, Units.NONE]
+        units += [Units.AREA, Units.NONE, Units.NONE, Units.NONE, Units.CURVATURE]
+        return units
 
     @classmethod
-    def get_headers(cls, just_metrics: bool = True, mode=None, **_) -> List[str]:
-        headers = [metric.value for metric in cls.get_metrics(mode)]
+    def get_headers(cls, just_metrics: bool = True, mode=None,
+                    include_mask_intensity: bool = False, **_) -> List[str]:
+        headers = [metric.value for metric in
+                   cls.get_metrics(mode=mode, include_mask_intensity=include_mask_intensity)]
         if just_metrics:
             return headers
         return ["File", "FOV", "Object"] + headers
 
-    def get_data(self, **_) -> List[float]:
-        return [
-            self.volume, self.anisotropy, self.contact_number,
-            self.mfi, self.intensity_sd, self.intensity_cv, self.intensity_skew,
-            self.entropy, self.entropy_normalized, self.bright_fraction,
-            self.surface_area, self.sphericity, self.solidity,
-            self.aspect_ratio, self.mean_curvature,
-        ]
+    def get_data(self, include_mask_intensity: bool = False, **_) -> List[float]:
+        data = [self.volume, self.anisotropy, self.contact_number]
+        if include_mask_intensity:
+            data += [self.mfi, self.intensity_sd, self.intensity_cv, self.intensity_skew,
+                     self.entropy, self.entropy_normalized, self.bright_fraction]
+        data += [self.surface_area, self.sphericity, self.solidity,
+                 self.aspect_ratio, self.mean_curvature]
+        return data
 
-    def to_array(self, just_metrics: bool = True, mode=None, **_) -> np.ndarray:
-        return np.array(self.get_data(), dtype=float)
+    def to_array(self, just_metrics: bool = True, mode=None,
+                 include_mask_intensity: bool = False, **_) -> np.ndarray:
+        return np.array(self.get_data(include_mask_intensity=include_mask_intensity), dtype=float)
 
     def to_physical_array(self, **kwargs) -> np.ndarray:
         """Already physical: volumes are um^3, not fractions of the field."""
@@ -119,15 +137,30 @@ class ObjectResults:
     # field -- so the physical variants are the same columns. Defined so the renderer's
     # physical_units path does not have to special-case which schema it was handed.
     @classmethod
-    def get_physical_metrics(cls, mode=None, **_) -> List[Metrics]:
-        return cls.get_metrics(mode)
+    def get_physical_metrics(cls, mode=None, include_mask_intensity: bool = False, **_) -> List[Metrics]:
+        return cls.get_metrics(mode=mode, include_mask_intensity=include_mask_intensity)
 
     @classmethod
-    def get_physical_headers(cls, just_metrics: bool = True, mode=None, **_) -> List[str]:
-        return cls.get_headers(just_metrics, mode)
+    def get_physical_headers(cls, just_metrics: bool = True, mode=None,
+                             include_mask_intensity: bool = False, **_) -> List[str]:
+        return cls.get_headers(just_metrics, mode, include_mask_intensity=include_mask_intensity)
 
-    def get_row(self) -> List:
-        return [self.filepath, self.fov, self.object_id] + self.get_data()
+    @classmethod
+    def family_switches_for(cls, results) -> Dict[str, bool]:
+        """Which gated object families actually carry data.
+
+        ``ObjectResults`` is a flat schema, so the renderer's ``OPTIONAL_FAMILIES``
+        detection (which reads a sub-object per family) cannot size the picture for it.
+        This reports the same answer by inspecting the rows: in-mask columns are shown only
+        when at least one object was actually measured for them, i.e. ``--mask-intensity``
+        was on. A run that never computed them never draws them.
+        """
+        has_inmask = any(np.isfinite(getattr(r, "mfi", np.nan)) for r in results)
+        return {"include_mask_intensity": bool(has_inmask)}
+
+    def get_row(self, include_mask_intensity: bool = False) -> List:
+        return ([self.filepath, self.fov, self.object_id]
+                + self.get_data(include_mask_intensity=include_mask_intensity))
 
     def convert_flags(self) -> str:
         """Objects carry no flags of their own; the field's flags describe the run."""
@@ -259,12 +292,21 @@ def _shape_of(mesh) -> Dict[str, float]:
 
 
 def objects_to_csv(rows: Sequence[ObjectResults], path: str) -> str:
-    """Write per-object rows, identity columns first."""
+    """Write per-object rows, identity columns first.
+
+    The in-mask intensity family is written only when it was actually measured (same gate
+    as the barcode), so a membrane-marker run does not carry seven NaN columns pretending
+    to be a chromatin readout.
+    """
     import csv
 
+    include_mask_intensity = (
+        ObjectResults.family_switches_for(rows)["include_mask_intensity"] if rows else False
+    )
     with open(path, "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(ObjectResults.get_headers(just_metrics=False))
+        writer.writerow(ObjectResults.get_headers(
+            just_metrics=False, include_mask_intensity=include_mask_intensity))
         for row in rows:
-            writer.writerow(row.get_row())
+            writer.writerow(row.get_row(include_mask_intensity=include_mask_intensity))
     return path

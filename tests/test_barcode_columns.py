@@ -105,7 +105,8 @@ def test_hiding_metrics_still_yields_a_full_length_mask():
 
     mask = selection_mask(headers, ["Connectivity", "Curl"])
     assert len(mask) == len(headers), "length must not shrink when metrics are hidden"
-    assert sum(mask) == len(headers) - 2
+    # Connectivity + Curl by name, plus Mesh Volume Ratio which is always QC-hidden.
+    assert sum(mask) == len(headers) - 3
 
 
 def test_a_static_zstack_drops_the_flow_columns():

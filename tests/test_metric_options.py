@@ -153,11 +153,22 @@ def test_headers_and_data_agree_with_components_on():
 
 
 def test_selection_mask_hides_by_name():
-    headers = ChannelResults.get_headers(just_metrics=True, mode=XYZT)
+    # XYT carries no mesh family, so no always-hidden QC metric is in play here and the
+    # count reflects exactly what was named.
+    headers = ChannelResults.get_headers(just_metrics=True, mode=XYT)
     mask = selection_mask(headers, ["Connectivity", "Curl"])
     assert len(mask) == len(headers)
     assert sum(mask) == len(headers) - 2
     assert [h for h, on in zip(headers, mask) if not on] == ["Connectivity", "Curl"]
+
+
+def test_selection_mask_always_hides_qc_metrics():
+    """Mesh Volume Ratio is a fidelity check, never a barcode column -- excluded even when
+    the user hides nothing. It stays in the CSV; only the picture drops it."""
+    headers = ChannelResults.get_headers(just_metrics=True, mode=XYZT)
+    assert "Mesh Volume Ratio" in headers
+    shown = [h for h, on in zip(headers, selection_mask(headers, [])) if on]
+    assert "Mesh Volume Ratio" not in shown
 
 
 def test_selection_mask_defaults_to_everything():

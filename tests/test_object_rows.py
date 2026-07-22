@@ -151,7 +151,8 @@ def test_all_seven_in_mask_columns_come_through():
 def test_the_column_set_is_per_object_only():
     """Field-level metrics are omitted, not repeated down every row."""
     headers = ObjectResults.get_headers(just_metrics=True)
-    assert len(headers) == 15
+    # In-mask intensity is gated off by default -- 3 base + 5 shape columns.
+    assert len(headers) == 8
     assert "Object Volume" in headers and "Contact Number" in headers
     # Shape columns come from each object's OWN mesh (object_mesh.mesh_objects); before
     # that existed they could only have carried the largest object's numbers.
@@ -162,6 +163,25 @@ def test_the_column_set_is_per_object_only():
     for field_level in ("Connectivity", "Structural Correlation Length",
                         "Maximum Kurtosis", "Speed", "Mean Contact Number"):
         assert field_level not in headers, f"{field_level} is not a per-object metric"
+
+
+def test_in_mask_intensity_is_gated_off_by_default():
+    """The seven in-mask columns are meaningless for a membrane marker, so they are opt-in.
+    Off: absent entirely. On: present, in their fixed position after the base columns."""
+    off = ObjectResults.get_headers(just_metrics=True)
+    on = ObjectResults.get_headers(just_metrics=True, include_mask_intensity=True)
+    in_mask = ["In-Mask MFI", "In-Mask Intensity SD", "In-Mask Intensity CV",
+               "In-Mask Intensity Skewness", "In-Mask Intensity Entropy",
+               "In-Mask Normalized Entropy", "In-Mask Fraction Above 2x Median"]
+    for name in in_mask:
+        assert name not in off, f"{name} must be off by default"
+        assert name in on
+    assert len(on) == len(off) + 7
+    # get_data and get_units track the same gate, so nothing misaligns.
+    row = ObjectResults()
+    assert len(row.get_data(include_mask_intensity=False)) == len(off)
+    assert len(row.get_data(include_mask_intensity=True)) == len(on)
+    assert len(ObjectResults.get_units(include_mask_intensity=True)) == len(on)
 
 
 def test_identity_columns_lead_the_csv(tmp_path):
