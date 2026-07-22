@@ -531,7 +531,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame,
         row_idx,
         cv.intensity_use_mask,
-        "Intensity Histogram Inside Mask Only",
+        "Restrict Intensity Histogram to Mask",
         "Build the intensity distribution from voxels inside the segmentation only. This "
         "removes the background peak and changes the metrics substantially, so masked and "
         "unmasked runs are not comparable with each other.",
@@ -887,7 +887,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
         frame,
         row_idx,
         cv.flow_use_mask,
-        "Flow Metrics Inside Mask Only",
+        "Restrict Flow to Mask",
         "Restrict the flow metrics to voxels inside the segmentation. On by default "
         "because the analysed field is the whole acquired volume and the object occupies "
         "a small part of it, so background noise velocities would otherwise dominate the "
