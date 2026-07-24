@@ -189,7 +189,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    z_end_label = tk.Label(frame, text="Z Range End (0 = to the end)")
+    z_end_label = tk.Label(frame, text="Z Range End (inclusive; 0 = to the end)")
     z_end_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=-10000, to=10000, increment=1, textvariable=cv.z_end, width=7
@@ -236,7 +236,7 @@ def create_volumetric_frame(parent, config: BarcodeConfigGUI, input_config: Inpu
     )
     row_idx += 1
 
-    t_end_label = tk.Label(frame, text="Time Range End (0 = to the end)")
+    t_end_label = tk.Label(frame, text="Time Range End (inclusive; 0 = to the end)")
     t_end_label.grid(row=row_idx, column=0, sticky="w", padx=5, pady=5)
     ttk.Spinbox(
         frame, from_=-100000, to=100000, increment=1, textvariable=cv.t_end, width=7

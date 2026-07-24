@@ -1,4 +1,4 @@
-"""Volumetric (3D) BARCODE — an isolated side-car pipeline.
+"""Volumetric BARCODE — an isolated side-car pipeline.
 
 This package is deliberately self-contained: nothing here imports from ``analysis``
 (the 2D branches) or mutates any of the shared 2D helpers. It reuses the dataclasses

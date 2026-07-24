@@ -34,24 +34,29 @@ def test_restrict_t_selects_the_requested_timepoints(tmp_path):
     stack = read_volume(write_series(tmp_path / "s.tif", n_t=10))
     assert stack.n_timepoints == 10 and stack.t_range is None
 
+    # The range is INCLUSIVE of both ends: 3..7 is five timepoints, not four.
     cropped = stack.restrict_t(3, 7)
-    assert cropped.n_timepoints == 4
-    assert cropped.t_range == (3, 7)
+    assert cropped.n_timepoints == 5
+    assert cropped.t_range == (3, 8)          # internally still a half-open pair
     assert stack.n_timepoints == 10, "the original must be untouched"
 
 
 def test_restrict_t_matches_the_z_conventions(tmp_path):
     stack = read_volume(write_series(tmp_path / "s.tif", n_t=10))
     assert stack.restrict_t(3, 0).n_timepoints == 7       # 0 = to the end
-    assert stack.restrict_t(0, -3).n_timepoints == 7      # negative counts back
+    assert stack.restrict_t(0, -3).n_timepoints == 8      # -3 included
+    assert stack.restrict_t(0, -1).n_timepoints == 10     # -1 = the last timepoint
     assert stack.restrict_t(0, 0) is stack                # full range is a no-op
 
 
 def test_restrict_t_rejects_an_empty_range(tmp_path):
     stack = read_volume(write_series(tmp_path / "s.tif", n_t=10))
-    for bad in ((7, 3), (5, 5), (12, 15)):
+    for bad in ((7, 3), (12, 15)):
         with pytest.raises(ValueError, match="selects no timepoints"):
             stack.restrict_t(*bad)
+
+    # start == end is a single timepoint under an inclusive range, not an empty one.
+    assert stack.restrict_t(5, 5).n_timepoints == 1
 
 
 def test_the_right_timepoints_are_kept(tmp_path):
@@ -61,7 +66,7 @@ def test_the_right_timepoints_are_kept(tmp_path):
     assert full == [500, 600, 700, 800, 900]
 
     cropped = stack.restrict_t(1, 4)
-    assert [int(cropped.data[t].max()) for t in range(3)] == [600, 700, 800]
+    assert [int(cropped.data[t].max()) for t in range(4)] == [600, 700, 800, 900]
 
 
 # ------------------------------------------------------------------ units
@@ -75,7 +80,7 @@ def test_both_t_units_select_the_same_timepoints(tmp_path, units, start, end):
     stack = read_volume(write_series(tmp_path / "s.tif", n_t=5, exposure=2.0))
     resolved = stack.resolve_t_range(start, end, units)
     assert resolved == (1, 4)
-    assert stack.restrict_t(*resolved).n_timepoints == 3
+    assert stack.restrict_t(*resolved).n_timepoints == 4          # 1..4 inclusive
 
 
 def test_unknown_t_units_raise(tmp_path):
@@ -107,7 +112,7 @@ def test_seconds_uses_the_configured_interval_not_the_files_tag(tmp_path):
     config = BarcodeConfig().volumetric
     config.t_start, config.t_end, config.t_range_units = 0, 120.0, "seconds"
     config.frame_interval_s = 60.0
-    assert apply_t_range(stack, config).n_timepoints == 2
+    assert apply_t_range(stack, config).n_timepoints == 3         # 0..2 inclusive
 
 
 def test_no_timing_anywhere_is_not_reported_as_coming_from_the_file(tmp_path, capsys):
@@ -137,7 +142,7 @@ def test_apply_t_range_reads_the_config(tmp_path):
     stack = read_volume(write_series(tmp_path / "s.tif", n_t=5, exposure=2.0))
     config = BarcodeConfig().volumetric
     config.t_start, config.t_end, config.t_range_units = 2.0, 8.0, "seconds"
-    assert apply_t_range(stack, config).n_timepoints == 3
+    assert apply_t_range(stack, config).n_timepoints == 4         # 1..4 inclusive
 
 
 # ------------------------------------------------------------------ series
@@ -158,8 +163,9 @@ def test_restricting_time_keeps_a_grouped_series_aligned():
                          "frames": [1, 2, 3, 4, 5]},
     )
     cropped = stack.restrict_t(1, 4)
-    assert cropped.metadata_source["paths"] == ["Cell1_2.tif", "Cell1_3.tif", "Cell1_4.tif"]
-    assert cropped.metadata_source["frames"] == [2, 3, 4]
+    assert cropped.metadata_source["paths"] == [
+        "Cell1_2.tif", "Cell1_3.tif", "Cell1_4.tif", "Cell1_5.tif"]
+    assert cropped.metadata_source["frames"] == [2, 3, 4, 5]
 
 
 # ------------------------------------------------------------------ pipeline
@@ -181,8 +187,8 @@ def test_xyz_produces_one_barcode_per_selected_timepoint(tmp_path):
         return len(per_timepoint), detail.stack.t_range
 
     assert run(0, 0) == (5, None)
-    assert run(1, 4) == (3, (1, 4))
-    assert run(2.0, 8.0, "seconds") == (3, (1, 4))
+    assert run(1, 4) == (4, (1, 5))               # 1..4 inclusive
+    assert run(2.0, 8.0, "seconds") == (4, (1, 5))
 
 
 def test_a_restricted_time_range_sets_the_provenance_flag(tmp_path):

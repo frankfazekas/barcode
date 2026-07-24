@@ -56,6 +56,23 @@ def validate_axes_override(override: str, shape: Tuple[int, ...], filename: str 
     return axes
 
 
+def _inclusive_stop(end: int, n: int) -> int:
+    """The Python (exclusive) stop for a user-facing range end that is **inclusive**.
+
+    A range end reads as "analyse up to and including this index" -- the meaning every
+    user assumed and the one the GUI's plain "Z Range End" implies. Internally the ranges
+    stay ordinary Python half-open pairs, so this is the single place the two conventions
+    meet; nothing downstream has to know.
+
+    ``end == 0`` keeps its "to the end" meaning, which is why the (0, 0) default is still
+    the whole axis. The cost is that "only index 0" is not expressible -- a degenerate
+    request, against a sentinel that every existing config file already relies on.
+    """
+    if end == 0:
+        return n
+    return end + n + 1 if end < 0 else end + 1
+
+
 @dataclass
 class VolumeStack:
     """A single-channel volumetric stack in canonical ``(T, Z, Y, X)`` order."""
@@ -189,18 +206,19 @@ class VolumeStack:
     def restrict_t(self, t_start: int = 0, t_end: int = 0) -> "VolumeStack":
         """Return a copy limited to a range of timepoints.
 
-        Same conventions as ``restrict_z``: ``t_end`` of 0 means "to the last", negatives
-        index from the end, and an empty or reversed range raises rather than yielding a
-        zero-timepoint stack that would surface later as an unexplained NaN.
+        Same conventions as ``restrict_z``: the range is **inclusive of both ends**,
+        ``t_end`` of 0 means "to the last", negatives index from the end, and an empty or
+        reversed range raises rather than yielding a zero-timepoint stack that would
+        surface later as an unexplained NaN.
         """
         n_t = self.n_timepoints
         start = t_start + n_t if t_start < 0 else t_start
-        stop = n_t if t_end == 0 else (t_end + n_t if t_end < 0 else t_end)
+        stop = _inclusive_stop(t_end, n_t)
         start, stop = max(start, 0), min(stop, n_t)
 
         if stop <= start:
             raise ValueError(
-                f"{os.path.basename(self.source_path)}: t range [{t_start}, {t_end}) "
+                f"{os.path.basename(self.source_path)}: t range [{t_start}, {t_end}] "
                 f"selects no timepoints from a {n_t}-timepoint series."
             )
         if (start, stop) == (0, n_t):
@@ -222,18 +240,24 @@ class VolumeStack:
     def restrict_z(self, z_start: int = 0, z_end: int = 0) -> "VolumeStack":
         """Return a copy limited to a range of z slices.
 
-        ``z_end`` of 0 means "to the last slice"; negatives index from the end, matching
-        Python slicing. Raises on an empty or reversed range rather than returning a
-        zero-slice stack, which would surface much later as an unexplained NaN.
+        **The range is inclusive of both ends**: ``z_start=12, z_end=46`` analyses slices
+        12 through 46. This is the reading every user brought to it -- "end 46" meaning
+        slice 46 is not analysed cost a silent off-by-one that nothing in the GUI or the
+        provenance columns contradicted.
+
+        ``z_end`` of 0 still means "to the last slice", so the default (0, 0) is the whole
+        stack; negatives index from the end, with -1 the last slice. Raises on an empty or
+        reversed range rather than returning a zero-slice stack, which would surface much
+        later as an unexplained NaN.
         """
         n_z = self.n_slices
         start = z_start + n_z if z_start < 0 else z_start
-        stop = n_z if z_end == 0 else (z_end + n_z if z_end < 0 else z_end)
+        stop = _inclusive_stop(z_end, n_z)
         start, stop = max(start, 0), min(stop, n_z)
 
         if stop <= start:
             raise ValueError(
-                f"{os.path.basename(self.source_path)}: z range [{z_start}, {z_end}) "
+                f"{os.path.basename(self.source_path)}: z range [{z_start}, {z_end}] "
                 f"selects no slices from a {n_z}-slice stack."
             )
         if (start, stop) == (0, n_z):

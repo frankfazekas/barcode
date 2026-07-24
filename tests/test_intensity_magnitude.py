@@ -158,23 +158,29 @@ class _Stack:
 
 
 def test_an_unrestricted_axis_reports_its_full_extent():
-    """'0 to 54' and 'no range was set' are the same statement about the data."""
+    """'0 to 53' and 'no range was set' are the same statement about the data.
+
+    Both ends are reported inclusively, matching the settings a user typed, so a full
+    54-slice stack reports its last slice as 53 rather than a one-past-the-end 54.
+    """
     result = build_range_results(_Stack(54, 15))
-    assert (result.z_start, result.z_end) == (0.0, 54.0)
-    assert (result.t_start, result.t_end) == (0.0, 15.0)
+    assert (result.z_start, result.z_end) == (0.0, 53.0)
+    assert (result.t_start, result.t_end) == (0.0, 14.0)
     assert not was_restricted(_Stack(54, 15))
 
 
 def test_a_restricted_axis_reports_the_range_applied():
-    stack = _Stack(34, 15, z_range=(12, 46))
+    # z_range is the INTERNAL half-open pair; a user asking for slices 12..46 produces
+    # (12, 47), and the reported range must read back as the inclusive 12..46.
+    stack = _Stack(35, 15, z_range=(12, 47))
     result = build_range_results(stack)
     assert (result.z_start, result.z_end) == (12.0, 46.0)
-    assert (result.t_start, result.t_end) == (0.0, 15.0)
+    assert (result.t_start, result.t_end) == (0.0, 14.0)
     assert was_restricted(stack)
 
 
 def test_both_axes_can_be_restricted():
-    stack = _Stack(34, 5, z_range=(12, 46), t_range=(2, 7))
+    stack = _Stack(35, 5, z_range=(12, 47), t_range=(2, 8))
     result = build_range_results(stack)
     assert (result.z_start, result.z_end, result.t_start, result.t_end) == \
         (12.0, 46.0, 2.0, 7.0)
@@ -188,7 +194,7 @@ def test_range_results_survive_a_csv_round_trip(tmp_path):
     from utils.writer import results_to_csv
 
     row = ChannelResults(filepath="cell.tif", channel=0)
-    row.ranges = build_range_results(_Stack(34, 15, z_range=(12, 46), t_range=(2, 7)))
+    row.ranges = build_range_results(_Stack(35, 15, z_range=(12, 47), t_range=(2, 8)))
     row.intensity_magnitude = IntensityMagnitudeResults(
         total=5000.0, mean=12.5, sd=3.25, density=41.0)
 

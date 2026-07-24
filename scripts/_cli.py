@@ -44,7 +44,8 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
     )
     group.add_argument(
         "--t-end", type=float, default=0, metavar="POS",
-        help="end of the timepoint range; 0 means to the end",
+        help="end of the timepoint range, INCLUSIVE (--t-start 0 --t-end 4 analyses "
+             "timepoints 0 through 4); 0 means to the end",
     )
     group.add_argument(
         "--z-start", type=float, default=0, metavar="POS",
@@ -52,7 +53,7 @@ def add_mode_arguments(parser: argparse.ArgumentParser, default: str = "xyzt") -
     )
     group.add_argument(
         "--z-end", type=float, default=0, metavar="POS",
-        help="end of the z range, in --z-units; 0 means to the end",
+        help="end of the z range, in --z-units, INCLUSIVE (--z-start 12 --z-end 46 analyses slices 12 through 46); 0 means to the end",
     )
 
     group = parser.add_argument_group("file layout")

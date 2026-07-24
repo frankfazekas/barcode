@@ -27,13 +27,17 @@ from core.results import RangeResults
 def _span(explicit: Optional[Tuple[int, int]], length: int) -> Tuple[float, float]:
     """The (start, end) actually analysed, whether or not a range was applied.
 
-    An unrestricted axis reports its full extent rather than NaN: "0 to 54" and "no
+    An unrestricted axis reports its full extent rather than NaN: "0 to 53" and "no
     range was set" are the same statement about the data, and a reader should not have
     to know which one produced the row.
+
+    **Both ends are inclusive**, matching the ``z_start``/``z_end`` settings a user typed:
+    a row saying "0 to 53" analysed slice 53. ``explicit`` is the internal half-open
+    ``(start, stop)`` pair, so the last analysed index is ``stop - 1``.
     """
     if explicit:
-        return float(explicit[0]), float(explicit[1])
-    return 0.0, float(length)
+        return float(explicit[0]), float(explicit[1] - 1)
+    return 0.0, float(length - 1)
 
 
 def build_range_results(stack, n_timepoints: int = None) -> RangeResults:

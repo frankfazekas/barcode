@@ -197,7 +197,7 @@ class IntensityDistributionConfig(BaseConfig):
 
 @dataclass
 class VolumetricConfig(BaseConfig):
-    """Volumetric (3D) side-car pipeline.
+    """Volumetric side-car pipeline.
 
     Inert unless ``enabled`` is True: with the default settings BARCODE behaves
     exactly as it did before this config existed. See ``analysis/volumetric/``.

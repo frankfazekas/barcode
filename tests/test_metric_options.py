@@ -37,9 +37,10 @@ def test_restrict_z_selects_the_requested_slices(tmp_path):
     stack = read_volume(write_stack(tmp_path / "s.tif", n_z=20))
     assert stack.n_slices == 20 and stack.z_range is None
 
+    # The range is INCLUSIVE of both ends: 5..15 is eleven slices, not ten.
     cropped = stack.restrict_z(5, 15)
-    assert cropped.n_slices == 10
-    assert cropped.z_range == (5, 15)
+    assert cropped.n_slices == 11
+    assert cropped.z_range == (5, 16)          # internally still a half-open pair
     # the original is untouched -- restrict_z returns a view-backed copy
     assert stack.n_slices == 20
 
@@ -47,15 +48,19 @@ def test_restrict_z_selects_the_requested_slices(tmp_path):
 def test_restrict_z_handles_negative_and_open_ends(tmp_path):
     stack = read_volume(write_stack(tmp_path / "s.tif", n_z=20))
     assert stack.restrict_z(5, 0).n_slices == 15        # 0 = to the end
-    assert stack.restrict_z(0, -5).n_slices == 15       # negative counts back
+    assert stack.restrict_z(0, -5).n_slices == 16       # -5 = sixth-from-last, included
+    assert stack.restrict_z(0, -1).n_slices == 20       # -1 = the last slice
     assert stack.restrict_z(0, 0) is stack              # full range is a no-op
 
 
 def test_restrict_z_rejects_an_empty_range(tmp_path):
     stack = read_volume(write_stack(tmp_path / "s.tif", n_z=20))
-    for bad in ((15, 5), (10, 10), (25, 30)):
+    for bad in ((15, 5), (25, 30)):
         with pytest.raises(ValueError, match="selects no slices"):
             stack.restrict_z(*bad)
+
+    # start == end is a single slice under an inclusive range, not an empty one.
+    assert stack.restrict_z(10, 10).n_slices == 1
 
 
 def test_z_range_changes_the_measured_values(tmp_path):
@@ -79,7 +84,7 @@ def test_z_range_changes_the_measured_values(tmp_path):
     full, n_full = kurtosis_for(0, 0)
     middle, n_middle = kurtosis_for(6, 14)
 
-    assert n_full == 20 and n_middle == 8
+    assert n_full == 20 and n_middle == 9      # 6..14 inclusive
     assert not np.isclose(full, middle), "restricting z must change the result"
 
 
@@ -216,8 +221,8 @@ def test_all_z_units_select_the_same_slices(tmp_path, units, start, end):
     restricted = stack.restrict_z(*resolved)
 
     assert resolved == (12, 46)
-    assert restricted.n_slices == 34
-    assert restricted.n_slices * stack.z_step_um == pytest.approx(10.2, abs=1e-6)
+    assert restricted.n_slices == 35                       # 12..46 inclusive
+    assert restricted.n_slices * stack.z_step_um == pytest.approx(10.5, abs=1e-6)
 
 
 def test_z_units_default_is_acquired_and_unknown_units_raise(tmp_path):
@@ -243,7 +248,7 @@ def test_apply_z_range_reads_the_config(tmp_path):
     stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
     config = BarcodeConfig().volumetric
     config.z_start, config.z_end, config.z_range_units = 3.6, 13.8, "microns"
-    assert apply_z_range(stack, config).n_slices == 34
+    assert apply_z_range(stack, config).n_slices == 35
 
 
 # ------------------------------------------------------- intensity masking
@@ -339,5 +344,46 @@ def test_mask_is_restricted_alongside_the_image(tmp_path):
 
     per_timepoint, detail = run_per_slice_analysis(image, config)
     assert detail.mask_path is not None, "the mask must survive a restricted z range"
-    assert len(per_timepoint[0]) == 10
-    assert detail.z_range == (5, 15)
+    assert len(per_timepoint[0]) == 11                 # 5..15 inclusive
+    assert detail.z_range == (5, 16)                   # internal half-open pair
+
+
+# --------------------------------------------------- the inclusive range contract
+
+
+def test_z_and_t_ranges_are_inclusive_of_both_ends(tmp_path):
+    """The range a user types includes the end index they typed.
+
+    An exclusive end cost a silent off-by-one: "analyse slices 12 to 46" quietly dropped
+    slice 46, and nothing in the GUI, the CLI or the provenance columns said so. Two
+    separate readers of this pipeline read the range as inclusive before it was, which is
+    a fact about the interface rather than about them.
+
+    The internal ``z_range``/``t_range`` pairs stay ordinary Python half-open slices --
+    only the setting and the reported provenance are inclusive.
+    """
+    from analysis.volumetric.provenance import build_range_results
+
+    stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
+
+    restricted = stack.restrict_z(12, 46)
+    assert restricted.n_slices == 35, "12..46 inclusive is 35 slices, not 34"
+    assert restricted.z_range == (12, 47), "internally still a half-open pair"
+
+    # The end index the user typed is actually in the data.
+    first = int(stack.data[0, 12].max())
+    last = int(stack.data[0, 46].max())
+    present = [int(restricted.data[0, i].max()) for i in range(restricted.n_slices)]
+    assert present[0] == first and present[-1] == last
+
+    # ...and the provenance columns report that same inclusive pair back.
+    reported = build_range_results(restricted)
+    assert (reported.z_start, reported.z_end) == (12.0, 46.0)
+
+
+def test_zero_still_means_to_the_end(tmp_path):
+    """The 0 sentinel outlives the change, so existing config files keep working."""
+    stack = read_volume(write_stack(tmp_path / "s.tif", n_z=54))
+    assert stack.restrict_z(0, 0) is stack                 # the default: whole stack
+    assert stack.restrict_z(10, 0).n_slices == 44          # 10..end
+    assert stack.restrict_z(0, -1).n_slices == 54          # -1 = the last slice
