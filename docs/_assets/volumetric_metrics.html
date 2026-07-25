@@ -66,25 +66,28 @@ metric, numbered display equations, and a statement of units and failure conditi
 quantity. Equation numbering here is section-scoped rather than continuous, so that inserting
 an equation does not renumber the document.</p>
 
-<p>The 2D reference defines <b>25</b> parameters across three branches. The volumetric
-pipeline emits up to <b>64</b> across ten families. All 25 reappear — 17 under identical
-names, 8 renamed <i>Area</i> to <i>Volume</i> — and the remaining 39 have no 2D counterpart.
-Where a restated metric is <i>not</i> numerically comparable with its 2D namesake, this is
-stated explicitly in the entry.</p>
+<p>The 2D reference defines <b>25</b> parameters across three branches. This pipeline extends
+that work to volumes rather than replacing it: it emits up to <b>63</b> across ten families,
+of which all 25 carry over — 17 under identical names, 8 renamed <i>Area</i> to <i>Volume</i>
+— while the remaining 38 are measurements a volume affords that a plane does not. Restating a
+metric for a volume sometimes changes what it measures; where the two are <i>not</i>
+numerically comparable, the entry says so. The 2D branch is unchanged and remains the
+reference for 2D data.</p>
 
 <div class="note" style="border-left-color:#1a6b2a;background:#f2faf4">
 <b style="color:#1a6b2a;font-variant:small-caps;letter-spacing:.03em">New capability:
 BARCODE can now be given a segmentation</b>
-<p style="margin-top:.35em">Published BARCODE has no notion of a segmentation — it decides
-what counts as material by thresholding intensity at
-$\overline{B}\times(1+\text{offset})$, and every structural metric inherits whatever that
-threshold happens to catch. <b>The volumetric pipeline accepts an external segmentation mask,
-and when one resolves it <i>replaces</i> the threshold entirely.</b> Objects become whatever
-the segmenter says they are, rather than whatever survived a global intensity cut. This is the
-largest behavioural difference from the 2D reference.</p>
-<p>Four metric families cannot exist without one: <b>Surface Mesh</b> (§4.1–4.10), <b>Curvature</b>
-(§4.11–4.16), <b>In-Mask Intensity</b> (§4.19), and <b>Packing Topology</b> (§4.20) — the last additionally
-requiring integer instance labels. It also changes families that do exist without one: the
+<p style="margin-top:.35em">Published BARCODE defines what counts as material by thresholding
+intensity at $\overline{B}\times(1+\text{offset})$ — a self-contained rule needing nothing but
+the image. <b>This pipeline adds a second route: an external segmentation mask, which when it
+resolves <i>replaces</i> the threshold.</b> Objects are then whatever the segmenter says they
+are. Both routes are supported; the mask is an addition rather than a correction, and it is
+the largest behavioral difference from the 2D reference.</p>
+<p>Two metric families cannot exist without one: <b>In-Mask Intensity</b> (§4.29–4.37) and
+<b>Packing Topology</b> (§4.38–4.44) — the latter additionally requiring integer instance
+labels. Two more <i>change</i>: <b>Surface Mesh</b> (§4.1–4.11) and <b>Curvature</b>
+(§4.12–4.18) are still produced without a mask, but they then mesh the <i>binarized volume</i>
+— a threshold surface, not the object. It also changes families that do exist without one: the
 binarization branch (§1) then measures the segmented object, and flow and the intensity
 histogram may be restricted to in-mask voxels
 (<span class="mono">flow_use_mask</span>, on by default;
@@ -111,12 +114,12 @@ batch resolves automatically, and every validation <b>raises</b> rather than deg
 <div>1.3 &nbsp;Maximum void volume $V$</div>
 <div>1.4 &nbsp;Maximum island volume change $\Delta I$</div>
 <div>1.5 &nbsp;Maximum void volume change $\Delta V$</div>
-<div>1.6 &nbsp;Initial max &amp; 2nd max island volumes $I_{0,1},I_{0,2}$</div>
-<div>1.7 &nbsp;Mean island anisotropy $A_I$</div>
-<div>1.8 &nbsp;Mean island volume $\bar I$</div>
-<div>1.9 &nbsp;Total island volume $I_{tot}$</div>
-<div>1.10 Mean island separation $D_I$</div>
-<div>1.11 Structural correlation length $\xi_I$</div>
+<div>1.6–1.7 Initial max &amp; 2nd max island volumes $I_{0,1},I_{0,2}$</div>
+<div>1.8 &nbsp;Mean island anisotropy $A_I$</div>
+<div>1.9 &nbsp;Mean island volume $\bar I$</div>
+<div>1.10 Total island volume $I_{tot}$</div>
+<div>1.11 Mean island separation $D_I$</div>
+<div>1.12 Structural correlation length $\xi_I$</div>
 <div class="b">2. Intensity Distribution</div>
 <div>2.1 &nbsp;Maximum kurtosis $K$</div>
 <div>2.2 &nbsp;Maximum median skewness $S_1$</div>
@@ -128,27 +131,27 @@ batch resolves automatically, and every validation <b>raises</b> rather than deg
 <div>2.10 Intensity density $\rho_\Phi$</div>
 <div class="b">3. Optical Flow (3D)</div>
 <div>3.1 &nbsp;The solver</div>
-<div>3.2 &nbsp;Validity mask</div>
-<div>3.3 &nbsp;Mean speed $v$</div>
+<div>3.2 &nbsp;The validity mask</div>
+<div>3.3 &nbsp;Speed $v$</div>
 <div>3.4 &nbsp;Speed change $\Delta v$</div>
-<div>3.5 &nbsp;Flow direction $\theta$</div>
+<div>3.5 &nbsp;Mean flow direction $\theta$</div>
 <div>3.6 &nbsp;Directional spread $\sigma_\theta$</div>
 <div>3.7 &nbsp;Velocity correlation length $\xi_v$</div>
 <div>3.8 &nbsp;Divergence $\nabla\!\cdot\!\mathbf v$</div>
 <div>3.9 &nbsp;Curl $\Omega$</div>
 <div class="b">4. Volumetric Branch</div>
 <div><i>Runs without a segmentation</i></div>
-<div>4.1–4.10 Surface mesh</div>
-<div>4.11–4.16 Curvature</div>
-<div>4.17 &nbsp;Object size distribution</div>
-<div>4.18 &nbsp;Depth profile</div>
+<div>4.1–4.11 Surface mesh</div>
+<div>4.12–4.18 Curvature</div>
+<div>4.19–4.22 Object size distribution</div>
+<div>4.23–4.28 Depth profile</div>
 <div><i>Requires a segmentation</i></div>
-<div>4.19 &nbsp;In-mask intensity</div>
-<div>4.20 &nbsp;Packing topology</div>
+<div>4.29–4.37 In-mask intensity</div>
+<div>4.38–4.44 Packing topology</div>
 <div><i>Per object</i></div>
-<div>4.21 &nbsp;Object rows</div>
-<div><i>Recording what was analysed</i></div>
-<div>4.22 &nbsp;Range provenance</div>
+<div>4.45 &nbsp;Object rows</div>
+<div><i>Recording what was analyzed</i></div>
+<div>4.46 &nbsp;Range provenance</div>
 <div class="b">Reading the outputs</div>
 <div class="b">Column index (all modes)</div>
 <div class="b">5. Warnings and flags</div>
@@ -159,24 +162,24 @@ batch resolves automatically, and every validation <b>raises</b> rather than deg
 
 <h2 style="page-break-before:auto">§0 &nbsp; Notation and common reductions</h2>
 
-<p>The analysed unit is a volume. Let $B(x,y,z,i)$ be the intensity of the voxel at position
+<p>The analyzed unit is a volume. Let $B(x,y,z,i)$ be the intensity of the voxel at position
 $(x,y,z)$ in the $i^{th}$ timepoint, with $0\le x&lt;n_x$, $0\le y&lt;n_y$, $0\le z&lt;n_z$, so that
-the analysed field contains</p>
+the analyzed field contains</p>
 
 $$\Nv \;=\; n_x\,n_y\,n_z \tag{0.1}$$
 
-<p>voxels. Physical voxel dimensions are $(\Delta z,\Delta y,\Delta x)$ in micrometres, giving
+<p>voxels. Physical voxel dimensions are $(\Delta z,\Delta y,\Delta x)$ in micrometers, giving
 a voxel volume</p>
 
 $$v_0 \;=\; \Delta x\,\Delta y\,\Delta z \qquad [\mu\mathrm{m}^3] $$
 
-<p>All of $\Nv$, $v_0$ and the axis extents refer to the <i>analysed</i> grid — that is, after
+<p>All of $\Nv$, $v_0$ and the axis extents refer to the <i>analyzed</i> grid — that is, after
 any isotropic resampling and cropping (§P.4), not the acquired grid.</p>
 
 <h3>0.1 &nbsp; Timepoint selection</h3>
 
-<p>Not every timepoint is analysed. Given $N_T$ timepoints and a stride $k$
-(<span class="mono">frame_step</span>, default $10$), the analysed index set is</p>
+<p>Not every timepoint is analyzed. Given $N_T$ timepoints and a stride $k$
+(<span class="mono">frame_step</span>, default $10$), the analyzed index set is</p>
 
 $$\mathcal{F} \;=\; \{\,0,\,k,\,2k,\,\dots\,\}\cup\{N_T-1\},\qquad \Nf=|\mathcal{F}| \tag{0.2}$$
 
@@ -186,7 +189,7 @@ does not use $\mathcal{F}$ in this way; see §3.2.</p>
 
 <h3>0.2 &nbsp; The three reductions</h3>
 
-<p>Every metric produces one value per analysed timepoint and is then reduced by one of three
+<p>Every metric produces one value per analyzed timepoint and is then reduced by one of three
 operators. Writing $\{q_i\}_{i\in\mathcal F}$ for the per-timepoint values:</p>
 
 <p><b>Finite-only mean.</b> The default reduction, used unless stated otherwise:</p>
@@ -200,11 +203,13 @@ failed therefore leaves the average rather than poisoning it, which also means a
 finite while most timepoints failed.</p>
 
 <p><b>Top-decile mean.</b> Used by the four <i>maximum</i> metrics. Let $q_{(1)}\ge q_{(2)}\ge
-\dots$ be the values in decreasing order and $n_{10}=\lceil 0.1\,\Nf\rceil$:</p>
+\dots\ge q_{(m)}$ be the $m$ <b>finite</b> per-frame values in decreasing order (non-finite
+frames are dropped first) and $n_{10}=\lceil 0.1\,m\rceil$:</p>
 
 $$\mathrm{top}_{10}(q) \;=\; \frac{1}{n_{10}}\sum_{j=1}^{n_{10}} q_{(j)} \tag{0.4}$$
 
-<p class="eqnote">The decile fraction $0.1$ is fixed in the source and is not a user parameter.</p>
+<p class="eqnote">The decile fraction $0.1$ is fixed in the source and is not a user parameter.
+The decile is taken over the finite count $m$, not the analyzed-frame count $\Nf$.</p>
 
 <p><b>Head–tail comparison.</b> Used by every <i>change</i> metric. With
 $f$ = <span class="mono">percentage_frames_evaluated</span> (default $0.05$) and</p>
@@ -235,11 +240,9 @@ s^{\,\mathcal Q}=s\,v_0\quad[\mu\mathrm{m}^3] \tag{0.7}$$
 <p>The fractional column carries the unit label <span class="mono">fraction of FOV</span> but holds a
 fraction in $[0,1]$, following the 2D convention. The two forms are <i>not</i>
 interchangeable: $s^{\text{frac}}$ depends on the crop (§P.4) and $s^{\mathcal Q}$ does not, so
-only $s^{\mathcal Q}$ is comparable between runs of differing crop.</p>
-
-<div class="warn"><span class="h">The quantity columns cannot currently be written</span>
-See defect D5 (§6): the CSV writer's physical-units path asserts a 2D-only invariant and
-raises on any 3D run with more than one row.</div>
+only $s^{\mathcal Q}$ is comparable between runs of differing crop. The quantity columns are
+written to a separate <span class="mono">&hellip; (physical).csv</span> beside the normalized
+one (see <i>Reading the outputs</i>).</p>
 
 <h2>§P &nbsp; Measurement preconditions</h2>
 
@@ -261,17 +264,22 @@ tag and the $xy$ step to $\mu\mathrm{m}_{\text{per unit}}/\mathrm{px}_{\text{per
 the resolution tag.</p>
 <div class="note"><b>Resolution tags are read through a unit name, not assumed to be
 microns.</b> The unit comes from ImageJ's <span class="mono">unit</span> field, else the TIFF
-<span class="mono">ResolutionUnit</span>. A tag naming an unrecognised unit, or one declaring
+<span class="mono">ResolutionUnit</span>. A tag naming an unrecognized unit, or one declaring
 the image explicitly uncalibrated (<span class="mono">pixel</span>,
 <span class="mono">px</span>, <span class="mono">none</span>,
 <span class="mono">a.u.</span>), is discarded — it warns and falls back to
 $1.0\,\mu\mathrm{m}$ rather than reading a pixel count as microns. Only a wholly absent unit
 takes the older "assume microns" path.</div>
-<div class="note"><b>The frame interval must be set by hand.</b> It defaults to $0$, meaning
-"fall back to ImageJ <span class="mono">finterval</span>, then to $1.0$". On stacks exported
-one timepoint per file that tag frequently describes the $z$ acquisition, producing a number
-that looks like seconds but is per-frame. Since $v\propto 1/\Delta t$ exactly and nothing else
-changes, the error is invisible in the output.</div>
+<div class="note"><b>The frame interval must be set by hand.</b> It defaults to $0$, and the
+fallback is narrower than it looks: the file's value is used <b>only</b> where the reader
+positively trusts the file's timing. An ND2 acquisition time loop qualifies; an ImageJ
+<span class="mono">finterval</span> on a per-timepoint TIFF export does <b>not</b> — there it
+frequently describes the $z$ acquisition or is left at $1$, and nothing in the file distinguishes
+the two — so the reader returns $1.0$ outright and says so. Most importantly, a <b>grouped
+time-lapse never uses the file's timing at all</b>: assembling per-file volumes into a series
+marks the timing untrusted, so unless you set the interval the whole series runs at $1.0\,$s.
+Since $v\propto 1/\Delta t$ exactly and nothing else changes, the error is invisible in the
+output.</div>
 
 <h3>P.3 &nbsp; Segmentation replaces thresholding</h3>
 <p><b>New in the volumetric pipeline; published BARCODE has no segmentation input.</b> Set
@@ -295,42 +303,47 @@ $$\big|\,n_z\,\Delta z \;-\; n_z^{\text{mask}}\,\Delta z^{\text{mask}}\big| \;\l
 it to a boolean would re-derive objects by connectivity and merge every touching instance.</p>
 
 <h3>P.4 &nbsp; Isotropic resampling and the crop box</h3>
-<div class="note"><b>None of this occurs without a segmentation.</b> With no mask the volumes
-are analysed on the acquired anisotropic grid, uncropped, whatever
-<span class="mono">make_isotropic</span> is set to.</div>
+<div class="note"><b>Resampling happens with or without a segmentation.</b> With
+<span class="mono">make_isotropic</span> on (the default) and no mask, the image is still
+resampled to isotropic-at-$xy$ from its own acquired spacing — so a maskless run <b>does</b>
+change slice count (54 → $245$ on the Jurkat geometry), which moves the maximal-area
+slice index, every fraction denominator, and the spacing intensity density divides by. Only
+<span class="mono">make_isotropic = False</span> leaves the acquired grid untouched. What a mask
+adds is the <i>cropping</i> option below, and the mask-gated families.</div>
 <p>With a mask and <span class="mono">make_isotropic</span> enabled: the image is resampled
 onto the mask grid (linear interpolation), then both onto an isotropic grid at the $xy$
-spacing — images linearly, masks by nearest neighbour, since any interpolating kernel would
-average neighbouring instance labels into new and meaningless ones. Where the mask grid
-overhangs the image the last acquired plane is repeated rather than zero-filled; writing
-black voxels there fed the mean-relative threshold, the histogram and every fraction
-denominator while the mask still declared foreground.</p>
+spacing — images linearly, masks by nearest neighbor, since any interpolating kernel would
+average neighboring instance labels into new and meaningless ones. Where the mask grid
+overhangs the image the last acquired plane is repeated rather than zero-filled: zero-filling
+would inject background voxels into a region the mask still declares foreground, and those
+voxels reach the mean-relative threshold, the histogram and every fraction denominator.</p>
 <p>It does <b>not</b> crop. <span class="mono">crop_to_mask</span> defaults to
 <b>False</b>, so $\Nv$ in (0.1) is the acquired field of view.</p>
 <div class="note"><b>Why cropping is off.</b> Every fractional size in (0.7) is a fraction
-<i>of the analysed box</i>. Cropping to the mask gives each file its own denominator, so the
+<i>of the analyzed box</i>. Cropping to the mask gives each file its own denominator, so the
 same object in a tighter box reports a larger fraction and a genuine size trend cannot be
-told apart from the box tracking the object. Turning it on restores the old behaviour and
+told apart from the box tracking the object. Turning it on restores the old behavior and
 crops a series to the <i>union</i> of the per-frame boxes, never each to its own. The
 $\mu\mathrm{m}^3$ quantity columns are unaffected either way — prefer them when in doubt.
-The intended way to analyse less than the full field is an explicit $z$ range.</div>
+The intended way to analyze less than the full field is an explicit $z$ range.</div>
 
 <h3>P.5 &nbsp; Range restriction</h3>
-<p>The analysed ranges satisfy $z\in[z_0,z_1]$ and $i\in[t_0,t_1]$, <b>inclusive of both
+<p>The analyzed ranges satisfy $z\in[z_0,z_1]$ and $i\in[t_0,t_1]$, <b>inclusive of both
 ends</b>, with $\text{end}=0$ meaning "to the end" and negative values counting back from the
-end ($-1$ being the last). So $z_0=12,\;z_1=46$ analyses slices 12 through <b>46</b> — 35
+end ($-1$ being the last). So $z_0=12,\;z_1=46$ analyzes slices 12 through <b>46</b> — 35
 slices — and $z_0=z_1$ is a single slice rather than an empty range. An empty
 or reversed range raises. Any restriction sets flag digit 5. Because "slice 46" is ambiguous
-between the acquired and isotropic grids (54 versus $\approx249$ planes on
+between the acquired and isotropic grids (54 versus $245$ planes on
 $0.3/0.065\,\mu\mathrm{m}$ data), the $z$ range carries an explicit unit: acquired index,
-isotropic index, or micrometres of depth. In <span class="mono">xyzt</span> the acquired range
+isotropic index, or micrometers of depth. In <span class="mono">xyzt</span> the acquired range
 is mapped onto a finer mask grid by $\mathrm{round}\!\big(i\,(m_z-1)/(n_z-1)\big)$, so a
 restricted image and its full-depth mask stay aligned over the sub-range rather than the mask
 being planted at $z=0$.</p>
 <p><span class="mono">t_range_units="seconds"</span> converts through the <b>configured</b>
 frame interval, falling back to the file's tag only when the file stated timing and otherwise
-raising. Before that, a guard that could never fire meant "the first 600 seconds" selected 600
-timepoints on a 60-second series.</p>
+raising rather than assuming $1\,$s. Without a stated interval a request in seconds cannot be
+resolved at all — "the first 600 seconds" would otherwise select 600 timepoints from a
+60-second series.</p>
 
 <h2 class="branch">1 &nbsp; Image Binarization (3D) Branch</h2>
 
@@ -338,7 +351,7 @@ timepoints on a 60-second series.</p>
 branch measures areas with 8-connectivity. Throughout this section a <i>frame</i> means one
 timepoint — an entire $Z$-stack — not a $z$-slice.</p>
 
-<h3>1.0 &nbsp; The binary volume</h3>
+<h3>1.0 &nbsp; Producing the binary volume</h3>
 
 <p>Absent a segmentation, the threshold is the volume mean scaled by a user offset (default
 $0.1$), computed over all voxels of the $i^{th}$ volume:</p>
@@ -347,7 +360,7 @@ $$\overline{B}(i) \;=\; \frac{1}{\Nv}\sum_{x,y,z} B(x,y,z,i) \tag{1.1}$$
 
 $$b(x,y,z,i)=\begin{cases}
 1, & \text{if } B(x,y,z,i)\;\ge\;\overline{B}(i)\times(1+\text{offset})\\[2pt]
-0, & \text{if } B(x,y,z,i)\;<\;\overline{B}(i)\times(1+\text{offset})
+0, & \text{if } B(x,y,z,i)\;&lt;\;\overline{B}(i)\times(1+\text{offset})
 \end{cases} \tag{1.2}$$
 
 <p>Connected objects and holes smaller than $s_{\min}+1$ voxels are then removed under
@@ -365,12 +378,12 @@ here, and (0.1) is the unbinned voxel count.</p>
 <p>Let $\{\mathcal{R}_1(i),\dots,\mathcal{R}_{n_i}(i)\}$ be the 26-connected foreground
 components of frame $i$, ordered so that $|\mathcal{R}_1|\ge|\mathcal{R}_2|\ge\dots$, where
 $|\cdot|$ denotes voxel count. When an instance mask supplies labels, that partition is used
-directly instead of connected-component labelling.</p>
+directly instead of connected-component labeling.</p>
 
 <h3>1.1 &nbsp; Connectivity $C$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Connectivity</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of frames, valued $0\!-\!1$</div>
-<p>The fraction of analysed frames in which a single component percolates the volume. Labelling
+<p>The fraction of analyzed frames in which a single component percolates the volume. Labeling
 under the full $3\times3\times3$ structuring element, let $\mathcal{L}^{a}_{0}$ and
 $\mathcal{L}^{a}_{1}$ be the sets of non-zero labels appearing on the two opposing faces normal
 to axis $a$. Then</p>
@@ -390,28 +403,27 @@ $\mathrm{NaN}$.</p>
 <div class="meta"><b>Column</b> <span class="mono">Maximum Island Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of FOV ($0\!-\!1$); quantity form $\mu\mathrm{m}^3$</div>
 <p>The size of the largest component, reduced by the top-decile mean (0.4) and
-normalised by (0.7):</p>
+normalized by (0.7):</p>
 
 $$I \;=\; \frac{\mathrm{top}_{10}\big(|\mathcal{R}_1(i)|\big)}{\Nv},
 \qquad
 I^{\mathcal Q} \;=\; \mathrm{top}_{10}\big(|\mathcal{R}_1(i)|\big)\, v_0 \tag{1.4}$$
 
-<p>$\mathrm{NaN}$ when every analysed frame is empty.</p>
+<p>$\mathrm{NaN}$ when every analyzed frame is empty.</p>
 <p><b>Versus 2D.</b> The 2D "Area Quantity" multiplies a pixel count by the micron-per-pixel
-ratio <i>once</i>, yielding $\mu\mathrm{m}\!\cdot\!\mathrm{px}$ rather than
-$\mu\mathrm{m}^2$ — dimensionally inconsistent. Equation (0.7) multiplies by the
-full voxel volume and is a true $\mu\mathrm{m}^3$.</p>
+ratio <i>once</i>, so it carries $\mu\mathrm{m}\!\cdot\!\mathrm{px}$; equation (0.7)
+multiplies by the full voxel volume and is in $\mu\mathrm{m}^3$. The two cannot be pooled or
+compared, whatever the shared column name suggests.</p>
 
 <h3>1.3 &nbsp; Maximum void volume $V$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Maximum Void Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of FOV ($0\!-\!1$); quantity form $\mu\mathrm{m}^3$</div>
 <p>As (1.4) but over the 26-connected components of the complement $1-b$.</p>
-<div class="warn"><span class="h">Edge case — a deliberate divergence from 2D</span>
-If the foreground fills the volume so that no background component exists, the 3D branch
-reports $0$ — the minimum, which is what "no void exists" means. The 2D branch returns the
-whole frame instead, reporting the <i>maximum</i> and inverting the metric on exactly that
-case, and it feeds $\Delta V$ as well, so the 2D and 3D columns are not comparable on a filled
-field.</div>
+<div class="warn"><span class="h">Edge case — where the two branches differ</span>
+If the foreground fills the volume so that no background component exists, this branch reports
+$0$, reading the empty set as "no void exists"; the 2D branch returns the whole frame. Both are
+defensible readings, but they sit at opposite ends of the range, and the choice feeds $\Delta V$
+as well — so the 2D and 3D columns are not comparable on a filled field.</div>
 
 <h3>1.4 &nbsp; Maximum island volume change $\Delta I$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Maximum Island Volume Change</span>
@@ -430,7 +442,7 @@ $$\Delta I \;=\;
 &nbsp;·&nbsp; <b>Unit</b> ratio to initial</div>
 <p>Equation (1.5) applied to the void series, with the same single-frame rule.</p>
 
-<h3>1.6 &nbsp; Initial maximum and 2nd maximum island volumes $I_{0,1},\,I_{0,2}$</h3>
+<h3>1.6–1.7 &nbsp; Initial maximum and 2nd maximum island volumes $I_{0,1},\,I_{0,2}$</h3>
 <div class="meta"><b>Columns</b> <span class="mono">Initial Maximum Island Volume</span>,
 <span class="mono">Initial 2nd Maximum Island Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of FOV ($0\!-\!1$); quantity forms $\mu\mathrm{m}^3$</div>
@@ -443,7 +455,7 @@ I_{0,2}=\frac{1}{\Nv}\big\langle |\mathcal{R}_2(i)| \big\rangle_{\text{first } n
 $I_{0,2}=0$ — a meaningful statement, not a missing value — for a single-nucleus run. Unlike
 the change metrics, these are <i>not</i> $\mathrm{NaN}$ for a single timepoint.</p>
 
-<h3>1.7 &nbsp; Mean island anisotropy $A_I$</h3>
+<h3>1.8 &nbsp; Mean island anisotropy $A_I$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Mean Island Anisotropy</span> &nbsp;·&nbsp;
 <b>Unit</b> dimensionless, $\ge 1$</div>
 <p>Let $\lambda_1\ge\lambda_2\ge\lambda_3$ be the eigenvalues of the inertia tensor of a
@@ -472,30 +484,30 @@ components were degenerate. Degenerate components are excluded from the mean, no
 Consequently $A_I$ is a 3D ellipsoid ratio and is <i>not</i> comparable with the 2D ellipse
 ratio.</div>
 
-<h3>1.8 &nbsp; Mean island volume $\bar I$</h3>
+<h3>1.9 &nbsp; Mean island volume $\bar I$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Mean Island Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of FOV ($0\!-\!1$); quantity form $\mu\mathrm{m}^3$</div>
 
 $$\bar I=\frac{1}{\Nv}\left\langle \frac{1}{n_i}\sum_{k=1}^{n_i}\big|\mathcal{R}_k(i)\big| \right\rangle_i \tag{1.9}$$
 
-<h3>1.9 &nbsp; Total island volume $I_{tot}$</h3>
+<h3>1.10 &nbsp; Total island volume $I_{tot}$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Total Island Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> fraction of FOV ($0\!-\!1$); quantity form $\mu\mathrm{m}^3$</div>
-<p>The foreground volume fraction of the analysed field:</p>
+<p>The foreground volume fraction of the analyzed field:</p>
 
 $$I_{tot}=\frac{1}{\Nv}\left\langle \sum_{k=1}^{n_i}\big|\mathcal{R}_k(i)\big| \right\rangle_i \tag{1.10}$$
 
 <p>With a segmentation, $I_{tot}^{\mathcal Q}$ is effectively the segmented volume in
 $\mu\mathrm{m}^3$ — the branch's most direct measure of object volume, and the natural
-cross-check against the mesh volume of §4.1.</p>
+cross-check against the mesh volume of §4.2.</p>
 
-<h3>1.10 &nbsp; Mean island separation $D_I$</h3>
+<h3>1.11 &nbsp; Mean island separation $D_I$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Mean Island Separation</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}$ &nbsp;·&nbsp; no quantity form</div>
 <p>Component centroids are scaled into physical coordinates,
 $\mathbf{c}_k=(z_k\Delta z,\,y_k\Delta y,\,x_k\Delta x)$, so the metric is natively in
-micrometres. With $\gamma$ = <span class="mono">neighbor_island_fraction</span> (default
-$0.1$) the neighbour count is</p>
+micrometers. With $\gamma$ = <span class="mono">neighbor_island_fraction</span> (default
+$0.1$) the neighbor count is</p>
 
 $$\kappa=\min\!\big(\max(\lceil \gamma\, n_i\rceil-1,\,1),\ n_i-1\big) \tag{1.11}$$
 
@@ -508,18 +520,19 @@ $$D_I=\left\langle\ \frac{1}{n_i\,\kappa}\sum_{k=1}^{n_i}\ \sum_{l\in\mathcal{N}
 <p>$\mathrm{NaN}$ whenever a frame holds fewer than two components — the ordinary case for a
 single segmented nucleus.</p>
 <div class="warn"><span class="h">Not comparable with the 2D metric</span>
-The 2D implementation takes the $\kappa+1$ smallest entries of each row of the distance matrix
-<i>including the diagonal zero</i>, so its mean is deflated by exactly $\kappa/(\kappa+1)$.
-Equation (1.12) excludes the self-distance. The 2D version also works in isotropic
-pixel units and rescales at the end, where this scales each axis by its own spacing
-beforehand.</div>
+The 2D implementation averages the $\kappa+1$ smallest entries of each row of the distance
+matrix, which include the diagonal zero, where equation (1.12) averages the $\kappa$
+excluding it — so the two average over different sets and stand exactly
+$\kappa/(\kappa+1)$ apart before anything else. The 2D version also works in isotropic pixel
+units and rescales at the end; the anisotropy of a Z-stack leaves no single ratio to apply
+afterwards, so this scales each axis by its own spacing beforehand.</div>
 
-<h3>1.11 &nbsp; Structural correlation length $\xi_I$</h3>
+<h3>1.12 &nbsp; Structural correlation length $\xi_I$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Structural Correlation Length</span>
 &nbsp;·&nbsp; <b>Unit</b> $\mu\mathrm{m}$</div>
 
 <p>Computed on the <i>raw</i> voxels — never the binary and never the mask, even when a
-segmentation replaced thresholding. Normalising to zero mean and unit variance,</p>
+segmentation replaced thresholding. Normalizing to zero mean and unit variance,</p>
 
 $$B'(x,y,z,i)=\frac{B(x,y,z,i)-\overline{B}(i)}{\sigma_B(i)} \tag{1.13}$$
 
@@ -554,7 +567,7 @@ are <i>not</i> integer multiples of the voxel size, unlike in 2D.</p>
 $g_{j+1}\le\tau$ — the first downward crossing. Then</p>
 
 $$\xi_I(i)=\begin{cases}
-\rho_{j^\ast}, & \big|g_{j^\ast}-\tau\big| \;<\; \big|g_{j^\ast+1}-\tau\big|\\[2pt]
+\rho_{j^\ast}, & \big|g_{j^\ast}-\tau\big| \;&lt;\; \big|g_{j^\ast+1}-\tau\big|\\[2pt]
 \rho_{j^\ast+1}, & \text{otherwise}
 \end{cases}
 \qquad
@@ -584,12 +597,12 @@ amount of material rather than describing the shape of the histogram.</p>
 
 <h3>2.0 &nbsp; The histogram</h3>
 
-<p>Per analysed timepoint the voxel values are binned into $N_b$ bins
+<p>Per analyzed timepoint the voxel values are binned into $N_b$ bins
 (<span class="mono">bin_size</span>, default $300$) over the data's own range — there is no
-fixed range and no background exclusion. Writing $\beta_j$ for the bin centres and $c_j$ for
+fixed range and no background exclusion. Writing $\beta_j$ for the bin centers and $c_j$ for
 the counts, the probabilities are $p_j=c_j/\sum_l c_l$. Bins with $p_j\le\eta$ are then
 <i>discarded</i> ($\eta$ = <span class="mono">noise_threshold</span>, default $5\times10^{-4}$)
-and the survivors renormalised:</p>
+and the survivors renormalized:</p>
 
 $$\mathcal{B}=\{\,j : p_j > \eta\,\},
 \qquad
@@ -598,7 +611,7 @@ $$\mathcal{B}=\{\,j : p_j > \eta\,\},
 <p class="eqnote">This is a <i>bin-population</i> filter, not an intensity filter: it removes
 sparsely populated bins wherever in the range they lie.</p>
 
-<p>All moments are probability-weighted sums over the surviving centres:</p>
+<p>All moments are probability-weighted sums over the surviving centers:</p>
 
 $$\mu_i=\sum_{j\in\mathcal{B}}\beta_j\hat p_j,
 \qquad
@@ -690,7 +703,7 @@ $\bar\Phi$ is invariant to voxel size, unlike $\rho_\Phi$ below.</p>
 
 $$\rho_\Phi=\Big\langle \frac{\sum_{u\in\mathcal{V}_i} u}{|\mathcal{V}_i|\;v_0} \Big\rangle_i \tag{2.10}$$
 
-<p>Signal per unit physical volume on the <i>analysed</i> grid, so unlike $\bar\Phi$ it does
+<p>Signal per unit physical volume on the <i>analyzed</i> grid, so unlike $\bar\Phi$ it does
 change with voxel size. $\mathrm{NaN}$ when the spacing is degenerate. In
 <span class="mono">xyz</span> mode the sample size is the in-plane pixel area, the $z$ factor
 being $1$.</p>
@@ -715,11 +728,11 @@ with Gaussian-derivative gradients and a Gaussian-weighted structure tensor. It 
 <b>differential</b> method and assumes <b>small displacements</b> between consecutive volumes;
 there is no coarse-to-fine pyramid, so large motion is under-read. It fits BARCODE's philosophy
 — CPU-only, no GPU, no training, runnable by any user — the same trade the 2D Farnebäck branch
-makes. Each analysed timepoint requires a <i>contiguous</i> window of</p>
+makes. Each analyzed timepoint requires a <i>contiguous</i> window of</p>
 
 $$W=6\,\sigma_t+1 \tag{3.1}$$
 
-<p>volumes centred on it, $W=7$ at the default $\sigma_t=1$. The temporal derivative is taken
+<p>volumes centered on it, $W=7$ at the default $\sigma_t=1$. The temporal derivative is taken
 across that window; <b>only the central volume is then retained</b>, and every spatial
 derivative and the whole structure tensor are formed from it alone. Writing $\mathbf{v}$ for
 the unknown velocity, $\nabla I$ for the spatial gradient and $I_t$ for the temporal
@@ -752,9 +765,9 @@ Negating a component without reversing its axis yields a field belonging to no f
 for any subsequent derivative $\partial v_y/\partial y = -\,\partial v_y/\partial(j\Delta y)$,
 which is why confining the convention to the reported direction keeps §3.8 and §3.9 correct.</p></div>
 
-<h3>3.2 &nbsp; Window selection and the validity mask</h3>
+<h3>3.2 &nbsp; The validity mask — and where it deliberately does not apply</h3>
 
-<p>A requested centre $c$ survives only if $\lfloor W/2\rfloor \le c \le N_T-1-\lfloor W/2\rfloor$.
+<p>A requested center $c$ survives only if $\lfloor W/2\rfloor \le c \le N_T-1-\lfloor W/2\rfloor$.
 Since the selector (0.2) always includes $0$ and $N_T-1$, <b>the first and last three
 timepoints of any series never produce flow</b>, and a series shorter than $W$ skips the branch
 entirely — returning all-$\mathrm{NaN}$ results with flag digit 4 <i>unset</i>.</p>
@@ -770,7 +783,7 @@ type, which is the crux of the design: <b>pointwise</b> metrics use the masked f
 reduction, since puncturing the field before differentiating would make the derivative describe
 the hole pattern; and the <b>correlation length</b> ignores both filters entirely.</p>
 
-<h3>3.3 &nbsp; Mean speed $v$</h3>
+<h3>3.3 &nbsp; Speed $v$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Speed</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}\,\mathrm{s}^{-1}$</div>
 
@@ -790,17 +803,17 @@ are sound while absolute values are not.</div>
 <b>Unit</b> $\mu\mathrm{m}\,\mathrm{s}^{-1}$</div>
 <p>The difference form of (0.6) over <i>windows</i>. $\mathrm{NaN}$ for a single window — and
 because the default stride plus the edge exclusion frequently leaves exactly one surviving
-centre, $\mathrm{NaN}$ here is common and expected.</p>
+center, $\mathrm{NaN}$ here is common and expected.</p>
 
-<h3>3.5 &nbsp; Flow direction $\theta$</h3>
+<h3>3.5 &nbsp; Mean flow direction $\theta$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Mean Flow Direction</span> &nbsp;·&nbsp;
 <b>Unit</b> rad, range $(-\pi,\pi]$</div>
 <div class="note">This is the <b>$xy$ azimuth only</b>. Elevation is deliberately discarded —
 folded into §3.6 instead — so that the column remains comparable with 2D runs. There is no
 elevation or polar-angle column.</div>
-<p>Two-stage vector averaging, never an angle average. Per window the field is normalised to
+<p>Two-stage vector averaging, never an angle average. Per window the field is normalized to
 3D unit vectors and averaged componentwise over valid voxels; the mean unit vector is
-<i>not</i> renormalised, so its magnitude carries the coherence:</p>
+<i>not</i> renormalized, so its magnitude carries the coherence:</p>
 
 $$\overline{\mathbf{e}}=\frac{1}{|\mathcal{M}|}\sum_{\mathbf{x}\in\mathcal{M}}
 \frac{\mathbf{v}(\mathbf{x})}{\|\mathbf{v}(\mathbf{x})\|},
@@ -811,11 +824,13 @@ $$\overline{\mathbf{e}}=\frac{1}{|\mathcal{M}|}\sum_{\mathbf{x}\in\mathcal{M}}
 cannot disturb a derivative, and $\sigma_\theta$ below takes the magnitude of
 $\overline{\mathbf{e}}$, which the sign leaves unchanged.</p>
 
-<p><b>Versus 2D.</b> The unit vectors here are 3D, so a voxel moving largely out of plane
-contributes a shorter in-plane projection and its azimuth is damped, whereas 2D unit vectors
-always have in-plane length exactly $1$. Further, 2D averages over <i>every</i> pixel including
-motionless ones — where $\operatorname{atan2}(0,0)=0$ contributes $(1,0)$ and biases the result
-toward $+x$ — while this averages over valid voxels only.</p>
+<p><b>Versus 2D.</b> Two differences, both following from the extra dimension and the validity
+mask. The unit vectors here are 3D, so a voxel moving largely out of plane contributes a
+shorter in-plane projection and its azimuth is damped, whereas 2D unit vectors always have
+in-plane length exactly $1$. And 2D averages over <i>every</i> pixel, including motionless
+ones, where $\operatorname{atan2}(0,0)=0$ contributes $(1,0)$ and pulls the result toward
+$+x$; this averages over valid voxels only, having a reliability mask with which to define
+them. The same statistic over different populations — read them separately.</p>
 
 <h3>3.6 &nbsp; Directional spread $\sigma_\theta$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Directional Spread</span> &nbsp;·&nbsp;
@@ -839,7 +854,7 @@ so $R=0$ gives $+\infty$ and an $R$ marginally above $1$ gives $\mathrm{NaN}$.</
 <div class="meta"><b>Column</b> <span class="mono">Velocity Correlation Length</span>
 &nbsp;·&nbsp; <b>Unit</b> $\mu\mathrm{m}$</div>
 <p>Evaluated on the <i>full, unmasked, unfiltered</i> field. Summing the Wiener–Khinchin
-transform over the three components and normalising by the mean square speed,</p>
+transform over the three components and normalizing by the mean square speed,</p>
 
 $$C(\mathbf{\Delta})=\frac{\big\langle \mathbf{v}(\mathbf{x})\cdot\mathbf{v}(\mathbf{x}+\mathbf{\Delta})\big\rangle}
 {\big\langle \|\mathbf{v}\|^{2}\big\rangle}
@@ -857,7 +872,7 @@ it is invariant under $v_a\to-v_a$ — which is why $\xi_v$ escapes the defect o
 
 <h3>3.8 &nbsp; Divergence $\nabla\!\cdot\!\mathbf{v}$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Divergence</span> &nbsp;·&nbsp;
-<b>Unit</b> $\mathrm{s}^{-1}$ in a volumetric mode; blank in 2D (§6, D6)</div>
+<b>Unit</b> $\mathrm{s}^{-1}$ in a volumetric mode; blank in 2D, where the quantity differs (below)</div>
 
 $$\nabla\!\cdot\!\mathbf{v}=\frac{\partial v_x}{\partial x}+\frac{\partial v_y}{\partial y}
 +\frac{\partial v_z}{\partial z} \tag{3.10}$$
@@ -865,18 +880,20 @@ $$\nabla\!\cdot\!\mathbf{v}=\frac{\partial v_x}{\partial x}+\frac{\partial v_y}{
 <p>by second-order central differences on the physical grid (one-sided at the borders),
 evaluated on the full field, masked at the reduction, and averaged over windows. Positive
 indicates local expansion.</p>
-<div class="note"><b>Verified against analytic fields:</b> $
-abla\!\cdot\!(k\mathbf{r})=3k$ exactly, zero for uniform flow and zero for rigid rotation, and invariant under proper rotations. The field reaches this operator in the solver's own consistent frame (§3.1).</div>
-<p><b>Versus 2D.</b> Not the same quantity under any correction. The 2D metric is the spatial
-mean divergence of the <i>cumulative sum of unit-vector fields</i>, taken at the last frame
-pair only; it therefore describes accumulated direction rather than velocity, carries units of
-$\mu\mathrm{m}^{-1}$, and depends on how many pairs preceded it.</p>
+<div class="note"><b>Verified against analytic fields:</b> $\nabla\!\cdot\!(k\mathbf{r})=3k$ exactly, zero for uniform flow and zero for rigid rotation, and invariant under proper rotations. The field reaches this operator in the solver's own consistent frame (§3.1).</div>
+<p><b>Versus 2D.</b> Two different quantities sharing a column name; no rescaling converts one
+into the other. The 2D metric is the spatial mean divergence of the <i>cumulative sum of
+unit-vector fields</i>, taken at the last frame pair only — a coherent measurement of
+accumulated <i>direction</i> over a series, in $\mu\mathrm{m}^{-1}$, dependent on how many
+pairs preceded it. Equation (3.10) is a window-mean $\nabla\!\cdot\!\mathbf{v}$ of the physical
+velocity field, in $\mathrm{s}^{-1}$. Do not pool them.</p>
 
 <h3>3.9 &nbsp; Curl $\Omega$</h3>
 <div class="meta"><b>Column</b> <span class="mono">Curl</span> &nbsp;·&nbsp;
-<b>Unit</b> $\mathrm{s}^{-1}$ in a volumetric mode; blank in 2D (§6, D6)</div>
-<p>Curl is a vector in three dimensions and there is one column, so the branch reports the mean
-of its <i>magnitude</i>:</p>
+<b>Unit</b> $\mathrm{s}^{-1}$ in a volumetric mode; blank in 2D, where the quantity differs (below)</div>
+<p>In a plane the curl is a signed scalar, which is what the 2D branch reports. In three
+dimensions it is a <i>vector</i> and there is one column, so this branch reports the mean of
+its <i>magnitude</i>:</p>
 
 $$\nabla\!\times\!\mathbf{v}=
 \Big(\partial_y v_z-\partial_z v_y,\ \ \partial_z v_x-\partial_x v_z,\ \ \partial_x v_y-\partial_y v_x\Big),
@@ -884,10 +901,10 @@ $$\nabla\!\times\!\mathbf{v}=
 \Omega=\Big\langle \big\|\nabla\!\times\!\mathbf{v}\big\| \Big\rangle \tag{3.11}$$
 
 <div class="note">Being a magnitude, $\Omega\ge0$ and carries <b>no handedness</b>: clockwise
-and anticlockwise vortices give the same value, and counter-rotating regions do not cancel
-in the mean — they add. The 2D metric is a signed scalar, where they do cancel.</div>
-<div class="note"><b>Verified against analytic fields:</b> $\|
-abla\!	imes\!\mathbf{v}\|=2\omega$ everywhere for solid-body rotation at rate $\omega$, zero for uniform flow, and invariant under proper rotations. (A plain transpose is a <i>reflection</i>, which flips the curl sign, so it is not a valid check.)</div>
+and anticlockwise vortices give the same value, and counter-rotating regions add in the mean
+rather than canceling, as they do in the 2D signed scalar. Neither convention converts into
+the other.</div>
+<div class="note"><b>Verified against analytic fields:</b> $\|\nabla\!\times\!\mathbf{v}\|=2\omega$ everywhere for solid-body rotation at rate $\omega$, zero for uniform flow, and invariant under proper rotations. (A plain transpose is a <i>reflection</i>, which flips the curl sign, so it is not a valid check.)</div>
 
 <h2 class="branch">4 &nbsp; Volumetric Branch</h2>
 <p>Sections 1–3 are the <b>three branches</b> of published BARCODE, restated for a volume. This is
@@ -896,14 +913,14 @@ one branch, not seven — the families inside it are grouped by <b>what they req
 that is the only thing to decide before a run. Almost all are <b>opt-in</b>:</p>
 <table>
 <tr><th>Family</th><th>§</th><th>Default</th><th>Needs a segmentation?</th><th>Also needs</th></tr>
-<tr><td>Surface mesh</td><td>4.1–4.10</td><td>off</td><td><b>no</b> — falls back to the thresholded volume</td><td>isotropic grid</td></tr>
-<tr><td>Curvature</td><td>4.11–4.16</td><td>on within meshing</td><td>no (rides on the mesh)</td><td>the mesh</td></tr>
-<tr><td>Object size distribution</td><td>4.17</td><td>off</td><td>no</td><td>—</td></tr>
-<tr><td>Depth profile</td><td>4.18</td><td>off</td><td>no</td><td>—</td></tr>
-<tr><td>In-mask intensity</td><td>4.19</td><td>off</td><td><b>yes</b></td><td>—</td></tr>
-<tr><td>Packing topology</td><td>4.20</td><td>off</td><td><b>instance</b> mask</td><td>isotropic grid</td></tr>
-<tr><td>Object rows</td><td>4.21</td><td>by <span class="mono">row_axis</span></td><td><b>instance</b> mask</td><td>—</td></tr>
-<tr><td>Range provenance</td><td>4.22</td><td>off</td><td>no</td><td>—</td></tr>
+<tr><td>Surface mesh</td><td>4.1–4.11</td><td>off</td><td><b>no</b> — falls back to the thresholded volume</td><td>isotropic grid</td></tr>
+<tr><td>Curvature</td><td>4.12–4.18</td><td>on within meshing</td><td>no (rides on the mesh)</td><td>the mesh</td></tr>
+<tr><td>Object size distribution</td><td>4.19–4.22</td><td>off</td><td>no</td><td>—</td></tr>
+<tr><td>Depth profile</td><td>4.23–4.28</td><td>off</td><td>no</td><td>—</td></tr>
+<tr><td>In-mask intensity</td><td>4.29–4.37</td><td>off</td><td><b>yes</b></td><td>—</td></tr>
+<tr><td>Packing topology</td><td>4.38–4.44</td><td>off</td><td><b>instance</b> mask</td><td>isotropic grid</td></tr>
+<tr><td>Object rows</td><td>4.45</td><td>by <span class="mono">row_axis</span></td><td><b>instance</b> mask</td><td>—</td></tr>
+<tr><td>Range provenance</td><td>4.46</td><td>off</td><td>no</td><td>—</td></tr>
 </table>
 <div class="note"><b>Sixteen of these columns need cubic voxels and are absent without them</b> —
 the whole mesh and curvature set, and all of packing. &sect;P.4 lists which metrics depend on the
@@ -912,9 +929,9 @@ grid and what to do about each.</div>
 needs two points on the progression axis — and everything else is live.</p>
 
 <h3 class="grp">Runs without a segmentation</h3>
-<p><b>Surface mesh.</b></p>
+<h4>4.1 &nbsp; How the surface is built</h4>
 
-<p>Nine columns describing a triangulated surface. Requires an isotropic grid; opt-in, though
+<p>Eight columns describing a triangulated surface. Requires an isotropic grid; opt-in, though
 the <span class="mono">xyzt</span> schema advertises the columns. A <b>missing segmentation no
 longer prevents meshing</b> — the branch falls back to the <i>binarized volume</i> and says so,
 which is a threshold surface rather than the object. Surface extraction is a CGAL
@@ -925,12 +942,13 @@ MATLAB pipeline. The binary is reduced to its largest 26-connected component and
 voxel of background so a boundary-touching object still closes; the mesh — not the mask — is
 then smoothed by Laplacian-HC.</p>
 
-<div class="note"><b>The isovalue is the boundary a binary mask means.</b> <span class="mono">mesh_isovalue</span> defaults to $0.5$ — the boundary between the last foreground voxel and the first background one, and the most accurate value on rounded objects (within ~0.1% of the exact sphere volume down to a 16-voxel radius). A higher value pulls the surface inward onto foreground-voxel centres and shrinks small objects; setting $0.99$ with <span class="mono">mesh_matlab_compat</span> reproduces the MATLAB pipeline. The MATLAB-agreement figures below describe $0.99$.</div>
+<div class="note"><b>The isovalue is the boundary a binary mask means.</b> <span class="mono">mesh_isovalue</span> defaults to $0.5$ — the boundary between the last foreground voxel and the first background one, and the most accurate value on rounded objects (within ~0.1% of the exact sphere volume down to a 16-voxel radius). A higher value pulls the surface inward onto foreground-voxel centers and shrinks small objects; setting $0.99$ with <span class="mono">mesh_matlab_compat</span> reproduces the MATLAB pipeline; the measured agreement figures for that setting are in
+<span class="mono">docs/volumetric_manual.md</span> §4.1.</div>
 
 <p>Let the mesh be $(\mathcal{V},\mathcal{T})$ with vertices $\mathbf{p}\in\R^3$ in
-micrometres and triangles $t=(\mathbf{p}_0,\mathbf{p}_1,\mathbf{p}_2)$.</p>
+micrometers and triangles $t=(\mathbf{p}_0,\mathbf{p}_1,\mathbf{p}_2)$.</p>
 
-<h4>4.1 &nbsp; Mesh volume $V_m$</h4>
+<h4>4.2 &nbsp; Mesh volume $V_m$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Mesh Volume</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}^3$</div>
 <p>By the divergence theorem, as a sum of signed tetrahedra on the origin:</p>
@@ -939,10 +957,10 @@ $$V_m=\Big|\ \frac{1}{6}\sum_{t\in\mathcal{T}}
 \mathbf{p}_0\cdot(\mathbf{p}_1\times\mathbf{p}_2)\ \Big| \tag{4.1}$$
 
 <p>The sign encodes surface orientation and is retained as a diagnostic. $V_m$ is deliberately
-distinct from $I_{tot}^{\mathcal Q}$ of §1.9: meshing smooths the surface, so the two differ by
-a few percent, and §4.7 reports exactly that discrepancy.</p>
+distinct from $I_{tot}^{\mathcal Q}$ of §1.10: meshing smooths the surface, so the two differ by
+a few percent, and §4.8 reports exactly that discrepancy.</p>
 
-<h4>4.2 &nbsp; Mesh surface area $A_m$</h4>
+<h4>4.3 &nbsp; Mesh surface area $A_m$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Mesh Surface Area</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}^2$</div>
 
@@ -950,7 +968,7 @@ $$A_m=\sum_{t\in\mathcal{T}} a_t,
 \qquad
 a_t=\tfrac12\big\|(\mathbf{p}_1-\mathbf{p}_0)\times(\mathbf{p}_2-\mathbf{p}_0)\big\| \tag{4.2}$$
 
-<h4>4.3 &nbsp; Sphericity $\Psi$</h4>
+<h4>4.4 &nbsp; Sphericity $\Psi$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Sphericity</span> &nbsp;·&nbsp;
 <b>Unit</b> dimensionless</div>
 <p>Wadell sphericity — the area of a sphere of equal volume over the actual area. Exactly $1$
@@ -958,13 +976,13 @@ for a sphere, below $1$ otherwise; $\mathrm{NaN}$ when $A_m\le0$.</p>
 
 $$\Psi=\frac{\pi^{1/3}\big(6V_m\big)^{2/3}}{A_m} \tag{4.3}$$
 
-<h4>4.4 &nbsp; Equivalent sphere radius $R_{eq}$</h4>
+<h4>4.5 &nbsp; Equivalent sphere radius $R_{eq}$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Equivalent Sphere Radius</span>
 &nbsp;·&nbsp; <b>Unit</b> $\mu\mathrm{m}$</div>
 
 $$R_{eq}=\Big(\frac{3V_m}{4\pi}\Big)^{1/3} \tag{4.4}$$
 
-<h4>4.5 &nbsp; Mesh height $h$</h4>
+<h4>4.6 &nbsp; Mesh height $h$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Mesh Height</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}$</div>
 <p>The $z$ extent of the face <i>centroids</i> $\mathbf{q}_t=\tfrac13(\mathbf{p}_0+\mathbf{p}_1+\mathbf{p}_2)$,
@@ -976,11 +994,11 @@ $$h=\max_{t}\,q_{t,z}-\min_{t}\,q_{t,z} \tag{4.5}$$
 inside the surface, so $h$ is systematically shorter than the true $z$ extent — which is the
 sole reason a perfect sphere reports a lateral/axial ratio near $1.08$ rather than $1$.</p>
 
-<h4>4.6 &nbsp; Lateral/Axial ratio $\alpha$</h4>
+<h4>4.7 &nbsp; Lateral/Axial ratio $\alpha$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Lateral/Axial Ratio</span> &nbsp;·&nbsp;
 <b>Unit</b> dimensionless</div>
 <p>Projecting the largest connected component along $z$ and fitting the ellipse with the same
-normalised second central moments, with major and minor axes
+normalized second central moments, with major and minor axes
 $\ell_{\text{maj}},\ell_{\text{min}}$:</p>
 
 $$\alpha=\frac{\ell_{\text{maj}}+\ell_{\text{min}}}{2h} \tag{4.6}$$
@@ -988,7 +1006,7 @@ $$\alpha=\frac{\ell_{\text{maj}}+\ell_{\text{min}}}{2h} \tag{4.6}$$
 <p>Lateral size over axial size: $\alpha>1$ is oblate, $\alpha\approx1$ round. Dimensionless
 and hence size-independent. $\mathrm{NaN}$ if $h=0$ or the mask is absent.</p>
 
-<h4>4.7 &nbsp; Mesh volume ratio $\Upsilon$</h4>
+<h4>4.8 &nbsp; Mesh volume ratio $\Upsilon$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Mesh Volume Ratio</span> &nbsp;·&nbsp;
 <b>Unit</b> dimensionless</div>
 <p>The mesh volume against the raw voxel-counted volume of the same mask, where $n_{\text{obj}}$
@@ -1004,36 +1022,41 @@ $\Upsilon = 0.51,\,0.73,\,0.78,\,0.80,\,0.81$ at
 object's <i>thinnest</i> dimension, roughly depth$/8$, and check $\Upsilon$ on any dataset that
 is not a nucleus.</div>
 
-<h4>4.8 &nbsp; Solidity $\Sigma$</h4>
+<h4>4.9 &nbsp; Solidity $\Sigma$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Solidity</span>
 &nbsp;·&nbsp; <b>Unit</b> dimensionless</div>
 <p>Both sides are <i>voxel counts</i> — deliberately, so that meshing shrinkage does not
 contaminate what is meant to be a pure convexity measure. With $\mathcal{H}$ the convex hull
-taken over voxel centres,</p>
+taken over voxel centers,</p>
 
 $$\Sigma=\frac{n_{\text{obj}}}{n_{\mathcal{H}}} \tag{4.8}$$
 
 <p>$\Sigma=1$ is convex, lower is more lobed. Degenerate inputs (fewer than four object voxels,
 or a hull failure on collinear or planar input) report the object as fully solid.</p>
+<p class="eqnote">A voxel is a box, so "the hull of the object" has more than one reasonable
+reading. Against 187 stored MATLAB values the voxel-center convention used here sits
+$\approx1.5\%$ above the reference MATLAB column and the voxel-corner convention
+$\approx1.2\%$ below it, with MATLAB between — three readings of one shape rather than one
+right answer. Centers were chosen for exact agreement with a sibling analysis package, so
+$\Sigma$ is directly comparable there and offset by $\approx1.5\%$ against MATLAB. This is a
+source-comment claim, not pinned by a test in this repo.</p>
 
-<h4>4.9 &nbsp; Concavity — removed</h4>
+<h4>4.10 &nbsp; Concavity — removed</h4>
 <p>There is <b>no</b> <span class="mono">Concavity</span> column. It was $1-\Sigma$ and carried
 no information Solidity does not, so it was dropped from every schema — the field mesh family
 and the per-object rows alike. Read lobedness directly off <span class="mono">Solidity</span>
-(§4.8): lower is more lobed. For a genuine surface-concavity measure use
-<span class="mono">Concave Area Fraction</span> (§4.14), a different quantity entirely — the area
+(§4.9): lower is more lobed. For a genuine surface-concavity measure use
+<span class="mono">Concave Area Fraction</span> (§4.16), a different quantity entirely — the area
 fraction of concave faces, not a hull-fill ratio.</p>
-<p class="eqnote">The voxel-centre convention runs $\approx1.5\%$ above the reference MATLAB
-column by construction; it was chosen for exact agreement with a sibling analysis package
-rather than with MATLAB. This is a source-comment claim, not pinned by a test in this repo.</p>
 
-<h4>4.10 &nbsp; Aggregation</h4>
-<p>One object is meshed per analysed timepoint — the largest connected component — and every
+<h4>4.11 &nbsp; How multiple objects and timepoints are combined</h4>
+<p>One object is meshed per analyzed timepoint — the largest connected component — and every
 mesh field is reduced by the finite-only mean (0.3) over timepoints. Note this averages the
 <i>extensive</i> quantities $V_m$ and $A_m$ as well as the intensive ones. Per-object meshing of
-a labelled field is implemented but has no pipeline call site; see defect D3.</p>
+a labeled field is implemented (<span class="mono">mesh_field.py</span>) but has no pipeline
+call site and provides no scalar reduction; per-object shape comes from §4.45 instead.</p>
 
-<p><b>Curvature.</b></p>
+<h4>4.12 &nbsp; How curvature is estimated</h4>
 
 <p>Principal curvatures over the mesh surface, estimated by finite differences of vertex normals
 along triangle edges, solved per face in least squares, projected into per-vertex tangent frames
@@ -1046,13 +1069,13 @@ three corners, giving per-face $\kappa_{\min,t}\le\kappa_{\max,t}$ and</p>
 
 $$H_t=\tfrac12\big(\kappa_{\min,t}+\kappa_{\max,t}\big),
 \qquad
-\mathcal{K}_t=\kappa_{\min,t}\,\kappa_{\max,t} \tag{5.1}$$
+\mathcal{K}_t=\kappa_{\min,t}\,\kappa_{\max,t} \tag{4.9}$$
 
 <p>the pointwise mean and Gaussian curvatures. Units are $\mu\mathrm{m}^{-1}$; with outward
 normals a sphere of radius $R$ gives $H=+1/R$, so <b>concave is negative</b>. $\mathcal{K}_t$ is
 computed but never emitted.</p>
 
-<h4>4.11 &nbsp; Which faces are excluded — by default, none</h4>
+<h4>4.13 &nbsp; Which faces are excluded — by default, none</h4>
 <p><b>By default no faces are excluded — curvature is measured over the whole surface, and top
 and bottom caps are not clipped.</b> Two exclusion rules exist, both <b>off by default</b>, and
 both must be switched on deliberately with a supplied threshold — heavily gated because
@@ -1065,70 +1088,77 @@ discarding surface changes every curvature number:</p>
 <td>Faces with $|H|$ above the limit, in $\mu\mathrm{m}^{-1}$. MATLAB uses $2.0$, a radius of curvature below $0.5\,\mu\mathrm{m}$.</td></tr>
 </table>
 <p>The two answer different questions. <b>Cap exclusion is anatomical</b>: where a segmentation
-is clipped by the ends of the imaged stack the resulting flat cap is an artefact of the
+is clipped by the ends of the imaged stack the resulting flat cap is an artifact of the
 acquisition, not a surface of the object. Turn it on when flag digit 6 is raised. For an object
 sitting entirely inside the volume it discards real surface, which is why it is off by default. <b>The outlier limit is numerical</b>: a face reporting a radius of curvature
 well below the mesh's own edge length is a badly conditioned triangle rather than fine
 structure. With the default of $0$ every face counts, so a mesh with degenerate triangles can
-pull $\langle H
-angle$ around — check Mesh Volume Ratio (§4.7) if a value looks implausible.</p>
+pull $\langle H\rangle$ around — check Mesh Volume Ratio (§4.8) if a value looks implausible.</p>
 <p>When a limit is set the outlier decision is made <b>once, on $H$</b>, and reused for the
 minimum and maximum, so all three means always run over an identical face set.</p>
 <div class="note"><b>Reproducing MATLAB.</b>
 Setting <span class="mono">curvature_exclude_caps = True</span> and
-<span class="mono">curvature_outlier_limit = 2.0</span> reproduces the MATLAB behaviour and the
-parity recorded in §4.11. The defaults measure the whole surface — the more defensible starting
+<span class="mono">curvature_outlier_limit = 2.0</span> reproduces the MATLAB behavior and the
+parity recorded in §4.12. The defaults measure the whole surface — the more defensible starting
 point for an object fully inside the stack — so discarding surface is opt-in.</div>
-<p>With both exclusion rules off, the two ratios (§4.13, §4.14) and the three means share a single
+<p>With both exclusion rules off, the two ratios (§4.15, §4.16) and the three means share a single
 denominator — the whole surface, less any face whose principal curvatures were non-finite.</p>
 
-<h4>4.12 &nbsp; Mean curvature $\langle H\rangle$</h4>
+<h4>4.14 &nbsp; Mean curvature $\langle H\rangle$</h4>
 <div class="meta"><b>Column</b> <span class="mono">Mean Curvature &lt;H&gt;</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}^{-1}$</div>
 
-$$\langle H\rangle=\frac{\sum_{t\in\mathcal{T}^{\ast}} a_t H_t}{\sum_{t\in\mathcal{T}^{\ast}} a_t} \tag{5.3}$$
+$$\langle H\rangle=\frac{\sum_{t\in\mathcal{T}^{\ast}} a_t H_t}{\sum_{t\in\mathcal{T}^{\ast}} a_t} \tag{4.10}$$
 
 <p>Two averages are stacked: $H$ is already a <i>local</i> mean of the two principal curvatures,
 and (4.10) then averages it over the usable surface — hence the $\langle\cdot\rangle$ notation
 rather than the bare name. $\mathrm{NaN}$ when the usable area is zero.</p>
 
-<h4>4.13–4.14 &nbsp; Invagination ratio and concave area fraction</h4>
+<h4>4.15–4.16 &nbsp; Invagination ratio and concave area fraction</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Invagination Ratio</span>,
 <span class="mono">Concave Area Fraction</span> &nbsp;·&nbsp;
 <b>Unit</b> dimensionless, $0\!-\!1$</div>
-<p>Faces are classified in this precedence — note $\kappa_{\max}\le0$ wins, so a face with both
-curvatures zero is concave:</p>
+<p>Faces are classified in this precedence — the non-finite test wins outright, and after it
+$\kappa_{\max}\le0$ wins, so a face with both curvatures zero is concave:</p>
 
 $$\text{class}(t)=\begin{cases}
+\text{unclassified}, & \kappa_{\min,t}\ \text{or}\ \kappa_{\max,t}\ \text{non-finite}\\
 \text{concave}, & \kappa_{\max,t}\le 0\\
 \text{saddle}, & \kappa_{\max,t}>0 \ \text{and}\ \kappa_{\min,t}\le 0\\
 \text{convex}, & \text{otherwise}
-\end{cases} \tag{5.4}$$
+\end{cases} \tag{4.11}$$
 
-<p>and with $\mathcal{D}=\{t\notin\mathcal{T}_{bt}\}$ as the common denominator,</p>
+<p>and with the usable set $\mathcal{T}^{\ast}$ of (4.10) — every face that is neither
+excluded by §4.13 nor unclassified — as the common denominator,</p>
 
-$$\text{Invagination}=\frac{\sum_{t\in\mathcal{D},\ \text{concave or saddle}} a_t}{\sum_{t\in\mathcal{D}} a_t},
+$$\text{Invagination}=\frac{\sum_{t\in\mathcal{T}^{\ast},\ \text{concave or saddle}} a_t}{\sum_{t\in\mathcal{T}^{\ast}} a_t},
 \qquad
-\text{Concave}=\frac{\sum_{t\in\mathcal{D},\ \text{concave}} a_t}{\sum_{t\in\mathcal{D}} a_t} \tag{5.5}$$
+\text{Concave}=\frac{\sum_{t\in\mathcal{T}^{\ast},\ \text{concave}} a_t}{\sum_{t\in\mathcal{T}^{\ast}} a_t} \tag{4.12}$$
 
 <p>The concave fraction is a strict subset of the invagination ratio, so it is always the
 smaller of the two.</p>
 
-<h4>4.15–4.16 &nbsp; Minimum and maximum curvature</h4>
+<p class="eqnote">The <i>unclassified</i> class is a deliberate departure from the reference
+MATLAB implementation. A non-finite principal curvature would otherwise fall through to
+<i>convex</i>, counting a face that could not be measured as evidence against invagination;
+removing it from the denominator as well as the numerator makes both ratios describe the
+surface that was actually classifiable.</p>
+
+<h4>4.17–4.18 &nbsp; Minimum and maximum curvature</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Minimum Curvature</span>,
 <span class="mono">Maximum Curvature</span> &nbsp;·&nbsp;
 <b>Unit</b> $\mu\mathrm{m}^{-1}$ &nbsp;·&nbsp; opt-in</div>
 
 $$\kappa_{\min}=\frac{\sum_{t\in\mathcal{T}^{\ast}} a_t\,\kappa_{\min,t}}{\sum_{t\in\mathcal{T}^{\ast}} a_t},
 \qquad
-\kappa_{\max}=\frac{\sum_{t\in\mathcal{T}^{\ast}} a_t\,\kappa_{\max,t}}{\sum_{t\in\mathcal{T}^{\ast}} a_t} \tag{5.6}$$
+\kappa_{\max}=\frac{\sum_{t\in\mathcal{T}^{\ast}} a_t\,\kappa_{\max,t}}{\sum_{t\in\mathcal{T}^{\ast}} a_t} \tag{4.13}$$
 
 <p>These are area-weighted <i>means</i> of the per-face principal curvatures, not global extrema.
 They exist because (4.10) averages $\kappa_{\min}$ and $\kappa_{\max}$ together, so a saddle —
 sharply curved in both directions — averages towards zero and reads as flat. A surface can be
 highly structured and still report $\langle H\rangle\approx0$; (4.13) says how structured.</p>
 
-<h4>4.17 &nbsp; Object size distribution</h4>
+<h4>4.19–4.22 &nbsp; Object size distribution</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Island Count</span>,
 <span class="mono">Island Volume SD</span>, <span class="mono">Island Volume Skewness</span>,
 <span class="mono">Median Island Volume</span> &nbsp;·&nbsp;
@@ -1141,16 +1171,16 @@ $$n=\big\langle n_i\big\rangle,
 \qquad
 \text{SD}=\frac{1}{\Nv}\Big\langle \big[\tfrac{1}{n_i}\textstyle\sum_k (s_k-\bar s_i)^2\big]^{1/2}\Big\rangle,
 \qquad
-\text{Med}=\frac{1}{\Nv}\big\langle \operatorname{median}_k s_k \big\rangle \tag{6.1}$$
+\text{Med}=\frac{1}{\Nv}\big\langle \operatorname{median}_k s_k \big\rangle \tag{4.14}$$
 
-$$\text{Skew}=\Big\langle \frac{1}{n_i}\sum_k\Big(\frac{s_k-\bar s_i}{\sigma_{s,i}}\Big)^{3} \Big\rangle \tag{6.2}$$
+$$\text{Skew}=\Big\langle \frac{1}{n_i}\sum_k\Big(\frac{s_k-\bar s_i}{\sigma_{s,i}}\Big)^{3} \Big\rangle \tag{4.15}$$
 
 <p>Standard deviations are the population form. The skewness is $\mathrm{NaN}$ unless a frame
 holds more than two objects with non-zero variance; the SD is $0$, not $\mathrm{NaN}$, for a
 single object. All four are means of per-timepoint statistics, <i>not</i> statistics pooled over
 timepoints.</p>
 
-<h4>4.18 &nbsp; Depth profile</h4>
+<h4>4.23–4.28 &nbsp; Depth profile</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Maximal Area Slice Index</span>,
 <span class="mono">Maximal Area Slice Depth</span>, <span class="mono">Maximal Area Slice Area</span>
 &nbsp;·&nbsp; <b>Units</b> slice, $\mu\mathrm{m}$, fraction of FOV &nbsp;·&nbsp; opt-in</div>
@@ -1161,19 +1191,19 @@ $$a_z=\frac{1}{n_x n_y}\sum_{x,y} b(x,y,z,i),
 \qquad
 z^{\ast}=\arg\max_z a_z,
 \qquad
-d^{\ast}=z^{\ast}\Delta z \tag{8.1}$$
+d^{\ast}=z^{\ast}\Delta z \tag{4.16}$$
 
 <p>reported as $\langle z^\ast\rangle$, $\langle d^\ast\rangle$ and $\langle a_{z^\ast}\rangle$.
 The first maximum wins on a tie, and the time-average makes the reported index fractional. The
-index is into the <i>analysed</i> stack, and $d^{\ast}$ is measured from the first analysed
+index is into the <i>analyzed</i> stack, and $d^{\ast}$ is measured from the first analyzed
 slice — a shape descriptor, not an absolute stage position.</p>
-<p>This family also raises <b>flag digit 6</b>, the union over analysed timepoints of whether
-foreground touches any of the six faces of the analysed volume. When it fires, every size,
+<p>This family also raises <b>flag digit 6</b>, the union over analyzed timepoints of whether
+foreground touches any of the six faces of the analyzed volume. When it fires, every size,
 shape and curvature metric describes a truncated object, which is not recoverable from the
 numbers themselves.</p>
 
 <h3 class="grp">Requires a segmentation</h3>
-<h4>4.19 &nbsp; In-mask intensity</h4>
+<h4>4.29–4.37 &nbsp; In-mask intensity</h4>
 <div class="meta"><b>Columns</b> <span class="mono">In-Mask MFI</span>,
 <span class="mono">SD</span>, <span class="mono">CV</span>, <span class="mono">Skewness</span>,
 <span class="mono">Entropy</span>, <span class="mono">Normalized Entropy</span>,
@@ -1187,14 +1217,14 @@ $$\mathrm{CV}_o=\frac{\sigma_o}{\mu_o},
 \qquad
 \gamma_o=\frac{1}{|o|}\sum_{u}\Big(\frac{u-\mu_o}{\sigma_o}\Big)^{3},
 \qquad
-\Phi^{2\times}_o=\frac{\big|\{u : u>2\operatorname{median}(u)\}\big|}{|o|} \tag{9.1}$$
+\Phi^{2\times}_o=\frac{\big|\{u : u>2\operatorname{median}(u)\}\big|}{|o|} \tag{4.17}$$
 
 <p>Entropy alone uses a per-object rescaling $\tilde u=(u-\min u)/(\max u-\min u)$, binned into
 $N_e$ bins (default $64$) over the <i>fixed</i> range $[0,1]$ so that objects share bin widths:</p>
 
 $$S_o=-\sum_{j:\,q_j>0} q_j\log_2 q_j,
 \qquad
-\hat S_o=\frac{S_o}{\log_2 N_e} \tag{9.2}$$
+\hat S_o=\frac{S_o}{\log_2 N_e} \tag{4.18}$$
 
 <p>Base 2, so the unit is bits with maximum $\log_2 64=6$. $\hat S_o=1$ is a uniformly filled
 object, falling toward $0$ as signal concentrates. Runs are comparable only at equal $N_e$,
@@ -1209,45 +1239,52 @@ then over timepoints, so one large object does not outvote the rest. CV and the 
 are $\mathrm{NaN}$ when the object's mean or median is not positive; skewness needs at least
 three voxels and non-zero variance.</p>
 
-<h4>4.20 &nbsp; Packing topology</h4>
+<h4>4.38–4.44 &nbsp; Packing topology</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Mean Contact Number</span>,
 <span class="mono">Contact Number SD</span>, <span class="mono">Hexagonal Fraction</span>
 &nbsp;·&nbsp; <b>Unit</b> dimensionless &nbsp;·&nbsp; opt-in, requires an instance segmentation</div>
 <div class="warn"><span class="h">Requires an isotropic grid; left empty without one</span>
 Contact is counted in <b>voxel faces</b> and gaps bridged by a <b>voxel dilation</b>. On a
 non-cubic grid a $z$-normal face spans a different physical area from an $xy$-normal one, so
-the same physical interface passes or fails the threshold on its orientation alone. Unlike
-Anisotropy (§1.7), which had the same class of bug and was <i>fixed</i> by measuring in
-physical coordinates, no rescaling repairs this. Above a 1% anisotropy ratio the family is
+the same physical interface passes or fails the threshold on its orientation alone. Mean
+island anisotropy (§1.8) meets the same difficulty and escapes it by measuring in physical
+coordinates; here no rescaling repairs it, because a single voxel distance cannot stand for
+one physical distance on a non-cubic grid. Above a 1% anisotropy ratio the family is
 left empty and its columns never reach the CSV or barcode. The general rule: <b>a metric
 defined only on a cubic grid must not reach the output.</b></div>
 <p>Nothing else in BARCODE describes the <i>topology</i> of a packing. In a space-filling
-monolayer sizes and separations are near-uniform and it is the neighbour-number distribution
+monolayer sizes and separations are near-uniform and it is the neighbor-number distribution
 that changes. The family refuses rather than falling back: with a boolean mask, connectivity
-labelling would fuse a confluent field into one component and report a contact number of zero,
+labeling would fuse a confluent field into one component and report a contact number of zero,
 which reads as a measurement rather than a misconfiguration.</p>
 <p>Labels are first dilated by $d$ voxels to bridge thin background gaps. Two labels are
 adjacent if they meet across a shared <i>face</i> — 6-connectivity, so edge- and corner-touching
-objects are deliberately not neighbours — and the pair survives only if the shared face count
+objects are deliberately not neighbors — and the pair survives only if the shared face count
 reaches $m$ (default $5$, floored at $1$, so $m=0$ does not disable the filter):</p>
 
-$$E=\Big\{\{u,w\}\ :\ u\neq w,\ \ \big|\{\mathbf{x}\ \text{face-adjacent}\ :\ \{L(\mathbf{x}),L(\mathbf{x}')\}=\{u,w\}\}\big|\ \ge m\Big\} \tag{7.1}$$
+<div class="note"><b>The face-only guarantee holds only at $d=0$.</b> At the default
+<span class="mono">packing_contact_dilation_vox</span> $=1$, two labels meeting along an
+<i>edge</i> each grow into the shared diagonal and afterwards share a genuine 6-connected
+face running the whole length of that edge — of order 30 voxels for a 30-voxel-tall cell,
+far above $m$, which cannot filter it because the counts in (4.19) are measured on the
+<i>dilated</i> volume. So with bridging on, edge-touching objects <b>do</b> become
+neighbors, and the face counts are not raw contact areas. Set $d=0$ for strict face
+adjacency.</div>
+
+$$E=\Big\{\{u,w\}\ :\ u\neq w,\ \ \big|\{\mathbf{x}\ \text{face-adjacent}\ :\ \{L(\mathbf{x}),L(\mathbf{x}')\}=\{u,w\}\}\big|\ \ge m\Big\} \tag{4.19}$$
 
 <p>The contact number of a label is its degree in $(\,\text{labels},E)$ — a count of distinct
-neighbours, not a contact area. Objects reaching the edge are excluded from
-the <i>reported set</i> $\mathcal{I}$, though their neighbours still count toward interior
+neighbors, not a contact area. Objects reaching the edge are excluded from
+the <i>reported set</i> $\mathcal{I}$, though their neighbors still count toward interior
 degrees. Which faces count is set by <span class="mono">packing_border_mode</span>, default
 <b>"xy"</b> — the four lateral faces only, because in a thin slab every object touches the top
-and bottom and the six-face rule ("all") would exclude the entire field. Then</p>
-<div class="note"><b>The family assumes an isotropic grid.</b> Both
-<span class="mono">packing_contact_dilation_vox</span> and
-<span class="mono">packing_min_contact_voxels</span> count voxels, weighting a $z$-normal
-contact face like an $xy$-normal one. At the 4.6× anisotropy of a typical acquisition the
-same physical contact passes or fails the threshold according to its orientation alone.</div>
+and bottom and the six-face rule ("all") would exclude the entire field. Border labels are
+read from the <i>undilated</i> labels, so bridging cannot push an interior object onto the
+border. Then, over the reported set,</p>
 
 $$\bar{\mathcal{C}}=\Big\langle \tfrac{1}{|\mathcal{I}|}\textstyle\sum_{u\in\mathcal{I}}\deg u \Big\rangle,
 \qquad
-\Phi_{6}=\Big\langle \tfrac{1}{|\mathcal{I}|}\big|\{u\in\mathcal{I}:\deg u=6\}\big| \Big\rangle \tag{7.2}$$
+\Phi_{6}=\Big\langle \tfrac{1}{|\mathcal{I}|}\big|\{u\in\mathcal{I}:\deg u=6\}\big| \Big\rangle \tag{4.20}$$
 
 <p>with the SD the population form over $\mathcal{I}$. All three are $\mathrm{NaN}$, with a
 stated reason, when fewer than two objects exist or when every object touches the border.
@@ -1255,10 +1292,10 @@ $\Phi_6$ is the more diagnostic of the two: in any space-filling 2D tiling the m
 pinned near $6$ by topology, while the fraction is not.</p>
 
 <h3 class="grp">Per object</h3>
-<h4>4.21 &nbsp; Object rows</h4>
-<p>When <span class="mono">row_axis</span> resolves to <span class="mono">object</span>, a second and much smaller schema is written to <span class="mono">&lt;name&gt; Objects.csv</span> — one row per segmented object: 10 base columns (volume, a principal-axis anisotropy needing no mesh, contact number and the seven in-mask statistics) plus five per-object mesh-shape columns when <span class="mono">object_mesh</span> is on. See <span class="mono">docs/row_axes.md</span>.</p>
-<h3 class="grp">Recording what was analysed</h3>
-<h4>4.22 &nbsp; Range provenance</h4>
+<h4>4.45 &nbsp; Object rows</h4>
+<p>When <span class="mono">row_axis</span> resolves to <span class="mono">object</span>, a second and much smaller schema is written to <span class="mono">&lt;name&gt; Objects.csv</span> — one row per segmented object: 3 base columns (volume, a principal-axis anisotropy needing no mesh, contact number), 5 mesh-shape columns always in the schema but NaN unless <span class="mono">object_mesh</span> is on, and the 7 in-mask statistics only when <span class="mono">--mask-intensity</span> is on. So the default is 8 metric columns, 15 with in-mask. How the row axis is chosen is covered under <i>Row axes</i> in <span class="mono">docs/volumetric_manual.md</span>.</p>
+<h3 class="grp">Recording what was analyzed</h3>
+<h4>4.46 &nbsp; Range provenance</h4>
 <div class="meta"><b>Columns</b> <span class="mono">Z Range Start/End</span>,
 <span class="mono">T Range Start/End</span> &nbsp;·&nbsp; <b>Unit</b> slice &nbsp;·&nbsp; opt-in</div>
 <p>Flag digit 5 records <i>that</i> the analysis covered part of the data; these record which
@@ -1277,12 +1314,12 @@ in <span class="mono">xyt</span>/<span class="mono">xyz</span> is <span class="m
 Island Volume</span> in <span class="mono">xyzt</span>, and the five Change metrics gain an
 <span class="mono">(over Z)</span> suffix in <span class="mono">xyz</span> because their
 progression axis is depth, not time. And <b>every size metric appears twice</b>: a bare name
-holding a fraction of the analysed field, and a <span class="mono">… Quantity</span> name
+holding a fraction of the analyzed field, and a <span class="mono">… Quantity</span> name
 holding a physical size in $\mu\mathrm{m}^2$ or $\mu\mathrm{m}^3$. A given CSV carries one
 set or the other, never both.</p>
 <p>The table lists <b>metrics</b> only. Every CSV also opens with three identity
 columns — <span class="mono">File</span>, <span class="mono">Channel</span> and
-<span class="mono">Flags</span> — described in §4.11–4.16.</p>
+<span class="mono">Flags</span> — described in §5 (Warnings and flags).</p>
 <table style="font-size:.82em">
 <tr><th>Column in the CSV</th><th>Modes</th><th>Unit</th><th>Section</th></tr>
 <tr><td><span class="mono">Connectivity</span></td><td>xyt, xyz, xyzt</td><td>fraction of frames</td><td>§1.1</td></tr>
@@ -1304,10 +1341,10 @@ columns — <span class="mono">File</span>, <span class="mono">Channel</span> an
 <tr><td><span class="mono">Initial Maximum Island Area Quantity</span></td><td>xyt, xyz</td><td>μm^2</td><td>§1.6</td></tr>
 <tr><td><span class="mono">Initial Maximum Island Volume</span></td><td>xyzt</td><td>fraction of FOV</td><td>§1.6</td></tr>
 <tr><td><span class="mono">Initial Maximum Island Volume Quantity</span></td><td>xyzt</td><td>μm^3</td><td>§1.6</td></tr>
-<tr><td><span class="mono">Initial 2nd Maximum Island Area</span></td><td>xyt, xyz</td><td>fraction of FOV</td><td>§1.7</td></tr>
-<tr><td><span class="mono">Initial 2nd Maximum Island Area Quantity</span></td><td>xyt, xyz</td><td>μm^2</td><td>§1.7</td></tr>
-<tr><td><span class="mono">Initial 2nd Maximum Island Volume</span></td><td>xyzt</td><td>fraction of FOV</td><td>§1.7</td></tr>
-<tr><td><span class="mono">Initial 2nd Maximum Island Volume Quantity</span></td><td>xyzt</td><td>μm^3</td><td>§1.7</td></tr>
+<tr><td><span class="mono">Initial 2nd Maximum Island Area</span></td><td>xyt, xyz</td><td>fraction of FOV</td><td>§1.6–1.7</td></tr>
+<tr><td><span class="mono">Initial 2nd Maximum Island Area Quantity</span></td><td>xyt, xyz</td><td>μm^2</td><td>§1.6–1.7</td></tr>
+<tr><td><span class="mono">Initial 2nd Maximum Island Volume</span></td><td>xyzt</td><td>fraction of FOV</td><td>§1.6–1.7</td></tr>
+<tr><td><span class="mono">Initial 2nd Maximum Island Volume Quantity</span></td><td>xyzt</td><td>μm^3</td><td>§1.6–1.7</td></tr>
 <tr><td><span class="mono">Mean Island Anisotropy</span></td><td>xyt, xyz, xyzt</td><td>—</td><td>§1.8</td></tr>
 <tr><td><span class="mono">Mean Island Area</span></td><td>xyt, xyz</td><td>fraction of FOV</td><td>§1.9</td></tr>
 <tr><td><span class="mono">Mean Island Area Quantity</span></td><td>xyt, xyz</td><td>μm^2</td><td>§1.9</td></tr>
@@ -1340,75 +1377,92 @@ columns — <span class="mono">File</span>, <span class="mono">Channel</span> an
 <tr><td><span class="mono">Velocity Correlation Length</span></td><td>xyt, xyzt</td><td>μm</td><td>§3.7</td></tr>
 <tr><td><span class="mono">Divergence</span></td><td>xyt, xyzt</td><td>1/s</td><td>§3.8</td></tr>
 <tr><td><span class="mono">Curl</span></td><td>xyt, xyzt</td><td>1/s</td><td>§3.9</td></tr>
-<tr><td><span class="mono">Mesh Volume</span></td><td>xyzt</td><td>μm^3</td><td>§4.1</td></tr>
-<tr><td><span class="mono">Mesh Surface Area</span></td><td>xyzt</td><td>μm^2</td><td>§4.2</td></tr>
-<tr><td><span class="mono">Sphericity</span></td><td>xyzt</td><td>—</td><td>§4.3</td></tr>
-<tr><td><span class="mono">Equivalent Sphere Radius</span></td><td>xyzt</td><td>μm</td><td>§4.4</td></tr>
-<tr><td><span class="mono">Mesh Height</span></td><td>xyzt</td><td>μm</td><td>§4.5</td></tr>
-<tr><td><span class="mono">Lateral/Axial Ratio</span></td><td>xyzt</td><td>—</td><td>§4.6</td></tr>
-<tr><td><span class="mono">Mesh Volume Ratio</span></td><td>xyzt</td><td>—</td><td>§4.7</td></tr>
-<tr><td><span class="mono">Solidity</span></td><td>xyzt</td><td>—</td><td>§4.8</td></tr>
-<tr><td><span class="mono">Mean Curvature &lt;H&gt;</span></td><td>xyzt</td><td>1/μm</td><td>§4.12</td></tr>
-<tr><td><span class="mono">Invagination Ratio</span></td><td>xyzt</td><td>—</td><td>§4.13</td></tr>
-<tr><td><span class="mono">Concave Area Fraction</span></td><td>xyzt</td><td>—</td><td>§4.14</td></tr>
-<tr><td><span class="mono">Minimum Curvature</span></td><td>xyzt</td><td>1/μm</td><td>§4.15</td></tr>
-<tr><td><span class="mono">Maximum Curvature</span></td><td>xyzt</td><td>1/μm</td><td>§4.16</td></tr>
-<tr><td><span class="mono">Island Count</span></td><td>xyzt</td><td>—</td><td>§4.17</td></tr>
-<tr><td><span class="mono">Island Volume SD</span></td><td>xyzt</td><td>—</td><td>§4.17</td></tr>
-<tr><td><span class="mono">Island Volume Skewness</span></td><td>xyzt</td><td>—</td><td>§4.17</td></tr>
-<tr><td><span class="mono">Median Island Volume</span></td><td>xyzt</td><td>—</td><td>§4.17</td></tr>
-<tr><td><span class="mono">Mean Contact Number</span></td><td>xyzt</td><td>—</td><td>§4.20</td></tr>
-<tr><td><span class="mono">Contact Number SD</span></td><td>xyzt</td><td>—</td><td>§4.20</td></tr>
-<tr><td><span class="mono">Hexagonal Fraction</span></td><td>xyzt</td><td>—</td><td>§4.20</td></tr>
-<tr><td><span class="mono">Maximal Area Slice Index</span></td><td>xyzt</td><td>slice</td><td>§4.18</td></tr>
-<tr><td><span class="mono">Maximal Area Slice Depth</span></td><td>xyzt</td><td>μm</td><td>§4.18</td></tr>
-<tr><td><span class="mono">Maximal Area Slice Area</span></td><td>xyzt</td><td>fraction of FOV</td><td>§4.18</td></tr>
-<tr><td><span class="mono">In-Mask MFI</span></td><td>xyzt</td><td>a.u.</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Intensity SD</span></td><td>xyzt</td><td>a.u.</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Intensity CV</span></td><td>xyzt</td><td>—</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Intensity Skewness</span></td><td>xyzt</td><td>—</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Intensity Entropy</span></td><td>xyzt</td><td>—</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Normalized Entropy</span></td><td>xyzt</td><td>—</td><td>§4.19</td></tr>
-<tr><td><span class="mono">In-Mask Fraction Above 2x Median</span></td><td>xyzt</td><td>—</td><td>§4.19</td></tr>
-<tr><td><span class="mono">T Range End</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.22</td></tr>
-<tr><td><span class="mono">T Range Start</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.22</td></tr>
-<tr><td><span class="mono">Z Range End</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.22</td></tr>
-<tr><td><span class="mono">Z Range Start</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.22</td></tr>
+<tr><td><span class="mono">Mesh Volume</span></td><td>xyzt</td><td>μm^3</td><td>§4.2</td></tr>
+<tr><td><span class="mono">Mesh Surface Area</span></td><td>xyzt</td><td>μm^2</td><td>§4.3</td></tr>
+<tr><td><span class="mono">Sphericity</span></td><td>xyzt</td><td>—</td><td>§4.4</td></tr>
+<tr><td><span class="mono">Equivalent Sphere Radius</span></td><td>xyzt</td><td>μm</td><td>§4.5</td></tr>
+<tr><td><span class="mono">Mesh Height</span></td><td>xyzt</td><td>μm</td><td>§4.6</td></tr>
+<tr><td><span class="mono">Lateral/Axial Ratio</span></td><td>xyzt</td><td>—</td><td>§4.7</td></tr>
+<tr><td><span class="mono">Mesh Volume Ratio</span></td><td>xyzt</td><td>—</td><td>§4.8</td></tr>
+<tr><td><span class="mono">Solidity</span></td><td>xyzt</td><td>—</td><td>§4.9</td></tr>
+<tr><td><span class="mono">Mean Curvature &lt;H&gt;</span></td><td>xyzt</td><td>1/μm</td><td>§4.14</td></tr>
+<tr><td><span class="mono">Invagination Ratio</span></td><td>xyzt</td><td>—</td><td>§4.15</td></tr>
+<tr><td><span class="mono">Concave Area Fraction</span></td><td>xyzt</td><td>—</td><td>§4.16</td></tr>
+<tr><td><span class="mono">Minimum Curvature</span></td><td>xyzt</td><td>1/μm</td><td>§4.17</td></tr>
+<tr><td><span class="mono">Maximum Curvature</span></td><td>xyzt</td><td>1/μm</td><td>§4.18</td></tr>
+<tr><td><span class="mono">Island Count</span></td><td>xyzt</td><td>—</td><td>§4.19–4.22</td></tr>
+<tr><td><span class="mono">Island Volume SD</span></td><td>xyzt</td><td>—</td><td>§4.19–4.22</td></tr>
+<tr><td><span class="mono">Island Volume Skewness</span></td><td>xyzt</td><td>—</td><td>§4.19–4.22</td></tr>
+<tr><td><span class="mono">Median Island Volume</span></td><td>xyzt</td><td>—</td><td>§4.19–4.22</td></tr>
+<tr><td><span class="mono">Mean Contact Number</span></td><td>xyzt</td><td>—</td><td>§4.38–4.44</td></tr>
+<tr><td><span class="mono">Contact Number SD</span></td><td>xyzt</td><td>—</td><td>§4.38–4.44</td></tr>
+<tr><td><span class="mono">Hexagonal Fraction</span></td><td>xyzt</td><td>—</td><td>§4.38–4.44</td></tr>
+<tr><td><span class="mono">Maximal Area Slice Index</span></td><td>xyzt</td><td>slice</td><td>§4.23–4.28</td></tr>
+<tr><td><span class="mono">Maximal Area Slice Depth</span></td><td>xyzt</td><td>μm</td><td>§4.23–4.28</td></tr>
+<tr><td><span class="mono">Maximal Area Slice Area</span></td><td>xyzt</td><td>fraction of FOV</td><td>§4.23–4.28</td></tr>
+<tr><td><span class="mono">In-Mask MFI</span></td><td>xyzt</td><td>a.u.</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Intensity SD</span></td><td>xyzt</td><td>a.u.</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Intensity CV</span></td><td>xyzt</td><td>—</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Intensity Skewness</span></td><td>xyzt</td><td>—</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Intensity Entropy</span></td><td>xyzt</td><td>—</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Normalized Entropy</span></td><td>xyzt</td><td>—</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">In-Mask Fraction Above 2x Median</span></td><td>xyzt</td><td>—</td><td>§4.29–4.37</td></tr>
+<tr><td><span class="mono">T Range End</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.46</td></tr>
+<tr><td><span class="mono">T Range Start</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.46</td></tr>
+<tr><td><span class="mono">Z Range End</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.46</td></tr>
+<tr><td><span class="mono">Z Range Start</span></td><td>xyt, xyz, xyzt</td><td>slice</td><td>§4.46</td></tr>
+<tr><td><span class="mono">Object Volume</span></td><td>object rows</td><td>μm^3</td><td>§4.45</td></tr>
+<tr><td><span class="mono">Anisotropy</span></td><td>object rows</td><td>—</td><td>§4.45</td></tr>
+<tr><td><span class="mono">Contact Number</span></td><td>object rows</td><td>—</td><td>§4.45</td></tr>
 </table>
+<p style="font-size:.82em">An object row (<span class="mono">&lt;name&gt; Objects.csv</span>, §4.45)
+also <b>reuses</b> the seven <span class="mono">In-Mask …</span> headers above, and — with
+<span class="mono">object_mesh</span> on — five mesh/curvature headers
+(<span class="mono">Mesh Surface Area</span>, <span class="mono">Sphericity</span>,
+<span class="mono">Solidity</span>, <span class="mono">Lateral/Axial Ratio</span>,
+<span class="mono">Mean Curvature &lt;H&gt;</span>) for a per-object quantity, not the field one
+their rows above point to. Its identity columns are <span class="mono">File</span>,
+<span class="mono">FOV</span>, <span class="mono">Object</span>.</p>
 
 <h2 class="branch">Reading the outputs</h2>
 <div class="note"><b>What a row is, is a setting.</b> <span class="mono">row_axis</span>
 chooses between one row per file, timepoint, z-slice or <b>object</b>, and the barcode
-normalises per column <i>across rows</i> — so it decides what the picture compares. An
-<span class="mono">object</span> axis emits a second schema (10 base columns —
-<span class="mono">Object Volume</span>, a principal-axis <b>anisotropy</b> computed without a
-mesh, contact number and the in-mask statistics — plus five per-object mesh-shape columns when
-<span class="mono">object_mesh</span>
-is on) to <span class="mono">&lt;name&gt; Objects.csv</span>. See <span class="mono">docs/row_axes.md</span>
-and §4.45 of the markdown reference.</div>
+normalizes per column <i>across rows</i> — so it decides what the picture compares. An
+<span class="mono">object</span> axis emits a second schema to
+<span class="mono">&lt;name&gt; Objects.csv</span> — 3 base columns
+(<span class="mono">Object Volume</span>, a principal-axis <b>anisotropy</b> computed without a
+mesh, contact number), 5 mesh-shape columns always present but NaN unless
+<span class="mono">object_mesh</span> is on, and the 7 in-mask statistics only under
+<span class="mono">--mask-intensity</span> (8 metric columns by default, 15 with in-mask).
+See §4.45 below, and <i>Row axes</i> in
+<span class="mono">docs/volumetric_manual.md</span> for how an axis is chosen.</div>
 
 <h3>What a volumetric run writes</h3>
 <p>A dataset-level <span class="mono">&lt;name&gt; Summary.csv</span>, a
 <span class="mono">&lt;name&gt; Summary Barcode.png</span>, and a
 <span class="mono">&lt;name&gt; Settings.yaml</span> recording the configuration, in the folder
 processed. Several harnesses also write a <span class="mono">… (physical).csv</span> carrying
-the $\mu\mathrm{m}^2$/$\mu\mathrm{m}^3$ Quantity columns beside the normalised one.</p>
-<p><b>There are no per-file outputs in the volumetric modes</b> — no reduced data structures,
-per-frame graphs or per-file figures. Enabling meshing with OBJ export additionally writes
+the $\mu\mathrm{m}^2$/$\mu\mathrm{m}^3$ Quantity columns beside the normalized one.</p>
+<p><b>The <span class="mono">xyzt</span> path writes no per-file outputs</b> — no reduced data
+structures, per-frame graphs or per-file figures. <span class="mono">xyz</span> differs: an
+<i>unmasked</i> run with <i>Save Graphs</i> on writes a
+<span class="mono">&lt;file&gt; BARCODE Output/</span> from the 2D branches, while a <i>masked</i>
+one takes a different path and writes none. Enabling meshing with OBJ export additionally writes
 <span class="mono">&lt;stem&gt; BARCODE Meshes/</span> beside the input.</p>
 <div class="note"><b>Keep the Settings.yaml.</b> Several metrics are interpretable only against
 the settings that produced them — normalized entropy depends on the bin count, correlation
 lengths on the voxel size, Speed on the frame interval — and the CSV does not carry those
-values. <span class="mono">record_range_columns</span> embeds at least the analysed z/t ranges
-into the CSV itself (§4.22).</div>
+values. <span class="mono">record_range_columns</span> embeds at least the analyzed z/t ranges
+into the CSV itself (§4.46).</div>
 
 <h3>Reading the barcode PNG</h3>
-<p>Rows are files or series, columns are metrics, colour is the value on the <b>plasma</b>
+<p>Rows are whatever the row axis resolved to — files, timepoints, z-slices or objects (above),
+columns are metrics, color is the value on the <b>plasma</b>
 colormap. <b>NaN renders black</b> — worth knowing before reading a black cell as "low".
 Scaling is per column, but how each column is scaled depends on its unit, and only some are
-normalised against the data:</p>
+normalized against the data:</p>
 <table>
-<tr><th>Column type</th><th>Colour range</th></tr>
+<tr><th>Column type</th><th>Color range</th></tr>
 <tr><td><span class="mono">fraction of FOV</span>, <span class="mono">fraction of frames</span></td><td><b>fixed</b> $[0,1]$ — comparable between runs</td></tr>
 <tr><td>Mean Flow Direction</td><td><b>fixed</b> $[-\pi,\pi]$</td></tr>
 <tr><td>Directional Spread</td><td><b>fixed</b> $[0,\pi]$; larger values clipped in the image only</td></tr>
@@ -1420,7 +1474,7 @@ normalised against the data:</p>
 </table>
 <p>A column with a <b>fixed</b> range can be compared between two barcodes; one scaled to the
 data cannot, since its extremes come from whichever rows are in that figure. Dynamic ranges are
-taken across every rendered row, so <b>adding or removing files recolours those columns</b>.
+taken across every rendered row, so <b>adding or removing files recolors those columns</b>.
 Read the CSV when comparing across figures.</p>
 
 <h2 class="branch">5 &nbsp; Warnings and flags</h2>
@@ -1434,26 +1488,26 @@ fired. Any parser reading this column as an integer is wrong on multi-flag rows.
 <tr><th>Digit</th><th>Meaning</th><th>Criterion</th></tr>
 <tr><td><b>0</b></td><td>No flag fired</td><td>—</td></tr>
 <tr><td><b>1</b></td><td>Dim channel</td>
-<td>$\tfrac{2}{e}\overline{B}\le B_{\min}$ — the darkest voxel is already a sizeable fraction of the average. Judged on the first frame in 2D and the first <i>analysed</i> volume in <span class="mono">xyzt</span>. Never fires in <span class="mono">xyz</span>.</td></tr>
+<td>$\tfrac{2}{e}\overline{B}\le B_{\min}$ — the darkest voxel is already a sizeable fraction of the average. Judged on the first frame in 2D and the first <i>analyzed</i> volume in <span class="mono">xyzt</span>. Never fires in <span class="mono">xyz</span>.</td></tr>
 <tr><td><b>2</b></td><td>Saturation</td>
-<td>The histogram mode occupies the highest surviving bin in <i>every</i> analysed timepoint. Makes §2.7 meaningless.</td></tr>
+<td>The histogram mode occupies the highest surviving bin in <i>every</i> analyzed timepoint. Makes §2.7 meaningless.</td></tr>
 <tr><td><b>3</b></td><td>Structural correlation failure</td>
-<td>$\xi_I(i)=\mathrm{NaN}$ for <i>at least one</i> analysed timepoint.</td></tr>
+<td>$\xi_I(i)=\mathrm{NaN}$ for <i>at least one</i> analyzed timepoint.</td></tr>
 <tr><td><b>4</b></td><td>Velocity correlation failure</td>
 <td>$\xi_v(i)=\mathrm{NaN}$ for at least one window. <b>Not</b> raised when the branch was skipped outright.</td></tr>
 <tr><td><b>5</b></td><td>Range restricted</td>
 <td>A $z$ or $t$ range was applied — <i>you</i> narrowed the analysis.</td></tr>
+<tr><td><b>6</b></td><td>Field-of-view clipping</td>
+<td>Foreground reaches a face of the analyzed volume — the <i>data</i> is cut off.</td></tr>
 <tr><td><b>7</b></td><td>Open mesh surface</td>
 <td>A mesh came out with a boundary rather than closed, so $V_m$, $\Psi$ and the curvature <i>signs</i> are unreliable for that row — an unclosed surface has no well-defined inside.</td></tr>
-<tr><td><b>6</b></td><td>Field-of-view clipping</td>
-<td>Foreground reaches a face of the analysed volume — the <i>data</i> is cut off.</td></tr>
 </table>
 
-<p>Digits 3 and 4 fire if <i>any single</i> analysed timepoint failed, the test being
+<p>Digits 3 and 4 fire if <i>any single</i> analyzed timepoint failed, the test being
 NaN-propagating, whereas the metric itself is a NaN-dropping mean. A finite value with its flag
 raised therefore means "most timepoints worked, at least one did not". Digit 3's documented
 meaning is "the correlation length exceeds the field of view", which is the usual cause but not
-the only one — an empty radial shell also blocks a crossing (§1.11).</p>
+the only one — an empty radial shell also blocks a crossing (§1.12).</p>
 
 <h2 class="branch">6 &nbsp; Known limitations and caveats</h2>
 
@@ -1475,6 +1529,10 @@ they are things to know when setting up a run or reading a result.</p>
 <td>Reachable only from a YAML or the CLI.</td></tr>
 <tr><td>L6</td><td>z-range/mask mapping assumes node-aligned grids</td>
 <td>A restricted range on a finer mask grid can be misregistered by up to about one acquired slice at the deep end.</td></tr>
+<tr><td>L7</td><td>The constant-volume guard uses <span class="mono">np.ptp</span>, which is NaN-blind</td>
+<td>A float volume containing NaN falls through to the mean-relative threshold; the all-False comparison happens to give the right binary, but an <span class="mono">np.isfinite</span> check would make the intent explicit.</td></tr>
+<tr><td>L8</td><td>A very flat object (fewer than three z bins) reports an excluded-cap fraction of 0.0</td>
+<td>Indistinguishable from a genuinely unclipped object; curvature is then measured over the whole surface, caps included.</td></tr>
 </table>
 
 <h4>Where 2D and 3D numbers must not be pooled</h4>
@@ -1490,8 +1548,8 @@ they are things to know when setting up a run or reading a result.</p>
 <li><b>Flow speeds are a lower bound</b> (gain 0.55–0.92 by feature scale); relative comparisons within a dataset are sound, absolute values are not (§3.3).</li>
 <li><b><span class="mono">flow_downsample</span> is a fixed dataset-wide choice</b>, not a performance dial — it changes Curl, Divergence and $\xi_v$ by factors of 0.4–2.3 (§3.1).</li>
 <li><b>The velocity correlation length ignores the reliability filter and the mask</b>, unlike every other flow metric (§3.2).</li>
-<li><b><span class="mono">mesh_maxrad</span> must be scaled to the object</b> — the default of 5 loses roughly half a thin object's volume; Mesh Volume Ratio (§4.7) is the detector.</li>
-<li><b>Solidity runs ~1.5% above MATLAB <span class="mono">regionprops3</span></b> by construction (§4.8).</li>
+<li><b><span class="mono">mesh_maxrad</span> must be scaled to the object</b> — the default of 5 loses roughly half a thin object's volume; Mesh Volume Ratio (§4.8) is the detector.</li>
+<li><b>Solidity sits ~1.5% above MATLAB <span class="mono">regionprops3</span></b> by choice of hull convention (§4.9).</li>
 <li><b>Meshing is not bit-reproducible across processes</b> (§4.1).</li>
 </ul>
 

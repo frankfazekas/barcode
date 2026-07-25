@@ -5,8 +5,9 @@
 single timepoint: rows are z-slices from the bottom of the range to the top, columns are
 the 2D metrics. Reading down a column shows how that metric varies with depth.
 
-Z indices refer to **acquired** slices, before any isotropic resampling -- so on data
-acquired at 0.3 um, --z-start 12 --z-end 46 means 34 slices covering 10.2 um.
+Z indices refer to **acquired** slices, before any isotropic resampling -- and the range is
+inclusive of both ends, so on data acquired at 0.3 um, --z-start 12 --z-end 46 means 35 slices
+covering 10.5 um.
 
     python scripts/run_xyz_slice_barcodes.py <folder-or-file> --z-start 12 --z-end 46
 """

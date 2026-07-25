@@ -586,7 +586,7 @@ class IntensityMagnitudeResults(ResultsBase):
     ``intensity_use_mask`` on. It is also meaningless if the detector clipped -- check
     the saturation flag (digit 2) before reading it.
 
-    Populated by stream A; see docs/parallel_work_plan.md.
+    Populated by stream A; see docs/internal/parallel_work_plan.md.
     """
 
     total: float = np.nan
@@ -635,7 +635,7 @@ class RangeResults(ResultsBase):
     describes itself.
 
     Indices are into the acquired data, before any isotropic resampling.
-    Populated by stream A; see docs/parallel_work_plan.md.
+    Populated by stream A; see docs/internal/parallel_work_plan.md.
     """
 
     z_start: float = np.nan

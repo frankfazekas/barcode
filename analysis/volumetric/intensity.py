@@ -111,7 +111,7 @@ def analyze_intensity_3d(
 
 
 # ---------------------------------------------------------------------------
-# Extensive intensity quantities (stream A1, docs/parallel_work_plan.md)
+# Extensive intensity quantities (stream A1, docs/internal/parallel_work_plan.md)
 #
 # Every other metric in this branch is *intensive*: kurtosis and skewness describe the
 # shape of the histogram and do not change if the object doubles in size. Nothing here

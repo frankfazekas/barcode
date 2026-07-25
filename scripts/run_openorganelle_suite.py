@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # dispersed population and a filament system all stress different metrics. Layers that are
 # predictions of a MEMBRANE rather than a filled body (``pm_seg``, ``*-mem_seg``) are left
 # out -- they come back as one connected sheet plus fragments and the per-object metrics
-# describe the sheet, not the cells. See docs/volumetric_validation.md.
+# describe the sheet, not the cells. See docs/internal/volumetric_validation.md.
 DEFAULT_LAYERS = [
     "nucleus_seg",     # 11 whole nuclei -- the shape reference
     "chrom_seg",       # chromatin: network-like, fills the nucleus

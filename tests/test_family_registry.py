@@ -1,6 +1,6 @@
 """The optional-family contract that the parallel work streams build against.
 
-Phase 0 of docs/parallel_work_plan.md: every new column, config field and call site
+Phase 0 of docs/internal/parallel_work_plan.md: every new column, config field and call site
 exists as an inert stub, so streams A and B can fill in behind it without either editing
 the schema layer. These tests pin that contract.
 

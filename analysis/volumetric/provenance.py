@@ -1,6 +1,6 @@
 """Which data a row's numbers were computed over.
 
-Stream A2 of docs/parallel_work_plan.md.
+Stream A2 of docs/internal/parallel_work_plan.md.
 
 Flag digit 5 already marks *that* an analysis covered part of the acquired data. This
 records *which* part, per row, so a CSV separated from its Settings.yaml still describes
